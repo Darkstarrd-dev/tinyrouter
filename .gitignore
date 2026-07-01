@@ -1,0 +1,19 @@
+# Binaries
+tinyrouter
+tinyrouter-*
+*.exe
+
+# Config (generated at runtime)
+config.yaml
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
