@@ -19,6 +19,12 @@ type KeyRuntimeState struct {
 	LastErrorAt  time.Time
 }
 
+// Lock acquires the state's mutex.
+func (s *KeyRuntimeState) Lock() { s.mu.Lock() }
+
+// Unlock releases the state's mutex.
+func (s *KeyRuntimeState) Unlock() { s.mu.Unlock() }
+
 // Registry provides thread-safe access to providers, keys, and combos.
 type Registry struct {
 	mu     sync.RWMutex

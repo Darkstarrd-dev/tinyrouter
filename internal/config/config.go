@@ -10,50 +10,50 @@ import (
 
 // RotationConfig controls key selection behavior.
 type RotationConfig struct {
-	Strategy     string `yaml:"strategy"`      // "fill-first" | "round-robin"
-	StickyLimit  int    `yaml:"stickyLimit"`   // round-robin sticky consecutive uses
-	MaxRetries   int    `yaml:"maxRetries"`    // per-key 429 temp retries
-	RetryDelaySec int   `yaml:"retryDelaySec"` // retry interval seconds
-	BackoffMaxSec int   `yaml:"backoffMaxSec"` // exponential backoff cap
+	Strategy      string `yaml:"strategy" json:"strategy"`
+	StickyLimit   int    `yaml:"stickyLimit" json:"stickyLimit"`
+	MaxRetries    int    `yaml:"maxRetries" json:"maxRetries"`
+	RetryDelaySec int    `yaml:"retryDelaySec" json:"retryDelaySec"`
+	BackoffMaxSec int    `yaml:"backoffMaxSec" json:"backoffMaxSec"`
 }
 
 // Key represents one API key within a provider.
 type Key struct {
-	ID       string `yaml:"id"`
-	Key      string `yaml:"key"`
-	Name     string `yaml:"name"`
-	Priority int    `yaml:"priority"`
-	IsActive bool   `yaml:"isActive"`
+	ID       string `yaml:"id" json:"id"`
+	Key      string `yaml:"key" json:"key"`
+	Name     string `yaml:"name" json:"name"`
+	Priority int    `yaml:"priority" json:"priority"`
+	IsActive bool   `yaml:"isActive" json:"isActive"`
 }
 
 // Provider represents one upstream OpenAI-compatible endpoint.
 type Provider struct {
-	ID       string `yaml:"id"`
-	Name     string `yaml:"name"`
-	Prefix   string `yaml:"prefix"`
-	BaseURL  string `yaml:"baseUrl"`
-	APIType  string `yaml:"apiType"`
-	IsActive bool   `yaml:"isActive"`
-	Keys     []Key  `yaml:"keys"`
+	ID       string `yaml:"id" json:"id"`
+	Name     string `yaml:"name" json:"name"`
+	Prefix   string `yaml:"prefix" json:"prefix"`
+	BaseURL  string `yaml:"baseUrl" json:"baseUrl"`
+	APIType  string `yaml:"apiType" json:"apiType"`
+	IsActive bool   `yaml:"isActive" json:"isActive"`
+	Keys     []Key  `yaml:"keys" json:"keys"`
 }
 
 // Combo represents a model combination with a routing strategy.
 type Combo struct {
-	ID          string   `yaml:"id"`
-	Name        string   `yaml:"name"`
-	Strategy    string   `yaml:"strategy"` // "fallback" | "round-robin" | "fusion"
-	Models      []string `yaml:"models"`
-	FusionJudge string   `yaml:"fusionJudge"`
+	ID          string   `yaml:"id" json:"id"`
+	Name        string   `yaml:"name" json:"name"`
+	Strategy    string   `yaml:"strategy" json:"strategy"`
+	Models      []string `yaml:"models" json:"models"`
+	FusionJudge string   `yaml:"fusionJudge" json:"fusionJudge"`
 }
 
 // Config is the top-level configuration structure.
 type Config struct {
-	Port               int             `yaml:"port"`
-	ConsoleLogMaxLines int             `yaml:"consoleLogMaxLines"`
-	UsageRingSize      int             `yaml:"usageRingSize"`
-	Rotation           RotationConfig  `yaml:"rotation"`
-	Providers          []Provider      `yaml:"providers"`
-	Combos             []Combo         `yaml:"combos"`
+	Port               int            `yaml:"port" json:"port"`
+	ConsoleLogMaxLines int            `yaml:"consoleLogMaxLines" json:"consoleLogMaxLines"`
+	UsageRingSize      int            `yaml:"usageRingSize" json:"usageRingSize"`
+	Rotation           RotationConfig `yaml:"rotation" json:"rotation"`
+	Providers          []Provider     `yaml:"providers" json:"providers"`
+	Combos             []Combo        `yaml:"combos" json:"combos"`
 }
 
 // DefaultConfig returns a sane default configuration.

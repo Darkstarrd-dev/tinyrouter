@@ -306,7 +306,7 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 		OwnedBy string `json:"owned_by"`
 	}
 
-	var models []modelObj
+	var models []modelObj = []modelObj{}
 	for _, p := range providers {
 		if !p.IsActive {
 			continue

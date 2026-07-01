@@ -98,7 +98,7 @@ func (l *Logger) AllLines() []string {
 }
 
 // Subscribe returns a channel that receives new log lines.
-func (l *Logger) Subscribe() <-chan string {
+func (l *Logger) Subscribe() chan string {
 	ch := make(chan string, 100)
 	l.mu.Lock()
 	l.subs[ch] = struct{}{}
@@ -107,7 +107,7 @@ func (l *Logger) Subscribe() <-chan string {
 }
 
 // Unsubscribe removes a subscriber channel.
-func (l *Logger) Unsubscribe(ch <-chan string) {
+func (l *Logger) Unsubscribe(ch chan string) {
 	l.mu.Lock()
 	delete(l.subs, ch)
 	l.mu.Unlock()

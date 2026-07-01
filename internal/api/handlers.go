@@ -213,8 +213,8 @@ func (rt *Router) getKeyState(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "key state not found")
 		return
 	}
-	state.mu.Lock()
-	defer state.mu.Unlock()
+	state.Lock()
+	defer state.Unlock()
 	locks := make(map[string]string)
 	for m, t := range state.ModelLocks {
 		locks[m] = t.Format("2006-01-02T15:04:05Z07:00")

@@ -79,10 +79,10 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 	// Update runtime state
 	state := s.reg.GetKeyState(provider.ID, chosen.ID)
 	if state != nil {
-		state.mu.Lock()
+		state.Lock()
 		state.LastUsedAt = time.Now()
 		state.ConsecCount++
-		state.mu.Unlock()
+		state.Unlock()
 	}
 
 	return &SelectedKey{Provider: *provider, Key: chosen, KeyName: chosen.Name}, nil
@@ -113,14 +113,14 @@ func (s *Selector) selectRoundRobin(providerID string, keys []config.Key, model 
 		if state == nil {
 			continue
 		}
-		state.mu.Lock()
+		state.Lock()
 		if state.LastUsedAt.After(currentLastUsed) {
 			currentLastUsed = state.LastUsedAt
 			k := keys[i]
 			current = &k
 			currentConsec = state.ConsecCount
 		}
-		state.mu.Unlock()
+		state.Unlock()
 	}
 
 	// Reuse sticky key if under limit
@@ -136,9 +136,9 @@ func (s *Selector) selectRoundRobin(providerID string, keys []config.Key, model 
 		if state == nil {
 			continue
 		}
-		state.mu.Lock()
+		state.Lock()
 		lu := state.LastUsedAt
-		state.mu.Unlock()
+		state.Unlock()
 		if lu.Before(oldestTime) || lu.IsZero() {
 			oldestTime = lu
 			oldest = k
@@ -148,17 +148,17 @@ func (s *Selector) selectRoundRobin(providerID string, keys []config.Key, model 
 	// Reset consec count for the new key
 	state := s.reg.GetKeyState(providerID, oldest.ID)
 	if state != nil {
-		state.mu.Lock()
+		state.Lock()
 		state.ConsecCount = 0
-		state.mu.Unlock()
+		state.Unlock()
 	}
 	return oldest
 }
 
 // isKeyAvailable checks model locks and cooldown expiry.
 func (s *Selector) isKeyAvailable(state *registry.KeyRuntimeState, model string) bool {
-	state.mu.Lock()
-	defer state.mu.Unlock()
+	state.Lock()
+	defer state.Unlock()
 
 	now := time.Now()
 
@@ -189,8 +189,8 @@ func (s *Selector) MarkUnavailable(providerID, keyID, model string, statusCode i
 	if state == nil {
 		return time.Time{}
 	}
-	state.mu.Lock()
-	defer state.mu.Unlock()
+	state.Lock()
+	defer state.Unlock()
 
 	// 429 daily quota → lock until next CST midnight + 5 min
 	if statusCode == 429 && isDailyQuota(body) {
@@ -226,8 +226,8 @@ func (s *Selector) ClearError(providerID, keyID, model string) {
 	if state == nil {
 		return
 	}
-	state.mu.Lock()
-	defer state.mu.Unlock()
+	state.Lock()
+	defer state.Unlock()
 
 	delete(state.ModelLocks, model)
 	// Only reset backoff if no locks remain
