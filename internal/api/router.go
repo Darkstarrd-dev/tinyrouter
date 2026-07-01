@@ -48,7 +48,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 
 	// Proxy routes (OpenAI-compatible)
 	r.Post("/v1/chat/completions", proxyHandler.ChatCompletions)
-	r.Post("/v1/completions", proxyHandler.ChatCompletions) // alias
+	r.Post("/v1/completions", proxyHandler.Completions)
 	r.Get("/v1/models", proxyHandler.ListModels)
 
 	// API routes
