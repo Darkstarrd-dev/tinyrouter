@@ -110,12 +110,12 @@ body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 ::-webkit-scrollbar-thumb:hover{background:rgba(128,128,128,0.4)}
 
 /* ===================== Sidebar ===================== */
-.sidebar{width:220px;background:rgba(128,128,128,0.03);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-right:1px solid var(--glass-border);flex-shrink:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
-.sidebar-header{padding:20px 16px;border-bottom:1px solid var(--glass-border);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sidebar{width:230px;background:rgba(128,128,128,0.03);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-right:1px solid var(--glass-border);flex-shrink:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
+.sidebar-header{padding:20px 12px;border-bottom:1px solid var(--glass-border);display:flex;align-items:center;justify-content:space-between;gap:4px}
 .sidebar h1{font-size:calc(var(--font-base) + 2.5px);font-weight:700;background:var(--accent-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:-0.3px;white-space:nowrap}
 .sidebar-nav{padding:12px 8px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;flex:1}
-.sidebar-footer{padding:16px;border-top:1px solid var(--glass-border);margin-top:auto}
-.header-controls{display:flex;align-items:center;gap:6px}
+.sidebar-footer{padding:12px;border-top:1px solid var(--glass-border);margin-top:auto}
+.header-controls{display:flex;align-items:center;gap:3px}
 .nav-item{padding:10px 12px;cursor:pointer;color:var(--text-muted);border-radius:10px;transition:all .2s cubic-bezier(0.4,0,0.2,1);font-size:var(--font-base);font-weight:500;position:relative}
 .nav-item:hover{color:var(--text);background:var(--glass-hover)}
 .nav-item.active{color:var(--accent);background:rgba(79,195,247,0.08)}
@@ -123,8 +123,9 @@ body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .nav-item.active::before{content:'';position:absolute;left:-8px;top:50%;transform:translateY(-50%);width:3px;height:20px;border-radius:2px;background:var(--accent-gradient);box-shadow:0 0 8px var(--accent-glow)}
 
 /* ===================== Header Controls ===================== */
-.theme-toggle{width:32px;height:32px;border-radius:8px;border:1px solid var(--glass-border);background:var(--glass-bg);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:var(--font-base);transition:all .2s cubic-bezier(0.4,0,0.2,1)}
-.theme-toggle:hover{background:var(--glass-hover);color:var(--text);border-color:var(--glass-border-hover)}
+.header-icon-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--glass-border);background:var(--glass-bg);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;transition:all .2s cubic-bezier(0.4,0,0.2,1);line-height:1;padding:0}
+.header-icon-btn:hover{background:var(--glass-hover);color:var(--text);border-color:var(--glass-border-hover)}
+#lang-btn{font-size:11px;letter-spacing:0.5px}
 .shutdown-btn{width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(239,83,80,0.25);background:rgba(239,83,80,0.08);color:var(--danger);cursor:pointer;font-size:var(--font-base);font-weight:600;transition:all .2s cubic-bezier(0.4,0,0.2,1)}
 .shutdown-btn:hover{background:rgba(239,83,80,0.15);border-color:rgba(239,83,80,0.4);box-shadow:0 0 16px var(--danger-glow)}
 
@@ -194,6 +195,8 @@ tbody tr:last-child td{border-bottom:none}
 .model-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--glass-border);border-radius:10px;margin-bottom:6px;background:var(--model-row-bg);transition:all .2s cubic-bezier(0.4,0,0.2,1)}
 .model-row:hover{border-color:var(--glass-border-hover);background:var(--glass-hover)}
 .model-row .model-id{font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-base);flex:1;color:var(--text)}
+.copyable{cursor:pointer;transition:opacity .15s}
+.copyable:hover{opacity:.7}
 .model-status{font-size:var(--font-model-status);padding:2px 8px;border-radius:100px;font-weight:600}
 .model-ok{color:var(--accent2);background:rgba(102,187,106,0.1)}
 .model-err{color:var(--danger);background:rgba(239,83,80,0.1)}

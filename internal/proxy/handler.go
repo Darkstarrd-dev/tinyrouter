@@ -86,6 +86,14 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 		return
 	}
 
+	// Resolve prefix to actual provider ID
+	provider, ok := h.reg.GetProviderByPrefix(providerID)
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown provider prefix: %s", providerID))
+		return
+	}
+	providerID = provider.ID
+
 	h.logger.Info("REQUEST %s | %s | %d msgs", providerID, upstreamModel, msgCount)
 	if !h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount) {
 		writeError(w, http.StatusBadGateway, "all keys exhausted")
@@ -247,7 +255,7 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, inputTokens, outputTokens int, errMsg string) {
 	h.usage.Add(usage.Entry{
 		Timestamp:    time.Now(),
-		Provider:     provider,
+		Provider:     sel.Provider.Name,
 		Model:        model,
 		KeyID:        sel.Key.ID,
 		KeyName:      sel.KeyName,

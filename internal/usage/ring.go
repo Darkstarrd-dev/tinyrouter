@@ -21,13 +21,15 @@ type Entry struct {
 
 // Summary is an aggregate view of usage entries.
 type Summary struct {
-	Total        int            `json:"total"`
-	Success      int            `json:"success"`
-	Error        int            `json:"error"`
-	ByProvider   map[string]int `json:"byProvider"`
-	ByModel      map[string]int `json:"byModel"`
-	ByKey        map[string]int `json:"byKey"`
-	AvgLatencyMs int64          `json:"avgLatencyMs"`
+	Total            int            `json:"total"`
+	Success          int            `json:"success"`
+	Error            int            `json:"error"`
+	ByProvider       map[string]int `json:"byProvider"`
+	ByModel          map[string]int `json:"byModel"`
+	ByKey            map[string]int `json:"byKey"`
+	AvgLatencyMs     int64          `json:"avgLatencyMs"`
+	TotalInputTokens  int           `json:"totalInputTokens"`
+	TotalOutputTokens int           `json:"totalOutputTokens"`
 }
 
 // RingBuffer is a fixed-size circular buffer for usage entries.
@@ -92,6 +94,8 @@ func (rb *RingBuffer) Summary() Summary {
 		idx := (rb.head - 1 - i + rb.max) % rb.max
 		e := rb.entries[idx]
 		s.Total++
+		s.TotalInputTokens += e.InputTokens
+		s.TotalOutputTokens += e.OutputTokens
 		if e.Status == "success" {
 			s.Success++
 		} else {

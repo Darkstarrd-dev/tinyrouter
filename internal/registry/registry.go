@@ -79,6 +79,19 @@ func (r *Registry) GetProvider(id string) (*config.Provider, bool) {
 	return nil, false
 }
 
+// GetProviderByPrefix finds a provider by its prefix string.
+func (r *Registry) GetProviderByPrefix(prefix string) (*config.Provider, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].Prefix == prefix {
+			p := r.config.Providers[i]
+			return &p, true
+		}
+	}
+	return nil, false
+}
+
 func (r *Registry) AddProvider(p config.Provider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

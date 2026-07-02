@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,6 +10,8 @@
   document.documentElement.setAttribute('data-theme', theme);
   var fontSize = localStorage.getItem('fontSize') || 's';
   document.documentElement.setAttribute('data-font-size', fontSize);
+  var lang = localStorage.getItem('lang') || 'en';
+  document.documentElement.setAttribute('data-lang', lang);
 })();
 </script>
 <link rel="stylesheet" href="/style.css">
@@ -20,8 +22,9 @@
 <div class="sidebar-header">
 <h1>TinyRouter</h1>
 <div class="header-controls">
-<button class="theme-toggle" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">Light</button>
-<button class="theme-toggle" id="font-btn" onclick="toggleFontSize()" title="Toggle font size">S</button>
+<button class="header-icon-btn" id="lang-btn" onclick="toggleLang()" title="Switch language">EN</button>
+<button class="header-icon-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">&#9788;</button>
+<button class="header-icon-btn" id="font-btn" onclick="toggleFontSize()" title="Toggle font size">S</button>
 </div>
 </div>
 <nav class="sidebar-nav">

@@ -46,11 +46,16 @@ func (r *Resolver) Resolve(comboName string) (*ComboPlan, error) {
 
 	var targets []ModelTarget
 	for _, m := range combo.Models {
-		providerID, model := splitModel(m)
-		if providerID == "" {
+		prefix, model := splitModel(m)
+		if prefix == "" {
 			continue
 		}
-		targets = append(targets, ModelTarget{ProviderID: providerID, Model: model})
+		// Resolve prefix to actual provider ID
+		provider, ok := r.reg.GetProviderByPrefix(prefix)
+		if !ok {
+			continue
+		}
+		targets = append(targets, ModelTarget{ProviderID: provider.ID, Model: model})
 	}
 
 	if len(targets) == 0 {

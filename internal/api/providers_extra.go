@@ -174,19 +174,23 @@ func (rt *Router) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeAPIError(w, http.StatusBadGateway, "failed to read response: "+err.Error())
+		return
+	}
+
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		writeAPIError(w, http.StatusBadGateway, "upstream returned "+http.StatusText(resp.StatusCode)+": "+string(body))
+		writeAPIError(w, http.StatusBadGateway, "upstream returned "+http.StatusText(resp.StatusCode)+": "+string(respBody))
 		return
 	}
 
 	var result struct {
 		Data []struct {
-			ID   string `json:"id"`
-			Name string `json:"id"`
+			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(respBody, &result); err != nil {
 		writeAPIError(w, http.StatusBadGateway, "failed to parse models response: "+err.Error())
 		return
 	}
@@ -265,7 +269,7 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		errMsg = "upstream returned " + http.StatusText(resp.StatusCode)
 		var errResp map[string]any
-		if json.Unmarshal(respBody, &errResp) != nil {
+		if json.Unmarshal(respBody, &errResp) == nil {
 			if e, ok := errResp["error"].(map[string]any); ok {
 				if msg, ok := e["message"].(string); ok {
 					errMsg = msg
