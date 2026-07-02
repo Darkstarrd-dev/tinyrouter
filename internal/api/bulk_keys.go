@@ -1,0 +1,68 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/tinyrouter/tinyrouter/internal/config"
+)
+
+// --- Bulk Key Addition ---
+
+// bulkAddKeys adds multiple keys at once.
+// Request: {keys: [{name, key, priority?}]}
+// Response: {added, errors: [{index, error}]}
+func (rt *Router) bulkAddKeys(w http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "id")
+	var req struct {
+		Keys []struct {
+			Name     string `json:"name"`
+			Key      string `json:"key"`
+			Priority int    `json:"priority"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	added := 0
+	var errors []map[string]any
+
+	for i, k := range req.Keys {
+		if k.Key == "" {
+			errors = append(errors, map[string]any{"index": i, "error": "empty key"})
+			continue
+		}
+		name := k.Name
+		if name == "" {
+			name = "Key-" + strconv.Itoa(i+1)
+		}
+		priority := k.Priority
+		if priority == 0 {
+			priority = 1
+		}
+		newKey := config.Key{
+			ID:       generateID("key"),
+			Key:      k.Key,
+			Name:     name,
+			Priority: priority,
+			IsActive: true,
+		}
+		if rt.reg.AddKey(providerID, newKey) {
+			added++
+		} else {
+			errors = append(errors, map[string]any{"index": i, "error": "provider not found"})
+		}
+	}
+
+	cfg := rt.reg.Config()
+	config.Save(rt.configPath, &cfg)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"added":  added,
+		"errors": errors,
+	})
+}
