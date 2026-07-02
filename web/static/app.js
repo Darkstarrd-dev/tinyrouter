@@ -92,6 +92,7 @@ function toast(message, type, duration) {
   const icons = { success: '\u2713', error: '\u2715', info: '\u2139', warning: '\u26A0' };
   const el = document.createElement('div');
   el.className = 'toast toast-' + type;
+  el.setAttribute('role', type === 'error' ? 'alert' : 'status');
   el.innerHTML = '<span class="toast-icon">' + icons[type] + '</span><span class="toast-message">' + escapeHtml(message) + '</span><div class="toast-progress"></div>';
   container.appendChild(el);
   requestAnimationFrame(function() { el.classList.add('show'); });
@@ -108,6 +109,7 @@ function confirmModal(message) {
     overlay.innerHTML = '<div class="modal"><div class="modal-title">' + t('confirmTitle') + '</div><div class="modal-body">' + escapeHtml(message) + '</div><div class="modal-footer"><button class="btn btn-ghost" id="modal-cancel">' + t('cancel') + '</button><button class="btn btn-primary" id="modal-confirm">' + t('confirm') + '</button></div></div>';
     requestAnimationFrame(function() { overlay.classList.add('show'); });
     function close(result) {
+      document.removeEventListener('keydown', escHandler);
       overlay.classList.remove('show');
       overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
       resolve(result);
@@ -115,6 +117,8 @@ function confirmModal(message) {
     document.getElementById('modal-cancel').onclick = function() { close(false); };
     document.getElementById('modal-confirm').onclick = function() { close(true); };
     overlay.onclick = function(e) { if (e.target === overlay) close(false); };
+    var escHandler = function(e) { if (e.key === 'Escape') { close(false); document.removeEventListener('keydown', escHandler); } };
+    document.addEventListener('keydown', escHandler);
   });
 }
 

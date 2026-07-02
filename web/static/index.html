@@ -38,11 +38,11 @@
 </div>
 </div>
 <nav class="sidebar-nav">
-<div class="nav-item active" data-page="endpoint">Endpoint</div>
-<div class="nav-item" data-page="providers">Providers</div>
-<div class="nav-item" data-page="combos">Combos</div>
-<div class="nav-item" data-page="usage">Usage</div>
-<div class="nav-item" data-page="console">Console</div>
+<button class="nav-item active" type="button" data-page="endpoint">Endpoint</button>
+<button class="nav-item" type="button" data-page="providers">Providers</button>
+<button class="nav-item" type="button" data-page="combos">Combos</button>
+<button class="nav-item" type="button" data-page="usage">Usage</button>
+<button class="nav-item" type="button" data-page="console">Console</button>
 </nav>
 <div class="sidebar-footer">
 <button class="shutdown-btn" onclick="shutdownServer()">Shutdown</button>
@@ -52,7 +52,7 @@
 <div id="page-content"></div>
 </main>
 </div>
-<div id="toast-container"></div>
+<div id="toast-container" aria-live="polite" aria-atomic="false"></div>
 <div id="modal-overlay" class="modal-overlay"></div>
 <script src="/i18n.js"></script>
 <script src="/api.js"></script>
