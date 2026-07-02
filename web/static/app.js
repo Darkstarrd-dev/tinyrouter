@@ -1297,7 +1297,7 @@ function updateUsageSummary(summary) {
 }
 
 function updateUsageTable(entries) {
-  var tbody = document.querySelector('.page-content table tbody');
+  var tbody = document.querySelector('#page-content table tbody');
   if (!tbody) return;
   tbody.innerHTML = entries.map(function(e) {
     return '<tr>\
