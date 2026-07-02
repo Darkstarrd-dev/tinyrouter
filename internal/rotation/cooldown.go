@@ -6,9 +6,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 )
+
+// CooldownManager manages key cooldown, backoff, and daily quota locks.
+// *Selector implements this interface.
+type CooldownManager interface {
+	MarkUnavailable(providerID, keyID, model string, statusCode int, body string) time.Time
+	ClearError(providerID, keyID, model string)
+	MarkDailyQuotaLocked(providerID, keyID, model string, body string) time.Time
+}
 
 func (s *Selector) MarkUnavailable(providerID, keyID, model string, statusCode int, body string) time.Time {
 	state := s.reg.GetKeyState(providerID, keyID)
@@ -49,6 +56,29 @@ func (s *Selector) ClearError(providerID, keyID, model string) {
 		state.Status = "active"
 		state.LastError = ""
 	}
+}
+
+func (s *Selector) isKeyAvailable(state *registry.KeyRuntimeState, model string) bool {
+	state.Lock()
+	defer state.Unlock()
+
+	now := time.Now()
+
+	if unlock, ok := state.ModelLocks[model]; ok {
+		if now.Before(unlock) {
+			return false
+		}
+		delete(state.ModelLocks, model)
+	}
+
+	for m, unlock := range state.ModelLocks {
+		if !now.Before(unlock) {
+			delete(state.ModelLocks, m)
+		}
+	}
+
+	state.Status = "active"
+	return true
 }
 
 func truncate(s string, n int) string {
@@ -94,6 +124,5 @@ func (s *Selector) MarkDailyQuotaLocked(providerID, keyID, model string, body st
 	return unlock
 }
 
-// Ensure imports are used.
-var _ = config.RotationConfig{}
-var _ = registry.KeyRuntimeState{}
+// Compile-time interface checks.
+var _ CooldownManager = (*Selector)(nil)
