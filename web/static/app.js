@@ -243,9 +243,7 @@ function maskKey(key) {
 }
 
 function formatMillionTokens(n) {
-  if (!n || n === 0) return '0M';
-  var m = n / 1000000;
-  return m.toFixed(3) + 'M';
+  return (Number(n || 0) / 1000000).toFixed(3) + 'M';
 }
 
 function copyToClipboard(text, label) {

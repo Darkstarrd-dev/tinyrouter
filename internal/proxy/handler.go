@@ -94,8 +94,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 	}
 	providerID = provider.ID
 
-	h.logger.Info("REQUEST %s | %s | %d msgs", providerID, upstreamModel, msgCount)
-	if !h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount) {
+	if !h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount, "", provider.Name) {
 		writeError(w, http.StatusBadGateway, "all keys exhausted")
 	}
 }
@@ -107,25 +106,23 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 		return
 	}
 
+	comboLabel := fmt.Sprintf("[combo:%s] ", comboName)
 	switch plan.Strategy {
 	case "fallback":
 		for _, target := range plan.Targets {
-			h.logger.Info("REQUEST [combo:%s] %s | %s | %d msgs", comboName, target.ProviderID, target.Model, msgCount)
-			if h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount) {
+			if h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "") {
 				return
 			}
 		}
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 	case "round-robin":
 		target := plan.Targets[0]
-		h.logger.Info("REQUEST [combo:%s] %s | %s | %d msgs", comboName, target.ProviderID, target.Model, msgCount)
-		if !h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount) {
+		if !h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "") {
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 		}
 	case "fusion":
 		target := plan.Targets[0]
-		h.logger.Info("REQUEST [combo:%s:fusion] %s | %s | %d msgs", comboName, target.ProviderID, target.Model, msgCount)
-		if !h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount) {
+		if !h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "") {
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 		}
 	default:
@@ -133,12 +130,19 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 	}
 }
 
-func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int) bool {
+func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, logLabel, providerName string) bool {
 	var excludeKeyIDs []string
 	temp429Retries := 0
+	requestLogged := false
 	maxRetries := h.selector.Settings().MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 5
+	}
+
+	if isStream {
+		if _, ok := parsed["stream_options"]; !ok {
+			parsed["stream_options"] = map[string]any{"include_usage": true}
+		}
 	}
 
 	for {
@@ -146,6 +150,15 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		if err != nil {
 			h.logger.Error("no available keys for %s/%s: %v", providerID, upstreamModel, err)
 			return false
+		}
+
+		if !requestLogged {
+			dspName := sel.Provider.Name
+			if providerName != "" {
+				dspName = providerName
+			}
+			h.logger.Info("REQUEST %s%s | %s | %d msgs | Key %s", logLabel, dspName, upstreamModel, msgCount, sel.Key.Name)
+			requestLogged = true
 		}
 
 		parsed["model"] = upstreamModel
@@ -172,21 +185,21 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 				h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, upstreamModel, bodyStr)
 				excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
 				temp429Retries = 0
-				h.logger.Warn("429 daily quota for key %s, locking until next CST day", sel.Key.Name)
+				h.logger.Warn("429 daily quota: %s | locked Key %s until next CST day", truncStr(bodyStr, 200), sel.Key.Name)
 				continue
 			}
 
 			if temp429Retries < maxRetries {
 				temp429Retries++
-				h.logger.Warn("429 rate limit, retrying in %ds (attempt %d/%d)",
-					h.selector.Settings().RetryDelaySec, temp429Retries, maxRetries)
+				h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
+					truncStr(bodyStr, 200), h.selector.Settings().RetryDelaySec, temp429Retries, maxRetries, sel.Key.Name)
 				time.Sleep(time.Duration(h.selector.Settings().RetryDelaySec) * time.Second)
 				continue
 			}
 
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
 			temp429Retries = 0
-			h.logger.Warn("429 retries exhausted for key %s, switching", sel.Key.Name)
+			h.logger.Warn("429 retries exhausted for Key %s, switching", sel.Key.Name)
 			continue
 		}
 
@@ -195,7 +208,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			resp.Body.Close()
 			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			h.logger.Error("upstream %d for key %s, switching", resp.StatusCode, sel.Key.Name)
+			h.logger.Error("upstream %d for Key %s (%s), switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name)
 			temp429Retries = 0
 			continue
 		}
@@ -205,7 +218,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			resp.Body.Close()
 			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			h.logger.Error("upstream %d for key %s, switching", resp.StatusCode, sel.Key.Name)
+			h.logger.Error("upstream %d for Key %s (%s), switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name)
 			temp429Retries = 0
 			continue
 		}
@@ -213,14 +226,14 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		h.selector.ClearError(providerID, sel.Key.ID, upstreamModel)
 
 		maskedURL := maskURL(sel.Provider.BaseURL)
-		h.logger.Info("PROXY %s | %s | conn=%s | url=%s", providerID, upstreamModel, sel.KeyName, maskedURL)
+		h.logger.Info("PROXY %s | %s | conn=%s | url=%s", sel.Provider.Name, upstreamModel, sel.KeyName, maskedURL)
 
 		latencyMs := time.Since(startTime).Milliseconds()
 
 		if isStream {
-			h.streamResponse(w, resp, providerID, upstreamModel, sel, latencyMs)
+			h.streamResponse(w, resp, upstreamModel, sel, latencyMs)
 		} else {
-			h.passThroughResponse(w, resp, providerID, upstreamModel, sel, latencyMs)
+			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs)
 		}
 		return true
 	}
@@ -311,6 +324,13 @@ func maskURL(url string) string {
 		return url
 	}
 	return url[:20] + "..."
+}
+
+func truncStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func extractTokens(body []byte) (int, int) {
