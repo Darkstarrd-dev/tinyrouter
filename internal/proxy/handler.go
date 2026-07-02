@@ -133,36 +133,24 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 }
 
 func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, logLabel, providerName string) bool {
-	var excludeKeyIDs []string
-	temp429Retries := 0
-	requestLogged := false
-	maxRetries := h.selector.Settings().MaxRetries
-	if maxRetries <= 0 {
-		maxRetries = 5
-	}
+	state := &retryState{maxRetries: h.maxRetries()}
 
 	cfgProvider, _ := h.reg.GetProvider(providerID)
-	injectStreamOpts := isStream && cfgProvider != nil && cfgProvider.InjectStreamOpts
-	if injectStreamOpts {
+	if isStream && cfgProvider != nil && cfgProvider.InjectStreamOpts {
 		if _, ok := parsed["stream_options"]; !ok {
 			parsed["stream_options"] = map[string]any{"include_usage": true}
 		}
 	}
 
 	for {
-		sel, err := h.selector.SelectKey(providerID, upstreamModel, excludeKeyIDs)
+		sel, err := h.selector.SelectKey(providerID, upstreamModel, state.excludeKeyIDs)
 		if err != nil {
 			h.logger.Error("no available keys for %s/%s: %v", providerID, upstreamModel, err)
 			return false
 		}
 
-		if !requestLogged {
-			dspName := sel.Provider.Name
-			if providerName != "" {
-				dspName = providerName
-			}
-			h.logger.Info("REQUEST %s%s | %s | %d msgs | Key %s", logLabel, dspName, upstreamModel, msgCount, sel.Key.Name)
-			requestLogged = true
+		if !state.requestLogged {
+			h.logRequest(sel, logLabel, providerName, upstreamModel, msgCount, state)
 		}
 
 		parsed["model"] = upstreamModel
@@ -173,65 +161,21 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		resp, err := h.forwardUpstream(sel, upstreamBody, r.Header, isStream, path)
 
 		if err != nil {
-			h.logger.Error("upstream error: %v", err)
-			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, 0, err.Error())
-			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			h.recordUsage(providerID, upstreamModel, sel, "error", 0, 0, 0, err.Error())
-			temp429Retries = 0
+			h.handleNetworkError(sel, providerID, upstreamModel, err, state)
 			continue
 		}
 
 		if resp.StatusCode == 429 {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			bodyStr := string(body)
-			latency429 := time.Since(startTime).Milliseconds()
-
-			if rotation.IsDailyQuota429(bodyStr, upstreamModel) {
-				h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, upstreamModel, bodyStr)
-				excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-				temp429Retries = 0
-				h.logger.Warn("429 daily quota: %s | locked Key %s until next CST day", truncStr(bodyStr, 200), sel.Key.Name)
-				h.recordUsage(sel.Provider.Name, upstreamModel, sel, "error", latency429, 0, 0, bodyStr)
-				continue
-			}
-
-			if temp429Retries < maxRetries {
-				temp429Retries++
-				h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
-					truncStr(bodyStr, 200), h.selector.Settings().RetryDelaySec, temp429Retries, maxRetries, sel.Key.Name)
-				h.recordUsage(sel.Provider.Name, upstreamModel, sel, "error", latency429, 0, 0, bodyStr)
-				time.Sleep(time.Duration(h.selector.Settings().RetryDelaySec) * time.Second)
-				continue
-			}
-
-			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			temp429Retries = 0
-			h.logger.Warn("429 retries exhausted for Key %s, switching", sel.Key.Name)
-			h.recordUsage(sel.Provider.Name, upstreamModel, sel, "error", latency429, 0, 0, bodyStr)
+			h.handle429(resp, sel, providerID, upstreamModel, startTime, state)
 			continue
 		}
 
-		if resp.StatusCode >= 500 {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
-			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, truncStr(string(body), 500))
-			temp429Retries = 0
+		if resp.StatusCode >= 500 || resp.StatusCode >= 400 {
+			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state)
 			continue
 		}
 
-		if resp.StatusCode >= 400 {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
-			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, truncStr(string(body), 500))
-			temp429Retries = 0
-			continue
-		}
-
+		// 2xx success
 		h.selector.ClearError(providerID, sel.Key.ID, upstreamModel)
 
 		maskedURL := maskURL(sel.Provider.BaseURL)
