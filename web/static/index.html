@@ -2,8 +2,13 @@
 <html lang="en" data-theme="dark" data-lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>TinyRouter</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#12121a">
 <script>
 (function() {
   var theme = localStorage.getItem('theme') || 'dark';
@@ -20,11 +25,16 @@
 <div class="app">
 <aside class="sidebar">
 <div class="sidebar-header">
+<div class="sidebar-brand">
+<img src="/logo-sm.png" alt="TinyRouter" class="sidebar-logo" width="36" height="36">
+<div class="sidebar-brand-content">
 <h1>TinyRouter</h1>
 <div class="header-controls">
 <button class="header-icon-btn" id="lang-btn" onclick="toggleLang()" title="Switch language">EN</button>
 <button class="header-icon-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">&#9788;</button>
 <button class="header-icon-btn" id="font-btn" onclick="toggleFontSize()" title="Toggle font size">S</button>
+</div>
+</div>
 </div>
 </div>
 <nav class="sidebar-nav">
