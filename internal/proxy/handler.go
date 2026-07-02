@@ -167,6 +167,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 
 		parsed["model"] = upstreamModel
 		upstreamBody, _ := json.Marshal(parsed)
+		h.logger.Debug("SEND %s | %s | body=%dB | %s", sel.Provider.Name, upstreamModel, len(upstreamBody), truncStr(string(upstreamBody), 500))
 
 		startTime := time.Now()
 		resp, err := h.forwardUpstream(sel, upstreamBody, r.Header, isStream, path)
@@ -216,7 +217,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			resp.Body.Close()
 			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			h.logger.Error("upstream %d for Key %s (%s), switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name)
+			h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, truncStr(string(body), 500))
 			temp429Retries = 0
 			continue
 		}
@@ -226,7 +227,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			resp.Body.Close()
 			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			h.logger.Error("upstream %d for Key %s (%s), switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name)
+			h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, truncStr(string(body), 500))
 			temp429Retries = 0
 			continue
 		}
