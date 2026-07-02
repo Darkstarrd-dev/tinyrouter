@@ -1,0 +1,187 @@
+// ===================== Translation System =====================
+const L = {
+  en: {
+    endpoint: 'Endpoint', providers: 'Providers', combos: 'Combos', usage: 'Usage', console: 'Console',
+    shutdown: 'Shutdown',
+    listenPort: 'Listen Port', save: 'Save',
+    apiEndpoint: 'API Endpoint:', noKeyRequired: 'No API key required. Any key or no key works.',
+    rotationSettings: 'Rotation Settings (Global Default)',
+    strategy: 'Strategy', stickyLimit: 'Sticky Limit (round-robin)',
+    maxRetries: 'Max Retries (429 temp)', retryDelay: 'Retry Delay (seconds)',
+    backoffMax: 'Backoff Max (seconds)', saveRotation: 'Save Rotation',
+    addProvider: '+ Add Provider', noProviders: 'No providers yet. Click "Add Provider" to create one.',
+    active: 'Active', inactive: 'Inactive', disable: 'Disable', enable: 'Enable',
+    prefix: 'Prefix:', baseUrl: 'Base URL:', keys: 'Keys:', models: 'Models:',
+    newProvider: 'New Provider', name: 'Name', prefixLabel: 'Prefix (used in model field)',
+    baseUrlLabel: 'Base URL', apiKeyLabel: 'API Key (for connectivity test, not saved)',
+    modelIdLabel: 'Model ID (optional, fallback test if /models unavailable)',
+    check: 'Check', create: 'Create', cancel: 'Cancel',
+    back: 'Back', edit: 'Edit', delete: 'Delete',
+    keysTitle: 'Keys', addKey: '+ Add Key', bulkAdd: 'Bulk Add', noKeys: 'No keys yet.',
+    keyName: 'Name', key: 'Key', priority: 'Priority', status: 'Status', actions: 'Actions',
+    test: 'Test', pause: 'Pause', resume: 'Resume',
+    newKey: 'New Key', apiKeyInput: 'API Key', priorityLabel: 'Priority (lower = higher)',
+    bulkAddKeys: 'Bulk Add Keys', bulkFormat: 'One key per line. Format: name|key or just key',
+    defaultPriority: 'Default Priority', addAll: 'Add All',
+    rotationSection: 'Rotation Strategy', rotationDesc: 'Overrides global settings for this provider. Leave "Inherit" to use global default.',
+    inheritGlobal: 'Inherit Global', fillFirst: 'fill-first', roundRobin: 'round-robin',
+    stickyLabel: 'Sticky Limit (0 = inherit global, round-robin only)',
+    modelsTitle: 'Models', modelPlaceholder: 'model-id (e.g. deepseek-chat)',
+    importModels: 'Import from /models', noModels: 'No models configured. Use "Import from /models" or add manually.',
+    untested: 'untested',
+    editProvider: 'Edit Provider',
+    providerNotFound: 'Provider not found.',
+    providerCreated: 'Provider created', providerUpdated: 'Provider updated', providerDeleted: 'Provider deleted',
+    providerEnabled: 'Provider enabled', providerDisabled: 'Provider disabled',
+    keyAdded: 'Key added', keyDeleted: 'Key deleted',
+    keyValid: 'Key is valid.', keyInvalid: 'Key invalid: ',
+    modelAdded: 'Model added', modelDeleted: 'Model deleted',
+    modelTestFailed: 'Model test failed: ',
+    addCombo: '+ Add Combo', noCombos: 'No combos yet.',
+    newCombo: 'New Combo', comboStrategy: 'Strategy', comboModels: 'Models (one per line, e.g. deepseek/deepseek-chat)',
+    fusionJudge: 'Fusion Judge (optional, fusion only)',
+    comboCreated: 'Combo created', comboDeleted: 'Combo deleted',
+    totalRequests: 'Total Requests', success: 'Success', errors: 'Errors', avgLatency: 'Avg Latency',
+    totalInput: 'Total Input', totalOutput: 'Total Output',
+    recentRequests: 'Recent Requests', clear: 'Clear', noUsage: 'No usage data yet.',
+    time: 'Time', provider: 'Provider', model: 'Model', latency: 'Latency', tokens: 'Tokens (in/out)',
+    connecting: 'Connecting...', connected: 'Connected', disconnected: 'Disconnected. Reconnecting...',
+    consoleCleared: 'Console cleared', usageCleared: 'Usage data cleared',
+    portSaved: 'Port saved. Restart TinyRouter to apply.',
+    rotationSaved: 'Rotation settings saved.', rotationStrategySaved: 'Rotation strategy saved.',
+    enterModelId: 'Enter a model ID first', enterModelId2: 'Enter a model ID',
+    apiKeyRequired: 'API Key is required', requiredFields: 'Name, Prefix, and Base URL are required',
+    confirmDeleteKey: 'Delete this key?', confirmDeleteProvider: 'Delete this provider and all its keys?',
+    confirmDeleteModel: 'Delete model ', confirmDeleteCombo: 'Delete this combo?',
+    confirmShutdown: 'Shutdown TinyRouter?',
+    confirm: 'Confirm', confirmTitle: 'Confirm',
+    serverStopped: 'TinyRouter Stopped',
+    serverStoppedDesc: 'The server has been shut down. You may close this window.',
+    fetchingModels: 'Fetching models...', noModelsUpstream: 'No models returned by upstream',
+    importedModels: 'Imported {0} models ({1} total from upstream, {2} already existed)',
+    testing: 'Testing {0}...', testOk: '{0}: OK ({1}ms)', testFail: '{0}: {1}',
+    invalidProvider: 'Invalid: {0}', validProvider: 'Valid', checking: 'Checking...',
+    baseUrlKeyRequired: 'Base URL and API Key required',
+    adding: 'Adding...', addedKeys: 'Added {0} keys', addedKeysErrors: 'Added: {0}',
+    fetching: 'Fetching...', failed: 'Failed: {0}',
+    fallback: 'fallback', fusion: 'fusion',
+    fallbackDesc: 'fallback', roundRobinDesc: 'round-robin', fusionDesc: 'fusion',
+    copied: 'copied', copyFailed: 'Copy failed',
+    clickToCopy: 'Click to copy',
+    comboEdit: 'Edit Combo', editCombo: 'Edit', saveCombo: 'Update',
+    comboUpdated: 'Combo updated', importFromProvider: 'Import from Provider',
+    selectModels: 'Select Models', addSelected: 'Add Selected', noModelsAvailable: 'No models available',
+    selectAll: 'Select All', deselectAll: 'Deselect All', close: 'Close',
+    pause: 'Paused',
+  },
+  cn: {
+    endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台',
+    shutdown: '关闭',
+    listenPort: '监听端口', save: '保存',
+    apiEndpoint: 'API 地址:', noKeyRequired: '无需 API Key，任意 Key 或无 Key 均可访问。',
+    rotationSettings: '轮询设置 (全局默认)',
+    strategy: '策略', stickyLimit: '粘性限制 (round-robin)',
+    maxRetries: '最大重试 (429 临时)', retryDelay: '重试延迟 (秒)',
+    backoffMax: '退避上限 (秒)', saveRotation: '保存轮询设置',
+    addProvider: '+ 添加服务商', noProviders: '暂无服务商，点击"添加服务商"创建。',
+    active: '启用', inactive: '停用', disable: '停用', enable: '启用',
+    prefix: '前缀:', baseUrl: '基础 URL:', keys: '密钥:', models: '模型:',
+    newProvider: '新建服务商', name: '名称', prefixLabel: '前缀 (用于 model 字段)',
+    baseUrlLabel: '基础 URL', apiKeyLabel: 'API Key (仅用于连通性测试，不保存)',
+    modelIdLabel: '模型 ID (可选，/models 不可用时的回退测试)',
+    check: '检测', create: '创建', cancel: '取消',
+    back: '返回', edit: '编辑', delete: '删除',
+    keysTitle: '密钥', addKey: '+ 添加密钥', bulkAdd: '批量添加', noKeys: '暂无密钥。',
+    keyName: '名称', key: '密钥', priority: '优先级', status: '状态', actions: '操作',
+    test: '测试', pause: '暂停', resume: '恢复',
+    newKey: '新建密钥', apiKeyInput: 'API Key', priorityLabel: '优先级 (越低越优先)',
+    bulkAddKeys: '批量添加密钥', bulkFormat: '每行一个密钥。格式: 名称|key 或仅 key',
+    defaultPriority: '默认优先级', addAll: '全部添加',
+    rotationSection: '轮询策略', rotationDesc: '覆盖此服务商的全局设置。选择"继承全局"以使用默认设置。',
+    inheritGlobal: '继承全局', fillFirst: 'fill-first', roundRobin: 'round-robin',
+    stickyLabel: '粘性限制 (0 = 继承全局, 仅 round-robin)',
+    modelsTitle: '模型', modelPlaceholder: '模型 ID (如 deepseek-chat)',
+    importModels: '从 /models 导入', noModels: '未配置模型。使用"从 /models 导入"或手动添加。',
+    untested: '未测试',
+    editProvider: '编辑服务商',
+    providerNotFound: '未找到服务商。',
+    providerCreated: '服务商已创建', providerUpdated: '服务商已更新', providerDeleted: '服务商已删除',
+    providerEnabled: '服务商已启用', providerDisabled: '服务商已停用',
+    keyAdded: '密钥已添加', keyDeleted: '密钥已删除',
+    keyValid: '密钥有效。', keyInvalid: '密钥无效: ',
+    modelAdded: '模型已添加', modelDeleted: '模型已删除',
+    modelTestFailed: '模型测试失败: ',
+    addCombo: '+ 添加模型组', noCombos: '暂无模型组。',
+    newCombo: '新建模型组', comboStrategy: '策略', comboModels: '模型 (每行一个，如 deepseek/deepseek-chat)',
+    fusionJudge: 'Fusion 裁决模型 (可选，仅 fusion)',
+    comboCreated: '模型组已创建', comboDeleted: '模型组已删除',
+    totalRequests: '总请求', success: '成功', errors: '失败', avgLatency: '平均延迟',
+    totalInput: '总输入', totalOutput: '总输出',
+    recentRequests: '最近请求', clear: '清空', noUsage: '暂无用量数据。',
+    time: '时间', provider: '服务商', model: '模型', latency: '延迟', tokens: 'Token (入/出)',
+    connecting: '连接中...', connected: '已连接', disconnected: '已断开，重连中...',
+    consoleCleared: '控制台已清空', usageCleared: '用量数据已清空',
+    portSaved: '端口已保存。重启 TinyRouter 生效。',
+    rotationSaved: '轮询设置已保存。', rotationStrategySaved: '轮询策略已保存。',
+    enterModelId: '请先输入模型 ID', enterModelId2: '请输入模型 ID',
+    apiKeyRequired: 'API Key 不能为空', requiredFields: '名称、前缀和基础 URL 不能为空',
+    confirmDeleteKey: '确定删除此密钥？', confirmDeleteProvider: '确定删除此服务商及其所有密钥？',
+    confirmDeleteModel: '确定删除模型 ', confirmDeleteCombo: '确定删除此模型组？',
+    confirmShutdown: '确定关闭 TinyRouter？',
+    confirm: '确定', confirmTitle: '确认',
+    serverStopped: 'TinyRouter 已停止',
+    serverStoppedDesc: '服务器已关闭，您可以关闭此窗口。',
+    fetchingModels: '正在获取模型列表...', noModelsUpstream: '上游未返回模型',
+    importedModels: '已导入 {0} 个模型 (上游共 {1} 个，已存在 {2} 个)',
+    testing: '正在测试 {0}...', testOk: '{0}: 正常 ({1}ms)', testFail: '{0}: {1}',
+    invalidProvider: '无效: {0}', validProvider: '有效', checking: '检测中...',
+    baseUrlKeyRequired: '基础 URL 和 API Key 不能为空',
+    adding: '添加中...', addedKeys: '已添加 {0} 个密钥', addedKeysErrors: '已添加: {0}',
+    fetching: '获取中...', failed: '失败: {0}',
+    fallback: 'fallback', fusion: 'fusion',
+    fallbackDesc: 'fallback', roundRobinDesc: 'round-robin', fusionDesc: 'fusion',
+    copied: '已复制', copyFailed: '复制失败',
+    clickToCopy: '点击复制',
+    comboEdit: '编辑模型组', editCombo: '编辑', saveCombo: '更新',
+    comboUpdated: '模型组已更新', importFromProvider: '从服务商导入',
+    selectModels: '选择模型', addSelected: '添加选中', noModelsAvailable: '无可用模型',
+    selectAll: '全选', deselectAll: '取消全选', close: '关闭',
+    pause: '已暂停',
+  }
+};
+
+function t(key, args) {
+  var lang = document.documentElement.getAttribute('data-lang') || 'en';
+  var dict = L[lang] || L['en'];
+  var msg = dict[key] || (L['en'][key] || key);
+  if (args) {
+    for (var i = 0; i < args.length; i++) {
+      msg = msg.replace('{' + i + '}', args[i]);
+    }
+  }
+  return msg;
+}
+
+function currentLang() {
+  return document.documentElement.getAttribute('data-lang') || 'en';
+}
+
+function toggleLang() {
+  var current = currentLang();
+  var next = current === 'en' ? 'cn' : 'en';
+  document.documentElement.setAttribute('data-lang', next);
+  localStorage.setItem('lang', next);
+  updateLangButton(next);
+  updateSidebarNav();
+  var page = currentPage;
+  if (currentProviderId) {
+    renderProviders(document.getElementById('page-content'));
+  } else {
+    navigateTo(page);
+  }
+}
+
+function updateLangButton(lang) {
+  var btn = document.getElementById('lang-btn');
+  if (btn) btn.textContent = lang === 'en' ? 'EN' : 'CN';
+}
