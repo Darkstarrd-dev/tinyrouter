@@ -1224,20 +1224,23 @@ async function renderUsage(c) {
   ]);
   const entries = usage.entries || [];
   c.innerHTML = '\
-    <h2>' + t('usage') + '</h2>\
-    <div class="stat-grid">\
-      <div class="stat-card"><div class="stat-value">' + summary.total + '</div><div class="stat-label">' + t('totalRequests') + '</div></div>\
-      <div class="stat-card"><div class="stat-value" style="color:var(--accent2)">' + summary.success + '</div><div class="stat-label">' + t('success') + '</div></div>\
-      <div class="stat-card"><div class="stat-value" style="color:var(--danger)">' + summary.error + '</div><div class="stat-label">' + t('errors') + '</div></div>\
-      <div class="stat-card"><div class="stat-value">' + summary.avgLatencyMs + 'ms</div><div class="stat-label">' + t('avgLatency') + '</div></div>\
-      <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalInputTokens) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
-      <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalOutputTokens) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
-    </div>\
-    <div class="flex-between mb-12">\
-      <h3>' + t('recentRequests') + '</h3>\
-      <button class="btn btn-danger btn-sm" onclick="clearUsage()">' + t('clear') + '</button>\
+    <div class="usage-header">\
+      <h2>' + t('usage') + '</h2>\
+      <div class="stat-grid">\
+        <div class="stat-card"><div class="stat-value">' + summary.total + '</div><div class="stat-label">' + t('totalRequests') + '</div></div>\
+        <div class="stat-card"><div class="stat-value" style="color:var(--accent2)">' + summary.success + '</div><div class="stat-label">' + t('success') + '</div></div>\
+        <div class="stat-card"><div class="stat-value" style="color:var(--danger)">' + summary.error + '</div><div class="stat-label">' + t('errors') + '</div></div>\
+        <div class="stat-card"><div class="stat-value">' + summary.avgLatencyMs + 'ms</div><div class="stat-label">' + t('avgLatency') + '</div></div>\
+        <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalInputTokens) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
+        <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalOutputTokens) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
+      </div>\
+      <div class="flex-between mb-12">\
+        <h3>' + t('recentRequests') + '</h3>\
+        <button class="btn btn-danger btn-sm" onclick="clearUsage()">' + t('clear') + '</button>\
+      </div>\
     </div>' +
     (entries.length === 0 ? '<div class="empty">' + t('noUsage') + '</div>' : '\
+    <div class="usage-scroll">\
     <table>\
       <thead><tr><th>' + t('time') + '</th><th>' + t('provider') + '</th><th>' + t('model') + '</th><th>Key</th><th>' + t('status') + '</th><th>' + t('latency') + '</th><th>' + t('tokens') + '</th></tr></thead>\
       <tbody>' +
@@ -1253,7 +1256,9 @@ async function renderUsage(c) {
           </tr>';
         }).join('') + '\
       </tbody>\
-    </table>');
+    </table>\
+    </div>');
+  c.classList.add('usage-page');
   startUsageRefresh();
 }
 

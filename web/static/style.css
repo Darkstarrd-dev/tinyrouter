@@ -214,6 +214,14 @@ tbody tr:last-child td{border-bottom:none}
 .log-debug{color:var(--text-muted)}
 .log-info{color:var(--text-secondary)}
 
+/* ===================== Usage Page ===================== */
+.usage-page{display:flex;flex-direction:column;height:100%}
+.usage-header{flex-shrink:0}
+.usage-scroll{flex:1;overflow-y:auto;scrollbar-width:none}
+.usage-scroll::-webkit-scrollbar{display:none}
+.usage-scroll thead{position:sticky;top:0;z-index:1}
+.usage-scroll thead th{background:var(--bg)}
+
 /* ===================== Utilities ===================== */
 .code{font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-code);padding:3px 8px;background:var(--code-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--accent)}
 .muted{color:var(--text-muted)}
