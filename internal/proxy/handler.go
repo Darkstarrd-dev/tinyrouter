@@ -135,9 +135,13 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 
 func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int) bool {
 	var excludeKeyIDs []string
-	maxAttempts := 10
+	temp429Retries := 0
+	maxRetries := h.selector.Settings().MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 5
+	}
 
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for {
 		sel, err := h.selector.SelectKey(providerID, upstreamModel, excludeKeyIDs)
 		if err != nil {
 			h.logger.Error("no available keys for %s/%s: %v", providerID, upstreamModel, err)
@@ -155,6 +159,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, 0, err.Error())
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
 			h.recordUsage(providerID, upstreamModel, sel, "error", 0, 0, 0, err.Error())
+			temp429Retries = 0
 			continue
 		}
 
@@ -163,17 +168,25 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			resp.Body.Close()
 			bodyStr := string(body)
 
-			maxRetries := h.selector.Settings().MaxRetries
-			if attempt < maxRetries {
+			if rotation.IsDailyQuota429(bodyStr, upstreamModel) {
+				h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, upstreamModel, bodyStr)
+				excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
+				temp429Retries = 0
+				h.logger.Warn("429 daily quota for key %s, locking until next CST day", sel.Key.Name)
+				continue
+			}
+
+			if temp429Retries < maxRetries {
+				temp429Retries++
 				h.logger.Warn("429 rate limit, retrying in %ds (attempt %d/%d)",
-					h.selector.Settings().RetryDelaySec, attempt+1, maxRetries)
+					h.selector.Settings().RetryDelaySec, temp429Retries, maxRetries)
 				time.Sleep(time.Duration(h.selector.Settings().RetryDelaySec) * time.Second)
 				continue
 			}
 
-			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, 429, bodyStr)
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			h.logger.Warn("429 for key %s, switching key", sel.Key.Name)
+			temp429Retries = 0
+			h.logger.Warn("429 retries exhausted for key %s, switching", sel.Key.Name)
 			continue
 		}
 
@@ -183,6 +196,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
 			h.logger.Error("upstream %d for key %s, switching", resp.StatusCode, sel.Key.Name)
+			temp429Retries = 0
 			continue
 		}
 
@@ -192,6 +206,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
 			h.logger.Error("upstream %d for key %s, switching", resp.StatusCode, sel.Key.Name)
+			temp429Retries = 0
 			continue
 		}
 
@@ -209,8 +224,6 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 		return true
 	}
-
-	return false
 }
 
 func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {

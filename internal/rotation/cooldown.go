@@ -3,6 +3,7 @@ package rotation
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
@@ -55,6 +56,42 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+func IsDailyQuota429(body string, model string) bool {
+	if body == "" || model == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(body), strings.ToLower(model))
+}
+
+func nextCSTMidnight05() time.Time {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		loc = time.FixedZone("CST", 8*3600)
+	}
+	now := time.Now().In(loc)
+	target := time.Date(now.Year(), now.Month(), now.Day(), 0, 5, 0, 0, loc)
+	if now.Before(target) {
+		return target
+	}
+	return target.Add(24 * time.Hour)
+}
+
+func (s *Selector) MarkDailyQuotaLocked(providerID, keyID, model string, body string) time.Time {
+	state := s.reg.GetKeyState(providerID, keyID)
+	if state == nil {
+		return time.Time{}
+	}
+	state.Lock()
+	defer state.Unlock()
+
+	unlock := nextCSTMidnight05()
+	state.ModelLocks[model] = unlock
+	state.Status = "locked"
+	state.LastError = fmt.Sprintf("429 daily quota: %s", truncate(body, 200))
+	state.LastErrorAt = time.Now()
+	return unlock
 }
 
 // Ensure imports are used.

@@ -178,3 +178,71 @@ func TestIsKeyAvailable_ExpiredLockCleaned(t *testing.T) {
 		t.Fatal("expected key to be unavailable for claude-3 (active lock)")
 	}
 }
+
+func TestIsDailyQuota429(t *testing.T) {
+	tests := []struct {
+		body  string
+		model string
+		want  bool
+	}{
+		{`{"error":{"message":"You have exceeded today's quota for model ZhipuAI/GLM-5.2, please try again tomorrow"}}`, "ZhipuAI/GLM-5.2", true},
+		{`{"error":{"code":"insufficient_quota","message":"You exceeded your current quota, please check your plan"}}`, "ZhipuAI/GLM-5.2", false},
+		{"", "gpt-4", false},
+		{"rate limit exceeded", "", false},
+		{"rate limit exceeded", "gpt-4", false},
+	}
+	for _, tt := range tests {
+		got := IsDailyQuota429(tt.body, tt.model)
+		if got != tt.want {
+			t.Errorf("IsDailyQuota429(%q, %q) = %v, want %v", tt.body, tt.model, got, tt.want)
+		}
+	}
+}
+
+func TestMarkDailyQuotaLocked(t *testing.T) {
+	reg, sel := setupTest(t)
+	state := reg.GetKeyState("test", "a")
+
+	unlock := sel.MarkDailyQuotaLocked("test", "a", "gpt-4", "daily quota exceeded for gpt-4")
+
+	state.Lock()
+	if state.Status != "locked" {
+		t.Fatalf("expected status 'locked', got %s", state.Status)
+	}
+	if _, ok := state.ModelLocks["gpt-4"]; !ok {
+		t.Fatal("expected model lock to exist")
+	}
+	state.Unlock()
+
+	if unlock.IsZero() {
+		t.Fatal("expected non-zero unlock time")
+	}
+
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	midnight := time.Date(time.Now().In(loc).Year(), time.Now().In(loc).Month(), time.Now().In(loc).Day()+1, 0, 5, 0, 0, loc)
+	if time.Until(unlock) > time.Until(midnight)+time.Minute {
+		t.Fatalf("expected unlock around next CST midnight+5min, got %v, diff=%v", unlock, time.Until(unlock))
+	}
+}
+
+func TestNextCSTMidnight05(t *testing.T) {
+	unlock := nextCSTMidnight05()
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	now := time.Now().In(loc)
+
+	if unlock.Before(now) {
+		t.Fatal("expected unlock in the future")
+	}
+
+	target := time.Date(now.Year(), now.Month(), now.Day(), 0, 5, 0, 0, loc)
+	if now.Before(target) {
+		if unlock.Sub(target) > time.Second {
+			t.Fatalf("expected unlock around today 00:05 CST, got %v", unlock)
+		}
+	} else {
+		expected := target.Add(24 * time.Hour)
+		if unlock.Sub(expected) > time.Second {
+			t.Fatalf("expected unlock around tomorrow 00:05 CST, got %v", unlock)
+		}
+	}
+}
