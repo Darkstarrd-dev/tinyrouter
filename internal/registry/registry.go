@@ -91,6 +91,21 @@ func (r *Registry) AddProvider(p config.Provider) {
 	}
 }
 
+func (r *Registry) UpdateProvider(id string, updates config.Provider) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID == id {
+			r.config.Providers[i].Name = updates.Name
+			r.config.Providers[i].Prefix = updates.Prefix
+			r.config.Providers[i].BaseURL = updates.BaseURL
+			r.config.Providers[i].IsActive = updates.IsActive
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Registry) DeleteProvider(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

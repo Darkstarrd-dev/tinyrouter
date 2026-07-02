@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tinyrouter/tinyrouter/internal/config"
@@ -106,29 +107,14 @@ func (rt *Router) updateProvider(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	// Find and update
-	providers := rt.reg.ListProviders()
-	for _, p := range providers {
-		if p.ID == id {
-			p.Name = updates.Name
-			p.Prefix = updates.Prefix
-			p.BaseURL = updates.BaseURL
-			p.IsActive = updates.IsActive
-			// Direct config update
-			cfg := rt.reg.Config()
-			for i := range cfg.Providers {
-				if cfg.Providers[i].ID == id {
-					cfg.Providers[i] = p
-					break
-				}
-			}
-			config.Save(rt.configPath, cfg)
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(p)
-			return
-		}
+	if rt.reg.UpdateProvider(id, updates) {
+		config.Save(rt.configPath, rt.reg.Config())
+		p, _ := rt.reg.GetProvider(id)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(p)
+	} else {
+		writeAPIError(w, http.StatusNotFound, "provider not found")
 	}
-	writeAPIError(w, http.StatusNotFound, "provider not found")
 }
 
 func (rt *Router) deleteProvider(w http.ResponseWriter, r *http.Request) {
@@ -304,6 +290,6 @@ func (rt *Router) getIntQuery(r *http.Request, key string, defaultVal int) int {
 var idCounter int64
 
 func generateID(prefix string) string {
-	idCounter++
-	return prefix + "_" + strconv.FormatInt(idCounter, 36)
+	id := atomic.AddInt64(&idCounter, 1)
+	return prefix + "_" + strconv.FormatInt(id, 36)
 }

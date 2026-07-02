@@ -1,0 +1,348 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tinyrouter/tinyrouter/internal/combo"
+	"github.com/tinyrouter/tinyrouter/internal/config"
+	"github.com/tinyrouter/tinyrouter/internal/console"
+	"github.com/tinyrouter/tinyrouter/internal/proxy"
+	"github.com/tinyrouter/tinyrouter/internal/registry"
+	"github.com/tinyrouter/tinyrouter/internal/rotation"
+	"github.com/tinyrouter/tinyrouter/internal/usage"
+)
+
+func setupTestServer(t *testing.T) (*httptest.Server, *registry.Registry, string) {
+	t.Helper()
+	cfg := config.DefaultConfig()
+	cfg.Providers = []config.Provider{
+		{
+			ID: "test-prov", Name: "Test", Prefix: "test", BaseURL: "https://api.test.com",
+			APIType: "openai-compatible", IsActive: true,
+			Keys: []config.Key{{ID: "k1", Key: "sk-test", Name: "Main", Priority: 1, IsActive: true}},
+		},
+	}
+	cfg.Combos = []config.Combo{
+		{ID: "c1", Name: "testcombo", Strategy: "fallback", Models: []string{"test-prov/model-a"}},
+	}
+	reg := registry.New(cfg)
+	logger := console.New(100)
+	usageBuf := usage.New(100)
+	selector := rotation.New(reg, &cfg.Rotation)
+	comboRes := combo.New(reg)
+	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, logger)
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	apiRouter := New(reg, cfg, tmpFile, usageBuf, logger, proxyHandler)
+	handler := apiRouter.Routes(proxyHandler)
+	return httptest.NewServer(handler), reg, tmpFile
+}
+
+func requestJSON(t *testing.T, method, url, body string) *http.Response {
+	t.Helper()
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func readBody(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	return string(data)
+}
+
+func TestSettings_Get(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	resp := requestJSON(t, "GET", srv.URL+"/api/settings", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(readBody(t, resp)), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["port"] != float64(20128) {
+		t.Errorf("expected port 20128, got %v", body["port"])
+	}
+	rot := body["rotation"].(map[string]any)
+	if rot["strategy"] != "fill-first" {
+		t.Errorf("expected strategy fill-first, got %v", rot["strategy"])
+	}
+}
+
+func TestSettings_Update(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	payload := `{"port": 9999}`
+	resp := requestJSON(t, "PATCH", srv.URL+"/api/settings", payload)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	resp = requestJSON(t, "GET", srv.URL+"/api/settings", "")
+	var body map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &body)
+	if body["port"] != float64(9999) {
+		t.Errorf("expected port 9999, got %v", body["port"])
+	}
+}
+
+func TestProviders_CRUD(t *testing.T) {
+	srv, reg, _ := setupTestServer(t)
+	defer srv.Close()
+
+	// Create
+	payload := `{"id":"p1","name":"MyProvider","prefix":"my","baseUrl":"https://my.api.com"}`
+	resp := requestJSON(t, "POST", srv.URL+"/api/providers", payload)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var created config.Provider
+	json.Unmarshal([]byte(readBody(t, resp)), &created)
+	if created.ID != "p1" || created.APIType != "openai-compatible" {
+		t.Errorf("unexpected provider: %+v", created)
+	}
+
+	// List
+	resp = requestJSON(t, "GET", srv.URL+"/api/providers", "")
+	var listResp map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &listResp)
+	providers := listResp["providers"].([]any)
+	if len(providers) != 2 {
+		t.Errorf("expected 2 providers, got %d", len(providers))
+	}
+
+	// Update
+	payload = `{"name":"Updated","prefix":"up","baseUrl":"https://updated.com","isActive":false}`
+	resp = requestJSON(t, "PUT", srv.URL+"/api/providers/p1", payload)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var updated config.Provider
+	json.Unmarshal([]byte(readBody(t, resp)), &updated)
+	if updated.Name != "Updated" || updated.IsActive {
+		t.Errorf("provider not updated: %+v", updated)
+	}
+
+	// Delete
+	resp = requestJSON(t, "DELETE", srv.URL+"/api/providers/p1", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Verify gone
+	resp = requestJSON(t, "GET", srv.URL+"/api/providers", "")
+	json.Unmarshal([]byte(readBody(t, resp)), &listResp)
+	providers = listResp["providers"].([]any)
+	if len(providers) != 1 {
+		t.Errorf("expected 1 provider after delete, got %d", len(providers))
+	}
+
+	// Verify provider not found (confirm reg state)
+	_, ok := reg.GetProvider("p1")
+	if ok {
+		t.Error("provider should be deleted from registry")
+	}
+}
+
+func TestKeys_CRUD(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	// Create provider
+	requestJSON(t, "POST", srv.URL+"/api/providers", `{"id":"kp","name":"KP","prefix":"kp","baseUrl":"https://kp.com"}`)
+
+	// Create key
+	resp := requestJSON(t, "POST", srv.URL+"/api/providers/kp/keys", `{"key":"sk-test123","name":"SecKey","priority":2}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var createdKey config.Key
+	json.Unmarshal([]byte(readBody(t, resp)), &createdKey)
+	if createdKey.Name != "SecKey" {
+		t.Errorf("unexpected key: %+v", createdKey)
+	}
+	keyID := createdKey.ID
+
+	// List keys
+	resp = requestJSON(t, "GET", srv.URL+"/api/providers/kp/keys", "")
+	var keysResp map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &keysResp)
+	keys := keysResp["keys"].([]any)
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 key, got %d", len(keys))
+	}
+
+	// Update key
+	resp = requestJSON(t, "PUT", fmt.Sprintf("%s/api/providers/kp/keys/%s", srv.URL, keyID), `{"name":"UpdatedKey","isActive":false}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Delete key
+	resp = requestJSON(t, "DELETE", fmt.Sprintf("%s/api/providers/kp/keys/%s", srv.URL, keyID), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Verify empty keys
+	resp = requestJSON(t, "GET", srv.URL+"/api/providers/kp/keys", "")
+	json.Unmarshal([]byte(readBody(t, resp)), &keysResp)
+	keys = keysResp["keys"].([]any)
+	if len(keys) != 0 {
+		t.Errorf("expected 0 keys after delete, got %d", len(keys))
+	}
+}
+
+func TestCombos_CRUD(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	// Create
+	payload := `{"id":"cx","name":"mycombo","strategy":"round-robin","models":["test-prov/model-x"]}`
+	resp := requestJSON(t, "POST", srv.URL+"/api/combos", payload)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// List
+	resp = requestJSON(t, "GET", srv.URL+"/api/combos", "")
+	var listResp map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &listResp)
+	combos := listResp["combos"].([]any)
+	if len(combos) != 2 {
+		t.Fatalf("expected 2 combos, got %d", len(combos))
+	}
+
+	// Update
+	resp = requestJSON(t, "PUT", srv.URL+"/api/combos/cx", `{"name":"updatedcombo","models":["test-prov/model-y"]}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Delete
+	resp = requestJSON(t, "DELETE", srv.URL+"/api/combos/cx", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Verify gone
+	resp = requestJSON(t, "GET", srv.URL+"/api/combos", "")
+	json.Unmarshal([]byte(readBody(t, resp)), &listResp)
+	combos = listResp["combos"].([]any)
+	if len(combos) != 1 {
+		t.Errorf("expected 1 combo after delete, got %d", len(combos))
+	}
+}
+
+func TestUsage_Endpoints(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	// Get (empty)
+	resp := requestJSON(t, "GET", srv.URL+"/api/usage", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &body)
+	if body["total"] != float64(0) {
+		t.Errorf("expected total 0, got %v", body["total"])
+	}
+
+	// Summary
+	resp = requestJSON(t, "GET", srv.URL+"/api/usage/summary", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Clear
+	resp = requestJSON(t, "DELETE", srv.URL+"/api/usage", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var clearResp map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &clearResp)
+	if clearResp["ok"] != true {
+		t.Error("clearUsage did not return ok:true")
+	}
+}
+
+func TestConsoleLogs_Endpoints(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	// Get
+	resp := requestJSON(t, "GET", srv.URL+"/api/console-logs", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &body)
+	if body["count"] != float64(0) {
+		t.Errorf("expected count 0, got %v", body["count"])
+	}
+
+	// Clear
+	resp = requestJSON(t, "DELETE", srv.URL+"/api/console-logs", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+func TestModels_List(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	resp := requestJSON(t, "GET", srv.URL+"/api/models", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &body)
+	models := body["models"].([]any)
+	if len(models) != 2 {
+		t.Fatalf("expected 2 models (1 provider + 1 combo), got %d: %v", len(models), models)
+	}
+}
+
+func TestProvider_NotFound(t *testing.T) {
+	srv, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	resp := requestJSON(t, "GET", srv.URL+"/api/providers/nonexistent/keys", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &body)
+	if body["error"] == nil {
+		t.Error("expected error message in response")
+	}
+}

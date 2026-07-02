@@ -45,6 +45,12 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	// Middleware
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	// Proxy routes (OpenAI-compatible)
 	r.Post("/v1/chat/completions", proxyHandler.ChatCompletions)
