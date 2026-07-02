@@ -14,6 +14,36 @@ function renderUsageRow(e) {
   </tr>';
 }
 
+function buildTrendChartSVG(entries) {
+  var buckets = new Array(24).fill(0);
+  var now = Date.now();
+  (entries || []).forEach(function(e) {
+    var age = now - new Date(e.timestamp).getTime();
+    var hourAgo = Math.floor(age / 3600000);
+    if (hourAgo >= 0 && hourAgo < 24) buckets[23 - hourAgo]++;
+  });
+  var max = Math.max.apply(null, buckets);
+  if (max === 0) max = 1;
+  var w = 600, h = 80, pad = 8;
+  var pts = buckets.map(function(v, i) {
+    var x = pad + (i / 23) * (w - 2 * pad);
+    var y = h - pad - (v / max) * (h - 2 * pad);
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  });
+  var areaPts = pts.join(' ') + ' ' + (w - pad).toFixed(1) + ',' + (h - pad) + ' ' + pad.toFixed(1) + ',' + (h - pad);
+  return '<svg class="trend-chart" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none"><polygon points="' + areaPts + '" fill="var(--accent)" opacity="0.08"/><polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+}
+
+function renderTrendChart(entries) {
+  return '<div class="card" id="trend-chart-card"><div class="card-title">' + t('trendChart') + '</div>' + buildTrendChartSVG(entries) + '</div>';
+}
+
+function updateTrendChart(entries) {
+  var card = document.getElementById('trend-chart-card');
+  if (!card) return;
+  card.innerHTML = '<div class="card-title">' + t('trendChart') + '</div>' + buildTrendChartSVG(entries);
+}
+
 async function renderUsage(c) {
   showSkeleton(c, 4);
   const [summary, usage, quotas] = await Promise.all([
@@ -34,13 +64,14 @@ async function renderUsage(c) {
         <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalInputTokens) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
         <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalOutputTokens) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
       </div>\
+      ' + renderTrendChart(entries) + '\
       ' + renderQuotaBars(quotaBars) + '\
       <div class="flex-between mb-12">\
         <h3>' + t('recentRequests') + '</h3>\
         <button class="btn btn-danger btn-sm" onclick="clearUsage()">' + t('clear') + '</button>\
       </div>\
     </div>' +
-    (entries.length === 0 ? '<div class="empty">' + t('noUsage') + '</div>' : '\
+    (entries.length === 0 ? emptyState(t('noUsage')) : '\
     <div class="usage-scroll">\
     <table>\
       <thead><tr><th>' + t('time') + '</th><th>' + t('provider') + '</th><th>' + t('model') + '</th><th>Key</th><th>' + t('status') + '</th><th>' + t('latency') + '</th><th>' + t('tokens') + '</th></tr></thead>\
@@ -67,6 +98,7 @@ function startUsageRefresh() {
         ]);
         updateUsageSummary(summary);
         updateUsageTable(usage.entries || []);
+        updateTrendChart(usage.entries || []);
         updateQuotaBars(quotas.quotas || []);
       }
     } catch(e) {}
@@ -117,14 +149,13 @@ function renderQuotaBars(bars) {
     if (bar.hasQuota) {
       var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
       var color = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
-      var remaining = bar.totalCapacity - bar.totalUsed;
       html += '<div class="quota-bar-item">' +
         '<div class="quota-bar-header">' +
           '<span class="quota-bar-model">' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + tokenInfo + '</span>' +
-          '<span class="quota-bar-numbers">' + remaining + '/' + bar.totalCapacity + '</span>' +
+          '<span class="quota-bar-numbers">' + bar.totalUsed + '/' + bar.totalCapacity + '</span>' +
         '</div>' +
         '<div class="quota-bar-track">' +
-          '<div class="quota-bar-fill" style="width:' + (100 - pct) + '%;background:' + color + '"></div>' +
+          '<div class="quota-bar-fill" style="width:' + pct + '%;background:' + color + '"></div>' +
         '</div>' +
       '</div>';
     } else {

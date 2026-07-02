@@ -11,7 +11,7 @@ async function renderCombos(c) {
     <div id="combo-form" style="display:none"></div>';
   const list = document.getElementById('combo-list');
   if (combos.length === 0) {
-    list.innerHTML = '<div class="empty">' + t('noCombos') + '</div>';
+    list.innerHTML = emptyState(t('noCombos'));
     return;
   }
   list.innerHTML = combos.map(function(cb) {

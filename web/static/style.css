@@ -241,6 +241,8 @@ tbody tr:last-child td{border-bottom:none}
 .code{font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-code);padding:3px 8px;background:var(--code-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--accent)}
 .muted{color:var(--text-muted)}
 .empty{text-align:center;padding:48px 20px;color:var(--text-muted);font-size:14px}
+.empty svg{opacity:0.35;margin:0 auto 8px;display:block}
+.empty p{margin:0}
 .flex{display:flex;gap:12px;align-items:center}
 .flex-between{display:flex;justify-content:space-between;align-items:center}
 .mt-12{margin-top:12px}
@@ -299,6 +301,9 @@ tbody tr:last-child td{border-bottom:none}
 .quota-bar-track{height:6px;background:var(--input-bg);border-radius:3px;overflow:hidden}
 .quota-bar-fill{height:100%;border-radius:3px;transition:width .4s cubic-bezier(0.4,0,0.2,1)}
 .quota-bar-tokens{font-size:var(--font-badge);color:var(--text-muted);font-weight:400}
+
+/* ===================== Trend Chart ===================== */
+.trend-chart{width:100%;height:80px;display:block}
 
 /* ===================== Reduced Motion ===================== */
 @media (prefers-reduced-motion: reduce){

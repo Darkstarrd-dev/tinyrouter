@@ -20,12 +20,14 @@ async function renderProviders(c) {
 function renderProviderList() {
   const el = document.getElementById('provider-list');
   if (providersCache.length === 0) {
-    el.innerHTML = '<div class="empty">' + t('noProviders') + '</div>';
+    el.innerHTML = emptyState(t('noProviders'));
     return;
   }
   el.innerHTML = providersCache.map(function(p) {
+    var brand = getProviderBrand(p.name);
+    var brandStyle = brand ? ' style="border-left:3px solid ' + brand + ';padding-left:18px"' : '';
     return '\
-    <div class="card provider-card" onclick="openProviderDetail(\'' + p.id + '\')">\
+    <div class="card provider-card"' + brandStyle + ' onclick="openProviderDetail(\'' + p.id + '\')">\
       <div class="card-header">\
         <span class="card-title">' + escapeHtml(p.name) + '</span>\
         <div class="flex" style="gap:8px">\
@@ -129,7 +131,7 @@ async function renderProviderDetail(c, id) {
   const data = await apiGet('/providers');
   const p = (data.providers || []).find(function(x) { return x.id === id; });
   if (!p) {
-    c.innerHTML = '<div class="empty">' + t('providerNotFound') + '</div>';
+    c.innerHTML = emptyState(t('providerNotFound'));
     return;
   }
   providerDetailCache = p;
@@ -167,7 +169,7 @@ function renderDetailKeys(p) {
         <button class="btn btn-sm" onclick="showBulkAddKeys(\'' + p.id + '\')">' + t('bulkAdd') + '</button>\
       </div>\
       <div id="key-form-' + p.id + '"></div>' +
-      (keys.length === 0 ? '<div class="empty">' + t('noKeys') + '</div>' : '\
+      (keys.length === 0 ? emptyState(t('noKeys')) : '\
       <table>\
         <thead><tr><th>' + t('keyName') + '</th><th>' + t('actions') + '</th><th>' + t('key') + '</th><th>' + t('priority') + '</th><th>' + t('status') + '</th></tr></thead>\
         <tbody>' +
@@ -355,7 +357,7 @@ function renderDetailModels(p) {
       </div>\
       <div id="m-test-result" class="mb-12"></div>\
       <div id="model-list">' +
-        (models.length === 0 ? '<div class="empty">' + t('noModels') + '</div>' : modelsHtml) + '\
+        (models.length === 0 ? emptyState(t('noModels')) : modelsHtml) + '\
       </div>\
     </div>';
 }

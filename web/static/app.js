@@ -95,6 +95,24 @@ function withLoading(btn, asyncFn) {
   });
 }
 
+function emptyState(msg) {
+  return '<div class="empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg><p>' + msg + '</p></div>';
+}
+
+function getProviderBrand(name) {
+  var n = (name || '').toLowerCase();
+  if (n.indexOf('deepseek') >= 0) return '#4fc3f7';
+  if (n.indexOf('openai') >= 0 || n.indexOf('gpt') >= 0) return '#10a37f';
+  if (n.indexOf('claude') >= 0 || n.indexOf('anthropic') >= 0) return '#d97706';
+  if (n.indexOf('gemini') >= 0 || n.indexOf('google') >= 0) return '#4285f4';
+  if (n.indexOf('moonshot') >= 0 || n.indexOf('kimi') >= 0) return '#6b21a8';
+  if (n.indexOf('qwen') >= 0 || n.indexOf('alibaba') >= 0 || n.indexOf('aliyun') >= 0) return '#ff6a00';
+  if (n.indexOf('baichuan') >= 0) return '#2563eb';
+  if (n.indexOf('siliconflow') >= 0) return '#7c3aed';
+  if (n.indexOf('modelscope') >= 0) return '#a855f7';
+  return '';
+}
+
 function toast(message, type, duration) {
   if (type === undefined) type = 'info';
   if (duration === undefined) duration = 3500;

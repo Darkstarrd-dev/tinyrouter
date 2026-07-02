@@ -74,6 +74,7 @@ const L = {
     selectAll: 'Select All', deselectAll: 'Deselect All', close: 'Close',
     pause: 'Paused',
     all: 'All', searchLogs: 'Search logs...',
+    trendChart: '24h Request Trend',
   },
   cn: {
     endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台',
@@ -149,6 +150,7 @@ const L = {
     selectAll: '全选', deselectAll: '取消全选', close: '关闭',
     pause: '已暂停',
     all: '全部', searchLogs: '搜索日志...',
+    trendChart: '24小时请求趋势',
   }
 };
 
