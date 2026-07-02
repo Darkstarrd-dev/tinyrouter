@@ -206,7 +206,8 @@
 
 ## 已知问题和注意事项
 
-1. **浏览器自动关闭限制**：Shutdown 按钮 `window.close()` 在非 `window.open()` 打开的窗口会静默失败
-2. **Light 主题玻璃效果**：浅色背景下的玻璃拟态不如深色明显
-3. **config.yaml 安全性**：现有测试 key 为真实凭据，避免泄露
-4. **URL 规范化**：`BuildUpstreamURL` 处理三种 base URL 格式（根路径、`/v1`、完整路径），均能正确规范化
+1. **stream_options 兼容性**：`injectStreamOptions` 默认为 false。仅对确认支持的 provider（如 ModelScope）手动开启。SenseNova、部分自定义 endpoint 可能拒绝该参数
+2. **浏览器自动关闭限制**：Shutdown 按钮 `window.close()` 在非 `window.open()` 打开的窗口会静默失败
+3. **Light 主题玻璃效果**：浅色背景下的玻璃拟态不如深色明显
+4. **config.yaml 安全性**：现有测试 key 为真实凭据，避免泄露
+5. **URL 规范化**：`BuildUpstreamURL` 处理三种 base URL 格式（根路径、`/v1`、完整路径），均能正确规范化
