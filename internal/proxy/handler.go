@@ -307,11 +307,9 @@ func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey,
 		OutputTokens: outputTokens,
 		Error:        errMsg,
 	})
-	if status == "success" {
-		select {
-		case h.UsageUpdateCh <- struct{}{}:
-		default:
-		}
+	select {
+	case h.UsageUpdateCh <- struct{}{}:
+	default:
 	}
 }
 
