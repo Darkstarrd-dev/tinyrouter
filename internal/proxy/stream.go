@@ -3,6 +3,7 @@ package proxy
 import (
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
 )
@@ -25,21 +26,30 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, pro
 
 	buf := make([]byte, 32*1024)
 	totalOutput := 0
+	var lastDataLine string
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			w.Write(buf[:n])
 			flusher.Flush()
 			totalOutput += n
+			chunk := string(buf[:n])
+			for _, line := range strings.Split(chunk, "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "data: ") && line != "data: [DONE]" {
+					lastDataLine = line[6:]
+				}
+			}
 		}
 		if err != nil {
 			break
 		}
 	}
 
-	h.logger.Info("\U0001f4ca [stream] %s | in=0 | out=%d | conn=%s", provider, totalOutput, sel.KeyName)
+	inputTokens, outputTokens := extractTokens([]byte(lastDataLine))
+	h.logger.Info("\U0001f4ca [stream] %s | in=%d | out=%d | conn=%s", provider, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", provider, model, latencyMs, resp.StatusCode)
-	h.recordUsage(provider, model, sel, "success", latencyMs, 0, totalOutput, "")
+	h.recordUsage(provider, model, sel, "success", latencyMs, inputTokens, outputTokens, "")
 }
 
 func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, provider, model string, sel *rotation.SelectedKey, latencyMs int64) {

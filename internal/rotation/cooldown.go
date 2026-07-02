@@ -3,7 +3,6 @@ package rotation
 import (
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
@@ -17,15 +16,6 @@ func (s *Selector) MarkUnavailable(providerID, keyID, model string, statusCode i
 	}
 	state.Lock()
 	defer state.Unlock()
-
-	if statusCode == 429 && isDailyQuota(body) {
-		unlock := nextCSTMidnight05()
-		state.ModelLocks[model] = unlock
-		state.Status = "locked"
-		state.LastError = fmt.Sprintf("429 daily quota: %s", truncate(body, 200))
-		state.LastErrorAt = time.Now()
-		return unlock
-	}
 
 	state.BackoffLevel++
 	backoff := time.Duration(math.Pow(2, float64(state.BackoffLevel-1))) * time.Second
@@ -58,40 +48,6 @@ func (s *Selector) ClearError(providerID, keyID, model string) {
 		state.Status = "active"
 		state.LastError = ""
 	}
-}
-
-func nextCSTMidnight05() time.Time {
-	loc, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		loc = time.FixedZone("CST", 8*3600)
-	}
-	now := time.Now().In(loc)
-	next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 5, 0, 0, loc)
-	return next
-}
-
-func isDailyQuota(body string) bool {
-	lower := strings.ToLower(body)
-	patterns := []string{
-		"daily quota",
-		"daily limit",
-		"quota exceeded",
-		"rate_limit_exceeded",
-		"you exceeded your current quota",
-	}
-	for _, p := range patterns {
-		if strings.Contains(lower, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func Is429TempError(statusCode int, body string) bool {
-	if statusCode != 429 {
-		return false
-	}
-	return !isDailyQuota(body)
 }
 
 func truncate(s string, n int) string {

@@ -9,7 +9,8 @@ import (
 
 // normalizeBaseURL strips known endpoint suffixes so the URL ends at the API root.
 // e.g. "https://api.example.com/v1/chat/completions" → "https://api.example.com/v1"
-//      "https://api.example.com/v1/models"            → "https://api.example.com/v1"
+//
+//	"https://api.example.com/v1/models"            → "https://api.example.com/v1"
 func normalizeBaseURL(baseURL string) string {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 	for _, suffix := range []string{"/chat/completions", "/completions", "/models"} {

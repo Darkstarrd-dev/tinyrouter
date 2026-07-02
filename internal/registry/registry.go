@@ -10,7 +10,7 @@ import (
 // KeyRuntimeState holds mutable per-key runtime state (not persisted to YAML).
 type KeyRuntimeState struct {
 	mu           sync.Mutex
-	Status       string            // "active" | "cooldown" | "locked"
+	Status       string // "active" | "cooldown" | "locked"
 	BackoffLevel int
 	ModelLocks   map[string]time.Time // model → unlock time
 	LastUsedAt   time.Time
@@ -328,10 +328,10 @@ func (r *Registry) GetKeyState(providerID, keyID string) *KeyRuntimeState {
 
 // --- Config access ---
 
-func (r *Registry) Config() *config.Config {
+func (r *Registry) Config() config.Config {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.config
+	return *r.config
 }
 
 // Reload replaces the config and reinitializes runtime states.

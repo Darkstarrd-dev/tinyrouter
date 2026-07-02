@@ -195,6 +195,7 @@ let providersCache = [];
 let providerDetailCache = null;
 let modelTestStatus = {};
 let importTarget = 'models';
+var usageRefreshTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
@@ -212,6 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function navigateTo(page) {
   currentPage = page;
   currentProviderId = null;
+  stopUsageRefresh();
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);
   });
@@ -238,6 +240,12 @@ function escapeHtml(s) {
 function maskKey(key) {
   if (!key || key.length < 8) return '***';
   return key.slice(0, 8) + '...';
+}
+
+function formatMillionTokens(n) {
+  if (!n || n === 0) return '0M';
+  var m = n / 1000000;
+  return m.toFixed(3) + 'M';
 }
 
 function copyToClipboard(text, label) {
@@ -1224,8 +1232,8 @@ async function renderUsage(c) {
       <div class="stat-card"><div class="stat-value" style="color:var(--accent2)">' + summary.success + '</div><div class="stat-label">' + t('success') + '</div></div>\
       <div class="stat-card"><div class="stat-value" style="color:var(--danger)">' + summary.error + '</div><div class="stat-label">' + t('errors') + '</div></div>\
       <div class="stat-card"><div class="stat-value">' + summary.avgLatencyMs + 'ms</div><div class="stat-label">' + t('avgLatency') + '</div></div>\
-      <div class="stat-card"><div class="stat-value">' + (summary.totalInputTokens || 0) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
-      <div class="stat-card"><div class="stat-value">' + (summary.totalOutputTokens || 0) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
+      <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalInputTokens) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
+      <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalOutputTokens) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
     </div>\
     <div class="flex-between mb-12">\
       <h3>' + t('recentRequests') + '</h3>\
@@ -1248,6 +1256,58 @@ async function renderUsage(c) {
         }).join('') + '\
       </tbody>\
     </table>');
+  startUsageRefresh();
+}
+
+function startUsageRefresh() {
+  stopUsageRefresh();
+  usageRefreshTimer = setInterval(async function() {
+    try {
+      const [summary, usage] = await Promise.all([
+        apiGet('/usage/summary'),
+        apiGet('/usage?limit=500')
+      ]);
+      updateUsageSummary(summary);
+      updateUsageTable(usage.entries || []);
+    } catch(e) {}
+  }, 3000);
+}
+
+function stopUsageRefresh() {
+  if (usageRefreshTimer) {
+    clearInterval(usageRefreshTimer);
+    usageRefreshTimer = null;
+  }
+}
+
+function updateUsageSummary(summary) {
+  var grid = document.querySelector('.stat-grid');
+  if (!grid) return;
+  var cards = grid.querySelectorAll('.stat-value');
+  if (cards.length >= 6) {
+    cards[0].textContent = summary.total;
+    cards[1].textContent = summary.success;
+    cards[2].textContent = summary.error;
+    cards[3].textContent = summary.avgLatencyMs + 'ms';
+    cards[4].textContent = formatMillionTokens(summary.totalInputTokens);
+    cards[5].textContent = formatMillionTokens(summary.totalOutputTokens);
+  }
+}
+
+function updateUsageTable(entries) {
+  var tbody = document.querySelector('.page-content table tbody');
+  if (!tbody) return;
+  tbody.innerHTML = entries.map(function(e) {
+    return '<tr>\
+      <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
+      <td>' + escapeHtml(e.provider) + '</td>\
+      <td>' + escapeHtml(e.model) + '</td>\
+      <td>' + escapeHtml(e.keyName) + '</td>\
+      <td><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></td>\
+      <td>' + e.latencyMs + 'ms</td>\
+      <td>' + e.inputTokens + '/' + e.outputTokens + '</td>\
+    </tr>';
+  }).join('');
 }
 
 async function clearUsage() {

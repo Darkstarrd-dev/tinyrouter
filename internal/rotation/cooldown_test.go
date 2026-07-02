@@ -73,37 +73,7 @@ func TestMarkUnavailable_ExponentialBackoff(t *testing.T) {
 	}
 }
 
-func TestMarkUnavailable_429DailyQuota(t *testing.T) {
-	reg, sel := setupTest(t)
-	state := reg.GetKeyState("test", "a")
-
-	state.Lock()
-	state.BackoffLevel = 5
-	state.Unlock()
-
-	unlock := sel.MarkUnavailable("test", "a", "gpt-4", 429, "you exceeded your current quota, please try again tomorrow")
-
-	state.Lock()
-	if state.BackoffLevel != 5 {
-		t.Fatalf("expected BackoffLevel unchanged (5), got %d", state.BackoffLevel)
-	}
-	if state.Status != "locked" {
-		t.Fatalf("expected status 'locked', got %s", state.Status)
-	}
-	state.Unlock()
-
-	if unlock.IsZero() {
-		t.Fatal("expected non-zero unlock time")
-	}
-
-	loc, _ := time.LoadLocation("Asia/Shanghai")
-	expectedUnlock := time.Now().In(loc).Add(24 * time.Hour)
-	if unlock.Sub(expectedUnlock) > time.Minute {
-		t.Fatalf("expected unlock around %v (+24h from now), got %v", expectedUnlock, unlock)
-	}
-}
-
-func TestMarkUnavailable_429Temp(t *testing.T) {
+func TestMarkUnavailable_429Backoff(t *testing.T) {
 	reg, sel := setupTest(t)
 	state := reg.GetKeyState("test", "a")
 
@@ -111,7 +81,7 @@ func TestMarkUnavailable_429Temp(t *testing.T) {
 	state.BackoffLevel = 3
 	state.Unlock()
 
-	unlock := sel.MarkUnavailable("test", "a", "gpt-4", 429, "Too many requests, slow down")
+	unlock := sel.MarkUnavailable("test", "a", "gpt-4", 429, "rate limit exceeded")
 
 	state.Lock()
 	if state.BackoffLevel != 4 {
@@ -206,39 +176,5 @@ func TestIsKeyAvailable_ExpiredLockCleaned(t *testing.T) {
 
 	if sel.isKeyAvailable(state, "claude-3") {
 		t.Fatal("expected key to be unavailable for claude-3 (active lock)")
-	}
-}
-
-func TestIsDailyQuota(t *testing.T) {
-	tests := []struct {
-		body string
-		want bool
-	}{
-		{"daily quota exceeded", true},
-		{"DAILY LIMIT reached", true},
-		{"Quota Exceeded", true},
-		{"rate_limit_exceeded", true},
-		{"you exceeded your current quota", true},
-		{"too many requests", false},
-		{"rate limited", false},
-		{"", false},
-	}
-	for _, tt := range tests {
-		got := isDailyQuota(tt.body)
-		if got != tt.want {
-			t.Errorf("isDailyQuota(%q) = %v, want %v", tt.body, got, tt.want)
-		}
-	}
-}
-
-func TestIs429TempError(t *testing.T) {
-	if !Is429TempError(429, "too many requests") {
-		t.Fatal("expected Is429TempError to return true for 429 with non-quota body")
-	}
-	if Is429TempError(429, "daily quota exceeded") {
-		t.Fatal("expected Is429TempError to return false for 429 with daily quota body")
-	}
-	if Is429TempError(500, "error") {
-		t.Fatal("expected Is429TempError to return false for non-429 status")
 	}
 }

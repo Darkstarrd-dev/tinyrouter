@@ -49,10 +49,11 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		cfg.Rotation = *updates.Rotation
 	}
 
-	if err := config.Save(rt.configPath, cfg); err != nil {
+	if err := config.Save(rt.configPath, &cfg); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
+	rt.reg.Reload(&cfg)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -91,7 +92,8 @@ func (rt *Router) createProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	p.IsActive = true
 	rt.reg.AddProvider(p)
-	if err := config.Save(rt.configPath, rt.reg.Config()); err != nil {
+	cfg := rt.reg.Config()
+	if err := config.Save(rt.configPath, &cfg); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "failed to save")
 		return
 	}
@@ -108,7 +110,8 @@ func (rt *Router) updateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rt.reg.UpdateProvider(id, updates) {
-		config.Save(rt.configPath, rt.reg.Config())
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
 		p, _ := rt.reg.GetProvider(id)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(p)
@@ -120,7 +123,8 @@ func (rt *Router) updateProvider(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if rt.reg.DeleteProvider(id) {
-		config.Save(rt.configPath, rt.reg.Config())
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -153,7 +157,8 @@ func (rt *Router) createKey(w http.ResponseWriter, r *http.Request) {
 	}
 	k.IsActive = true
 	if rt.reg.AddKey(providerID, k) {
-		config.Save(rt.configPath, rt.reg.Config())
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(k)
@@ -171,7 +176,8 @@ func (rt *Router) updateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rt.reg.UpdateKey(providerID, keyID, updates) {
-		config.Save(rt.configPath, rt.reg.Config())
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -183,7 +189,8 @@ func (rt *Router) deleteKey(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "id")
 	keyID := chi.URLParam(r, "kid")
 	if rt.reg.DeleteKey(providerID, keyID) {
-		config.Save(rt.configPath, rt.reg.Config())
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -234,7 +241,8 @@ func (rt *Router) createCombo(w http.ResponseWriter, r *http.Request) {
 		c.ID = generateID("combo")
 	}
 	rt.reg.AddCombo(c)
-	config.Save(rt.configPath, rt.reg.Config())
+	cfg := rt.reg.Config()
+	config.Save(rt.configPath, &cfg)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(c)
@@ -248,7 +256,8 @@ func (rt *Router) updateCombo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rt.reg.UpdateCombo(id, updates) {
-		config.Save(rt.configPath, rt.reg.Config())
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -259,7 +268,8 @@ func (rt *Router) updateCombo(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) deleteCombo(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if rt.reg.DeleteCombo(id) {
-		config.Save(rt.configPath, rt.reg.Config())
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {

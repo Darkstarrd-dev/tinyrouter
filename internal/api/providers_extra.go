@@ -320,7 +320,8 @@ func (rt *Router) addProviderModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if rt.reg.AddModel(providerID, req.Model) {
-		config.Save(rt.configPath, rt.reg.Config())
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -334,7 +335,8 @@ func (rt *Router) deleteProviderModel(w http.ResponseWriter, r *http.Request) {
 	modelID := r.URL.Query().Get("model")
 
 	if rt.reg.DeleteModel(providerID, modelID) {
-		config.Save(rt.configPath, rt.reg.Config())
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -391,7 +393,8 @@ func (rt *Router) bulkAddKeys(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	config.Save(rt.configPath, rt.reg.Config())
+	cfg := rt.reg.Config()
+	config.Save(rt.configPath, &cfg)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"added":  added,

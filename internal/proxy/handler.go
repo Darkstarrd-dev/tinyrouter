@@ -163,23 +163,30 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			resp.Body.Close()
 			bodyStr := string(body)
 
-			if rotation.Is429TempError(429, bodyStr) {
-				maxRetries := h.selector.Settings().MaxRetries
-				if attempt < maxRetries {
-					h.logger.Warn("429 temp rate limit, retrying in %ds (attempt %d/%d)",
-						h.selector.Settings().RetryDelaySec, attempt+1, maxRetries)
-					time.Sleep(time.Duration(h.selector.Settings().RetryDelaySec) * time.Second)
-					continue
-				}
+			maxRetries := h.selector.Settings().MaxRetries
+			if attempt < maxRetries {
+				h.logger.Warn("429 rate limit, retrying in %ds (attempt %d/%d)",
+					h.selector.Settings().RetryDelaySec, attempt+1, maxRetries)
+				time.Sleep(time.Duration(h.selector.Settings().RetryDelaySec) * time.Second)
+				continue
 			}
 
 			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, 429, bodyStr)
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
-			h.logger.Warn("429 quota/cooldown for key %s, switching key", sel.Key.Name)
+			h.logger.Warn("429 for key %s, switching key", sel.Key.Name)
 			continue
 		}
 
 		if resp.StatusCode >= 500 {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
+			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
+			h.logger.Error("upstream %d for key %s, switching", resp.StatusCode, sel.Key.Name)
+			continue
+		}
+
+		if resp.StatusCode >= 400 {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			h.selector.MarkUnavailable(providerID, sel.Key.ID, upstreamModel, resp.StatusCode, string(body))
@@ -298,10 +305,26 @@ func extractTokens(body []byte) (int, int) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return 0, 0
 	}
-	if usage, ok := resp["usage"].(map[string]any); ok {
-		in, _ := usage["prompt_tokens"].(float64)
-		out, _ := usage["completion_tokens"].(float64)
-		return int(in), int(out)
+	usage, ok := resp["usage"].(map[string]any)
+	if !ok {
+		return 0, 0
 	}
-	return 0, 0
+	in := tokenVal(usage, "prompt_tokens", "input_tokens")
+	out := tokenVal(usage, "completion_tokens", "output_tokens")
+	if in == 0 && out == 0 {
+		total, _ := usage["total_tokens"].(float64)
+		if total > 0 {
+			return int(total), 0
+		}
+	}
+	return int(in), int(out)
+}
+
+func tokenVal(m map[string]any, keys ...string) float64 {
+	for _, k := range keys {
+		if v, ok := m[k].(float64); ok && v > 0 {
+			return v
+		}
+	}
+	return 0
 }

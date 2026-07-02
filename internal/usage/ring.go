@@ -21,20 +21,20 @@ type Entry struct {
 
 // Summary is an aggregate view of usage entries.
 type Summary struct {
-	Total            int            `json:"total"`
-	Success          int            `json:"success"`
-	Error            int            `json:"error"`
-	ByProvider       map[string]int `json:"byProvider"`
-	ByModel          map[string]int `json:"byModel"`
-	ByKey            map[string]int `json:"byKey"`
-	AvgLatencyMs     int64          `json:"avgLatencyMs"`
-	TotalInputTokens  int           `json:"totalInputTokens"`
-	TotalOutputTokens int           `json:"totalOutputTokens"`
+	Total             int            `json:"total"`
+	Success           int            `json:"success"`
+	Error             int            `json:"error"`
+	ByProvider        map[string]int `json:"byProvider"`
+	ByModel           map[string]int `json:"byModel"`
+	ByKey             map[string]int `json:"byKey"`
+	AvgLatencyMs      int64          `json:"avgLatencyMs"`
+	TotalInputTokens  int            `json:"totalInputTokens"`
+	TotalOutputTokens int            `json:"totalOutputTokens"`
 }
 
 // RingBuffer is a fixed-size circular buffer for usage entries.
 type RingBuffer struct {
-	mu     sync.RWMutex
+	mu      sync.RWMutex
 	entries []Entry
 	head    int
 	size    int
