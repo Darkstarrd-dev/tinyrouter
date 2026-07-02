@@ -22,6 +22,7 @@ type Router struct {
 	cfg          *config.Config
 	configPath   string
 	usage        *usage.RingBuffer
+	quotaTracker *usage.QuotaTracker
 	logger       *console.Logger
 	proxyHandler *proxy.Handler
 	selector     *rotation.Selector
@@ -31,12 +32,13 @@ type Router struct {
 }
 
 // New creates an API Router.
-func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc) *Router {
+func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, quotaTracker *usage.QuotaTracker, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc) *Router {
 	return &Router{
 		reg:          reg,
 		cfg:          cfg,
 		configPath:   configPath,
 		usage:        usageBuf,
+		quotaTracker: quotaTracker,
 		logger:       logger,
 		proxyHandler: proxyHandler,
 		shutdown:     shutdown,
@@ -108,6 +110,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 		// Usage
 		r.Get("/usage", rt.getUsage)
 		r.Get("/usage/summary", rt.getUsageSummary)
+		r.Get("/usage/quotas", rt.getQuotas)
 		r.Get("/usage/events", rt.streamUsageEvents)
 		r.Delete("/usage", rt.clearUsage)
 

@@ -20,17 +20,19 @@ type Handler struct {
 	selector      rotation.KeySelector
 	comboRes      *combo.Resolver
 	usage         usage.UsageStore
+	quotaTracker  *usage.QuotaTracker
 	logger        *console.Logger
 	client        *http.Client
 	UsageUpdateCh chan struct{}
 }
 
-func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, logger *console.Logger) *Handler {
+func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, quotaTracker *usage.QuotaTracker, logger *console.Logger) *Handler {
 	return &Handler{
 		reg:           reg,
 		selector:      selector,
 		comboRes:      comboRes,
 		usage:         usageBuf,
+		quotaTracker:  quotaTracker,
 		logger:        logger,
 		UsageUpdateCh: make(chan struct{}, 1),
 		client: &http.Client{
@@ -178,6 +180,9 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		// 2xx success
 		h.selector.ClearError(providerID, sel.Key.ID, upstreamModel)
 
+		// Parse rate-limit headers and update key quota state
+		h.parseAndUpdateQuota(sel, providerID, upstreamModel, resp.Header)
+
 		maskedURL := maskURL(sel.Provider.BaseURL)
 		h.logger.Info("PROXY %s | %s | conn=%s | url=%s", sel.Provider.Name, upstreamModel, sel.KeyName, maskedURL)
 
@@ -255,6 +260,23 @@ func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey,
 	case h.UsageUpdateCh <- struct{}{}:
 	default:
 	}
+}
+
+// parseAndUpdateQuota extracts rate-limit info from upstream response headers
+// and stores it in the key's runtime state.
+func (h *Handler) parseAndUpdateQuota(sel *rotation.SelectedKey, providerID, model string, headers http.Header) {
+	adapter := rotation.GetAdapter(sel.Provider)
+	snap := adapter.ParseHeaders(headers)
+	if snap == nil {
+		return
+	}
+	state := h.reg.GetKeyState(providerID, sel.Key.ID)
+	if state == nil {
+		return
+	}
+	state.UpdateQuota(model, snap.ModelLimit, snap.ModelRemaining, snap.GlobalLimit, snap.GlobalRemaining)
+	// Update the quota tracker for UI display
+	h.quotaTracker.Update(sel.Provider.Name, model, sel.Key.ID, sel.Key.Name, snap.ModelLimit, snap.ModelRemaining)
 }
 
 func splitModel(s string) (string, string) {

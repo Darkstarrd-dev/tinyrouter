@@ -2,11 +2,13 @@
 
 async function renderUsage(c) {
   showSkeleton(c, 4);
-  const [summary, usage] = await Promise.all([
+  const [summary, usage, quotas] = await Promise.all([
     apiGet('/usage/summary'),
-    apiGet('/usage?limit=500')
+    apiGet('/usage?limit=500'),
+    apiGet('/usage/quotas')
   ]);
   const entries = usage.entries || [];
+  const quotaBars = quotas.quotas || [];
   c.innerHTML = '\
     <div class="usage-header">\
       <h2>' + t('usage') + '</h2>\
@@ -18,6 +20,7 @@ async function renderUsage(c) {
         <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalInputTokens) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
         <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalOutputTokens) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
       </div>\
+      ' + renderQuotaBars(quotaBars) + '\
       <div class="flex-between mb-12">\
         <h3>' + t('recentRequests') + '</h3>\
         <button class="btn btn-danger btn-sm" onclick="clearUsage()">' + t('clear') + '</button>\
@@ -53,12 +56,14 @@ function startUsageRefresh() {
     try {
       var data = JSON.parse(ev.data);
       if (data.type === 'usage-updated') {
-        const [summary, usage] = await Promise.all([
+        const [summary, usage, quotas] = await Promise.all([
           apiGet('/usage/summary'),
-          apiGet('/usage?limit=500')
+          apiGet('/usage?limit=500'),
+          apiGet('/usage/quotas')
         ]);
         updateUsageSummary(summary);
         updateUsageTable(usage.entries || []);
+        updateQuotaBars(quotas.quotas || []);
       }
     } catch(e) {}
   };
@@ -105,4 +110,31 @@ async function clearUsage() {
   await apiDelete('/usage');
   toast(t('usageCleared'), 'info');
   renderUsage(document.getElementById('page-content'));
+}
+
+function renderQuotaBars(bars) {
+  if (!bars || bars.length === 0) return '';
+  var html = '<div class="quota-section"><h3>Quota Monitor</h3>';
+  bars.forEach(function(bar) {
+    var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
+    var color = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
+    var remaining = bar.totalCapacity - bar.totalUsed;
+    html += '<div class="quota-bar-item">' +
+      '<div class="quota-bar-header">' +
+        '<span class="quota-bar-model">' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + '</span>' +
+        '<span class="quota-bar-numbers">' + remaining + '/' + bar.totalCapacity + '</span>' +
+      '</div>' +
+      '<div class="quota-bar-track">' +
+        '<div class="quota-bar-fill" style="width:' + (100 - pct) + '%;background:' + color + '"></div>' +
+      '</div>' +
+    '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function updateQuotaBars(bars) {
+  var container = document.querySelector('.quota-section');
+  if (!container) return;
+  container.outerHTML = renderQuotaBars(bars);
 }

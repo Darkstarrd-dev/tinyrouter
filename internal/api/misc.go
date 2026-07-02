@@ -43,6 +43,14 @@ func (rt *Router) clearUsage(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
+func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
+	bars := rt.quotaTracker.All()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"quotas": bars,
+	})
+}
+
 func (rt *Router) streamUsageEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {

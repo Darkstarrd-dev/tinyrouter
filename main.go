@@ -38,14 +38,15 @@ func main() {
 	// Initialize components
 	logger := console.New(cfg.ConsoleLogMaxLines)
 	usageBuf := usage.New(cfg.UsageRingSize)
+	quotaTracker := usage.NewQuotaTracker()
 	reg := registry.New(cfg)
 	selector := rotation.New(reg, &cfg.Rotation)
 	comboRes := combo.New(reg)
-	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, logger)
+	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, quotaTracker, logger)
 
 	// Shutdown is triggered by the UI via POST /api/shutdown.
 	shutdownCtx, triggerShutdown := context.WithCancel(context.Background())
-	apiRouter := api.New(reg, cfg, *configPath, usageBuf, logger, proxyHandler, triggerShutdown)
+	apiRouter := api.New(reg, cfg, *configPath, usageBuf, quotaTracker, logger, proxyHandler, triggerShutdown)
 
 	// Build HTTP server
 	handler := apiRouter.Routes(proxyHandler)

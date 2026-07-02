@@ -51,6 +51,49 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 	bodyStr := string(body)
 	latencyMs := time.Since(startTime).Milliseconds()
 
+	// Parse rate-limit headers from the 429 response (ModelScope returns them even on 429)
+	adapter := rotation.GetAdapter(sel.Provider)
+	snap := adapter.ParseHeaders(resp.Header)
+	if snap != nil {
+		// Update quota state from the 429 response headers
+		keyState := h.reg.GetKeyState(providerID, sel.Key.ID)
+		if keyState != nil {
+			keyState.UpdateQuota(model, snap.ModelLimit, snap.ModelRemaining, snap.GlobalLimit, snap.GlobalRemaining)
+		}
+		// Update the quota tracker for UI display
+		h.quotaTracker.Update(sel.Provider.Name, model, sel.Key.ID, sel.Key.Name, snap.ModelLimit, snap.ModelRemaining)
+	}
+
+	// If adapter detected quota exhaustion (ModelRemaining == 0), lock the key for this model
+	if snap != nil && snap.ModelExhausted() {
+		h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, model, bodyStr)
+		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
+		state.temp429Retries = 0
+		h.logger.Warn("429 quota exhausted: %s | locked Key %s until next CST day", truncStr(bodyStr, 200), sel.Key.Name)
+		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
+		return
+	}
+
+	// If adapter has quota info but not exhausted, use progressive backoff sequence
+	if snap != nil && snap.HasQuota() && !snap.ModelExhausted() {
+		maxBackoffRetries := 10
+		if state.temp429Retries < maxBackoffRetries {
+			state.temp429Retries++
+			delay := rotation.BackoffSequence(state.temp429Retries)
+			h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
+				truncStr(bodyStr, 200), delay, state.temp429Retries, maxBackoffRetries, sel.Key.Name)
+			h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
+			time.Sleep(time.Duration(delay) * time.Second)
+			return
+		}
+		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
+		state.temp429Retries = 0
+		h.logger.Warn("429 retries exhausted for Key %s, switching", sel.Key.Name)
+		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
+		return
+	}
+
+	// Fallback: no adapter (SenseNova/Elysiver) — use original logic
 	if rotation.IsDailyQuota429(bodyStr, model) {
 		h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, model, bodyStr)
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)

@@ -81,6 +81,27 @@ func (s *Selector) isKeyAvailable(state *registry.KeyRuntimeState, model string)
 	return true
 }
 
+// BackoffSequence returns the backoff delay in seconds for the nth retry (1-indexed).
+// Sequence: 1, 2, 4, 8, 10, 15, 15, 15, 15, 15 (max 10 retries)
+func BackoffSequence(n int) int {
+	switch {
+	case n <= 0:
+		return 0
+	case n == 1:
+		return 1
+	case n == 2:
+		return 2
+	case n == 3:
+		return 4
+	case n == 4:
+		return 8
+	case n == 5:
+		return 10
+	default:
+		return 15
+	}
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

@@ -25,3 +25,6 @@ server.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Local reference docs
+providerinfo.md

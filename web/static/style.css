@@ -273,3 +273,13 @@ tbody tr:last-child td{border-bottom:none}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
 @keyframes pageFadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .page-enter>*{animation:pageFadeIn .3s ease-out both}
+
+/* ===================== Quota Bars ===================== */
+.quota-section{margin-bottom:16px}
+.quota-section h3{font-size:var(--font-h3);margin-bottom:10px;color:var(--text)}
+.quota-bar-item{margin-bottom:10px}
+.quota-bar-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.quota-bar-model{font-size:var(--font-base);color:var(--text-secondary);font-weight:500}
+.quota-bar-numbers{font-size:var(--font-badge);color:var(--text-muted);font-variant-numeric:tabular-nums}
+.quota-bar-track{height:6px;background:var(--input-bg);border-radius:3px;overflow:hidden}
+.quota-bar-fill{height:100%;border-radius:3px;transition:width .4s cubic-bezier(0.4,0,0.2,1)}
