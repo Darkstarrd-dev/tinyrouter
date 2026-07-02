@@ -74,8 +74,8 @@ function showAddProvider() {
       <div class="form-group"><label>' + t('modelIdLabel') + '</label><input id="p-modelid" placeholder="deepseek-chat"></div>\
       <div id="p-check-result" class="mt-12"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn" onclick="checkProvider()">' + t('check') + '</button>\
-        <button class="btn btn-primary" onclick="addProvider()">' + t('create') + '</button>\
+        <button class="btn" onclick="withLoading(this, () => checkProvider())">' + t('check') + '</button>\
+        <button class="btn btn-primary" onclick="withLoading(this, () => addProvider())">' + t('create') + '</button>\
         <button class="btn" onclick="document.getElementById(\'provider-form\').style.display=\'none\'">' + t('cancel') + '</button>\
       </div>\
     </div>';
@@ -175,7 +175,7 @@ function renderDetailKeys(p) {
             return '<tr>\
               <td>' + escapeHtml(k.name) + '</td>\
               <td>\
-                <button class="btn btn-sm" onclick="testKeyDetail(\'' + p.id + '\',\'' + k.id + '\')">' + t('test') + '</button>\
+                <button class="btn btn-sm" onclick="withLoading(this, () => testKeyDetail(\'' + p.id + '\',\'' + k.id + '\'))">' + t('test') + '</button>\
                 <button class="btn btn-sm" onclick="toggleKeyDetail(\'' + p.id + '\',\'' + k.id + '\',' + (!k.isActive) + ')">' + (k.isActive ? t('pause') : t('resume')) + '</button>\
                 <button class="btn btn-sm btn-danger" onclick="deleteKeyDetail(\'' + p.id + '\',\'' + k.id + '\')">' + t('delete') + '</button>\
               </td>\
@@ -198,7 +198,7 @@ function showAddKeyDetail(providerId) {
       <div class="form-group"><label>' + t('apiKeyInput') + '</label><input type="password" id="dk-key" placeholder="sk-..."></div>\
       <div class="form-group"><label>' + t('priorityLabel') + '</label><input type="number" id="dk-priority" value="1" style="max-width:120px"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="addKeyDetail(\'' + providerId + '\')">' + t('create') + '</button>\
+        <button class="btn btn-primary" onclick="withLoading(this, () => addKeyDetail(\'' + providerId + '\'))">' + t('create') + '</button>\
         <button class="btn" onclick="document.getElementById(\'key-form-' + providerId + '\').innerHTML=\'\'">' + t('cancel') + '</button>\
       </div>\
     </div>';
@@ -228,7 +228,7 @@ function showBulkAddKeys(providerId) {
       <div class="form-group mt-12"><textarea id="bk-textarea" rows="8" placeholder="Main|sk-aaa\nBackup|sk-bbb\nsk-ccc"></textarea></div>\
       <div class="form-group"><label>' + t('defaultPriority') + '</label><input type="number" id="bk-priority" value="1" style="max-width:120px"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="bulkAddKeys(\'' + providerId + '\')">' + t('addAll') + '</button>\
+        <button class="btn btn-primary" onclick="withLoading(this, () => bulkAddKeys(\'' + providerId + '\'))">' + t('addAll') + '</button>\
         <button class="btn" onclick="document.getElementById(\'key-form-' + providerId + '\').innerHTML=\'\'">' + t('cancel') + '</button>\
       </div>\
       <div id="bk-result" class="mt-12"></div>\
@@ -280,6 +280,8 @@ async function toggleKeyDetail(pid, kid, active) {
 }
 
 async function deleteKeyDetail(pid, kid) {
+  var ok = await confirmModal(t('confirmDeleteKey'));
+  if (!ok) return;
   await apiDelete('/providers/' + pid + '/keys/' + kid);
   toast(t('keyDeleted'), 'success');
   currentProviderId = pid;
@@ -308,7 +310,7 @@ function renderDetailRotation(p) {
         <label>' + t('stickyLabel') + '</label>\
         <input type="number" id="r-sticky" value="' + sticky + '" style="max-width:120px">\
       </div>\
-      <button class="btn btn-primary" onclick="saveProviderRotation(\'' + p.id + '\')">' + t('save') + '</button>\
+      <button class="btn btn-primary" onclick="withLoading(this, () => saveProviderRotation(\'' + p.id + '\'))">' + t('save') + '</button>\
     </div>';
 }
 
@@ -334,7 +336,7 @@ function renderDetailModels(p) {
       else { statusClass = 'model-err'; statusText = ts.error || 'FAIL'; }
     }
     return '<div class="model-row">\
-      <button class="btn btn-sm" onclick="testSingleModel(\'' + p.id + '\',\'' + escapeHtml(m) + '\')">' + t('test') + '</button>\
+        <button class="btn btn-sm" onclick="withLoading(this, () => testSingleModel(\'' + p.id + '\',\'' + escapeHtml(m) + '\'))">' + t('test') + '</button>\
       <button class="btn btn-sm btn-danger" onclick="deleteModelDetail(\'' + p.id + '\',\'' + escapeHtml(m) + '\')">' + t('delete') + '</button>\
       <span class="model-id copyable" onclick="copyToClipboard(\'' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '\')" title="' + t('clickToCopy') + '">' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '</span>\
       <span class="model-status ' + statusClass + '">' + escapeHtml(statusText) + '</span>\
@@ -345,11 +347,11 @@ function renderDetailModels(p) {
       <div class="section-title">' + t('modelsTitle') + ' (' + models.length + ')</div>\
       <div class="flex mb-12" style="gap:8px">\
         <input id="m-input" placeholder="' + t('modelPlaceholder') + '" style="flex:1">\
-        <button class="btn btn-sm" onclick="testModelDetail(\'' + p.id + '\')">' + t('test') + '</button>\
-        <button class="btn btn-sm btn-primary" onclick="addModelDetail(\'' + p.id + '\')">' + t('create') + '</button>\
+        <button class="btn btn-sm" onclick="withLoading(this, () => testModelDetail(\'' + p.id + '\'))">' + t('test') + '</button>\
+        <button class="btn btn-sm btn-primary" onclick="withLoading(this, () => addModelDetail(\'' + p.id + '\'))">' + t('create') + '</button>\
       </div>\
       <div class="flex mb-12" style="gap:8px">\
-        <button class="btn btn-sm" onclick="importModels(\'' + p.id + '\')">' + t('importModels') + '</button>\
+        <button class="btn btn-sm" onclick="withLoading(this, () => importModels(\'' + p.id + '\'))">' + t('importModels') + '</button>\
       </div>\
       <div id="m-test-result" class="mb-12"></div>\
       <div id="model-list">' +
@@ -404,6 +406,8 @@ async function addModelDetail(pid) {
 }
 
 async function deleteModelDetail(pid, modelId) {
+  var ok = await confirmModal(t('confirmDeleteModel') + modelId);
+  if (!ok) return;
   var resp = await apiDelete('/providers/' + pid + '/models?model=' + encodeURIComponent(modelId));
   if (resp.error) { toast(t('modelTestFailed') + resp.error, 'error'); return; }
   delete modelTestStatus[modelId];
@@ -477,7 +481,7 @@ function showEditProvider(id) {
       <div class="form-group"><label>' + t('prefixLabel') + '</label><input id="ep-prefix" value="' + escapeHtml(p.prefix) + '"></div>\
       <div class="form-group"><label>' + t('baseUrlLabel') + '</label><input id="ep-url" value="' + escapeHtml(p.baseUrl) + '"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="saveEditProvider(\'' + id + '\')">' + t('save') + '</button>\
+        <button class="btn btn-primary" onclick="withLoading(this, () => saveEditProvider(\'' + id + '\'))">' + t('save') + '</button>\
         <button class="btn" onclick="cancelEditProvider()">' + t('cancel') + '</button>\
       </div>\
     </div>';

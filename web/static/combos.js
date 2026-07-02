@@ -57,7 +57,7 @@ function showAddCombo() {
         </div>\
         <input id="c-judge" placeholder="deepseek/deepseek-chat"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="addCombo()">' + t('create') + '</button>\
+        <button class="btn btn-primary" onclick="withLoading(this, () => addCombo())">' + t('create') + '</button>\
         <button class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
       </div>\
     </div>';
@@ -114,7 +114,7 @@ async function showEditCombo(id) {
         </div>\
         <input id="c-judge" value="' + escapeHtml(cb.fusionJudge || '') + '" placeholder="deepseek/deepseek-chat"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="saveEditCombo(\'' + id + '\')">' + t('saveCombo') + '</button>\
+        <button class="btn btn-primary" onclick="withLoading(this, () => saveEditCombo(\'' + id + '\'))">' + t('saveCombo') + '</button>\
         <button class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
       </div>\
     </div>';

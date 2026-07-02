@@ -10,7 +10,7 @@ async function renderEndpoint(c) {
         <label>' + t('listenPort') + '</label>\
         <div class="flex">\
           <input type="number" id="port" value="' + settings.port + '" style="max-width:120px">\
-          <button class="btn btn-primary" onclick="savePort()">' + t('save') + '</button>\
+          <button class="btn btn-primary" onclick="withLoading(this, () => savePort())">' + t('save') + '</button>\
         </div>\
       </div>\
       <p class="muted mt-12">' + t('apiEndpoint') + ' <span class="code">http://localhost:' + settings.port + '/v1</span></p>\
@@ -41,7 +41,7 @@ async function renderEndpoint(c) {
         <label>' + t('backoffMax') + '</label>\
         <input type="number" id="backoffMaxSec" value="' + ((settings.rotation && settings.rotation.backoffMaxSec) || 240) + '" style="max-width:120px">\
       </div>\
-      <button class="btn btn-primary" onclick="saveRotation()">' + t('saveRotation') + '</button>\
+      <button class="btn btn-primary" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
     </div>';
 }
 

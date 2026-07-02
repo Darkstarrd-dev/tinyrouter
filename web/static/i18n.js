@@ -73,6 +73,7 @@ const L = {
     selectModels: 'Select Models', addSelected: 'Add Selected', noModelsAvailable: 'No models available',
     selectAll: 'Select All', deselectAll: 'Deselect All', close: 'Close',
     pause: 'Paused',
+    all: 'All', searchLogs: 'Search logs...',
   },
   cn: {
     endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台',
@@ -147,6 +148,7 @@ const L = {
     selectModels: '选择模型', addSelected: '添加选中', noModelsAvailable: '无可用模型',
     selectAll: '全选', deselectAll: '取消全选', close: '关闭',
     pause: '已暂停',
+    all: '全部', searchLogs: '搜索日志...',
   }
 };
 

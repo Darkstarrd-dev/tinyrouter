@@ -84,12 +84,27 @@ function fallbackCopy(text, label) {
   document.body.removeChild(ta);
 }
 
+function withLoading(btn, asyncFn) {
+  if (!btn || btn.disabled) return Promise.resolve();
+  var original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span>';
+  return Promise.resolve(asyncFn()).finally(function() {
+    btn.disabled = false;
+    btn.innerHTML = original;
+  });
+}
+
 function toast(message, type, duration) {
   if (type === undefined) type = 'info';
   if (duration === undefined) duration = 3500;
   const container = document.getElementById('toast-container');
   if (!container) return;
-  const icons = { success: '\u2713', error: '\u2715', info: '\u2139', warning: '\u26A0' };
+  var svgCheck = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  var svgX = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  var svgInfo = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+  var svgWarn = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  const icons = { success: svgCheck, error: svgX, info: svgInfo, warning: svgWarn };
   const el = document.createElement('div');
   el.className = 'toast toast-' + type;
   el.setAttribute('role', type === 'error' ? 'alert' : 'status');
@@ -129,7 +144,10 @@ function initTheme() {
 
 function updateThemeButton(theme) {
   const btn = document.getElementById('theme-btn');
-  if (btn) btn.innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+  if (!btn) return;
+  var sunSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+  var moonSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+  btn.innerHTML = theme === 'dark' ? sunSvg : moonSvg;
 }
 
 function initFontSize() {

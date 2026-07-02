@@ -1,5 +1,19 @@
 // ===================== Usage Page =====================
 
+var lastUsageSig = '';
+
+function renderUsageRow(e) {
+  return '<tr>\
+    <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
+    <td>' + escapeHtml(e.provider) + '</td>\
+    <td>' + escapeHtml(e.model) + '</td>\
+    <td>' + escapeHtml(e.keyName) + '</td>\
+    <td><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></td>\
+    <td>' + e.latencyMs + 'ms</td>\
+    <td>' + e.inputTokens + '/' + e.outputTokens + '</td>\
+  </tr>';
+}
+
 async function renderUsage(c) {
   showSkeleton(c, 4);
   const [summary, usage, quotas] = await Promise.all([
@@ -31,17 +45,7 @@ async function renderUsage(c) {
     <table>\
       <thead><tr><th>' + t('time') + '</th><th>' + t('provider') + '</th><th>' + t('model') + '</th><th>Key</th><th>' + t('status') + '</th><th>' + t('latency') + '</th><th>' + t('tokens') + '</th></tr></thead>\
       <tbody>' +
-        entries.map(function(e) {
-          return '<tr>\
-            <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
-            <td>' + escapeHtml(e.provider) + '</td>\
-            <td>' + escapeHtml(e.model) + '</td>\
-            <td>' + escapeHtml(e.keyName) + '</td>\
-            <td><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></td>\
-            <td>' + e.latencyMs + 'ms</td>\
-            <td>' + e.inputTokens + '/' + e.outputTokens + '</td>\
-          </tr>';
-        }).join('') + '\
+        entries.map(renderUsageRow).join('') + '\
       </tbody>\
     </table>\
     </div>');
@@ -93,17 +97,10 @@ function updateUsageSummary(summary) {
 function updateUsageTable(entries) {
   var tbody = document.querySelector('#page-content table tbody');
   if (!tbody) return;
-  tbody.innerHTML = entries.map(function(e) {
-    return '<tr>\
-      <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
-      <td>' + escapeHtml(e.provider) + '</td>\
-      <td>' + escapeHtml(e.model) + '</td>\
-      <td>' + escapeHtml(e.keyName) + '</td>\
-      <td><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></td>\
-      <td>' + e.latencyMs + 'ms</td>\
-      <td>' + e.inputTokens + '/' + e.outputTokens + '</td>\
-    </tr>';
-  }).join('');
+  var sig = entries.length + ':' + (entries[0] ? entries[0].timestamp : '');
+  if (sig === lastUsageSig) return;
+  lastUsageSig = sig;
+  tbody.innerHTML = entries.map(renderUsageRow).join('');
 }
 
 async function clearUsage() {
