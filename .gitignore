@@ -2,6 +2,10 @@
 tinyrouter
 tinyrouter-*
 *.exe
+*.exe~
+
+# Generated resource file for Windows icon
+*.syso
 
 # Config (generated at runtime)
 config.yaml

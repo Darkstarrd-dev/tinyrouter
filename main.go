@@ -1,5 +1,7 @@
 package main
 
+//go:generate rsrc -ico web/static/favicon.ico -o rsrc.syso
+
 import (
 	"context"
 	"flag"
