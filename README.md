@@ -2,7 +2,7 @@
 
 轻量级 LLM API 代理，从 [9router](https://github.com/sst9/9router) 抽取核心功能用 Go 重写。
 
-单二进制，内存占用 ~15 MB，内置 Web UI。
+单二进制，内存占用 ~6 MB，内置 Web UI。
 
 ## 功能
 
@@ -96,22 +96,6 @@ curl http://localhost:20128/v1/chat/completions \
     "stream": true
   }'
 ```
-
-## 与 9router 的差异
-
-| 特性 | 9router | TinyRouter |
-|---|---|---|
-| 运行时 | Node.js / Next.js | Go 单二进制 |
-| 内存 | 200–400 MB | 10–25 MB |
-| 数据库 | SQLite | 无 (YAML + 内存) |
-| 鉴权 | JWT / OAuth / 密码 | 无 (纯本地) |
-| 格式互转 | OpenAI ↔ Claude ↔ GLM | 仅 OpenAI 兼容透传 |
-| Token Saver | RTK / Headroom / Caveman / Ponytail | 无 |
-| Quota Tracker | 有 | 无 |
-| CLI Tools | 16 个工具 | 无 |
-| OAuth Providers | 有 | 无 |
-| Tunnel / Tailscale | 有 | 无 |
-| 部署物 | ~500 MB | ~15 MB |
 
 ## License
 
