@@ -118,11 +118,21 @@ func (rt *Router) listModels(w http.ResponseWriter, r *http.Request) {
 		if !p.IsActive {
 			continue
 		}
-		models = append(models, modelInfo{
-			ID:       p.Prefix + "/*",
-			Provider: p.Name,
-			Type:     "provider",
-		})
+		if len(p.Models) > 0 {
+			for _, m := range p.Models {
+				models = append(models, modelInfo{
+					ID:       p.Prefix + "/" + m,
+					Provider: p.Name,
+					Type:     "provider",
+				})
+			}
+		} else {
+			models = append(models, modelInfo{
+				ID:       p.Prefix + "/*",
+				Provider: p.Name,
+				Type:     "provider",
+			})
+		}
 	}
 	for _, c := range combos {
 		models = append(models, modelInfo{

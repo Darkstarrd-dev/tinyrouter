@@ -4,6 +4,10 @@ const API = '/api';
 
 // --- State ---
 let currentPage = 'endpoint';
+let currentProviderId = null;
+let providersCache = [];
+let providerDetailCache = null;
+let modelTestStatus = {}; // modelId -> {ok, latencyMs, error}
 
 // --- Init ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -18,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function navigateTo(page) {
   currentPage = page;
+  currentProviderId = null;
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);
   });
@@ -66,6 +71,16 @@ async function apiDelete(path) {
   return r.json();
 }
 
+function escapeHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function maskKey(key) {
+  if (!key || key.length < 8) return '***';
+  return key.slice(0, 8) + '...';
+}
+
 // --- Endpoint Page ---
 async function renderEndpoint(c) {
   const settings = await apiGet('/settings');
@@ -83,7 +98,7 @@ async function renderEndpoint(c) {
       <p class="muted mt-12">No API key required. Any key or no key works.</p>
     </div>
     <div class="card">
-      <div class="card-title">Rotation Settings</div>
+      <div class="card-title">Rotation Settings (Global Default)</div>
       <div class="form-group mt-12">
         <label>Strategy</label>
         <select id="strategy">
@@ -129,9 +144,13 @@ async function saveRotation() {
   alert('Rotation settings saved.');
 }
 
-// --- Providers Page ---
-let providersCache = [];
+// ===================== Providers Page =====================
+
 async function renderProviders(c) {
+  if (currentProviderId) {
+    await renderProviderDetail(c, currentProviderId);
+    return;
+  }
   const data = await apiGet('/providers');
   providersCache = data.providers || [];
   c.innerHTML = `
@@ -150,52 +169,30 @@ function renderProviderList() {
     return;
   }
   el.innerHTML = providersCache.map(p => `
-    <div class="card">
+    <div class="card provider-card" onclick="openProviderDetail('${p.id}')">
       <div class="card-header">
-        <span class="card-title">${p.name}</span>
+        <span class="card-title">${escapeHtml(p.name)}</span>
         <span class="badge ${p.isActive ? 'badge-active' : 'badge-inactive'}">${p.isActive ? 'Active' : 'Inactive'}</span>
       </div>
-      <p class="muted">Prefix: <span class="code">${p.prefix}</span> | Base URL: <span class="code">${p.baseUrl}</span> | Keys: ${p.keys?.length || 0}</p>
-      <div class="flex mt-12" style="gap:8px">
-        <button class="btn btn-sm btn-primary" onclick="toggleProvider('${p.id}', ${!p.isActive})">${p.isActive ? 'Disable' : 'Enable'}</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}')">Delete</button>
-      </div>
-      <div class="mt-12" id="keys-${p.id}"></div>
+      <p class="muted">Prefix: <span class="code">${escapeHtml(p.prefix)}</span> | Base URL: <span class="code">${escapeHtml(p.baseUrl)}</span></p>
+      <p class="muted mt-12">Keys: ${p.keys?.length || 0} | Models: ${p.models?.length || 0}</p>
     </div>
   `).join('');
-  providersCache.forEach(p => renderKeys(p));
 }
 
-async function renderKeys(p) {
-  const el = document.getElementById('keys-' + p.id);
-  if (!p.keys || p.keys.length === 0) {
-    el.innerHTML = '<p class="muted">No keys. <a href="#" onclick="showAddKey(\'' + p.id + '\');return false">Add one</a></p>';
-    return;
-  }
-  el.innerHTML = `
-    <div class="flex-between mb-12">
-      <span class="muted">Keys</span>
-      <button class="btn btn-sm btn-primary" onclick="showAddKey('${p.id}')">+ Add Key</button>
-    </div>
-    <table>
-      <thead><tr><th>Name</th><th>Key</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
-      <tbody>
-        ${p.keys.map(k => `
-          <tr>
-            <td>${k.name}</td>
-            <td><span class="code">${k.key.slice(0, 8)}...</span></td>
-            <td>${k.priority}</td>
-            <td><span class="badge ${k.isActive ? 'badge-active' : 'badge-inactive'}">${k.isActive ? 'Active' : 'Paused'}</span></td>
-            <td>
-              <button class="btn btn-sm" onclick="toggleKey('${p.id}','${k.id}',${!k.isActive})">${k.isActive ? 'Pause' : 'Resume'}</button>
-              <button class="btn btn-sm btn-danger" onclick="deleteKey('${p.id}','${k.id}')">Delete</button>
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
+function openProviderDetail(id) {
+  currentProviderId = id;
+  renderProviders(document.getElementById('page-content'));
 }
+
+function backToProviderList() {
+  currentProviderId = null;
+  providerDetailCache = null;
+  modelTestStatus = {};
+  renderProviders(document.getElementById('page-content'));
+}
+
+// --- Add Provider (enhanced with test connectivity) ---
 
 function showAddProvider() {
   const el = document.getElementById('provider-form');
@@ -206,7 +203,11 @@ function showAddProvider() {
       <div class="form-group mt-12"><label>Name</label><input id="p-name" placeholder="DeepSeek"></div>
       <div class="form-group"><label>Prefix (used in model field)</label><input id="p-prefix" placeholder="deepseek"></div>
       <div class="form-group"><label>Base URL</label><input id="p-url" placeholder="https://api.deepseek.com"></div>
+      <div class="form-group"><label>API Key (for connectivity test, not saved)</label><input type="password" id="p-apikey" placeholder="sk-..."></div>
+      <div class="form-group"><label>Model ID (optional, fallback test if /models unavailable)</label><input id="p-modelid" placeholder="deepseek-chat"></div>
+      <div id="p-check-result" class="mt-12"></div>
       <div class="flex" style="gap:8px">
+        <button class="btn" onclick="checkProvider()">Check</button>
         <button class="btn btn-primary" onclick="addProvider()">Create</button>
         <button class="btn" onclick="document.getElementById('provider-form').style.display='none'">Cancel</button>
       </div>
@@ -214,75 +215,390 @@ function showAddProvider() {
   `;
 }
 
+async function checkProvider() {
+  const baseUrl = document.getElementById('p-url').value.trim();
+  const apiKey = document.getElementById('p-apikey').value.trim();
+  const modelId = document.getElementById('p-modelid').value.trim();
+  const resultEl = document.getElementById('p-check-result');
+  if (!baseUrl || !apiKey) {
+    resultEl.innerHTML = '<span class="badge badge-invalid">Base URL and API Key required</span>';
+    return;
+  }
+  resultEl.innerHTML = '<span class="badge badge-testing">Checking...</span>';
+  try {
+    const result = await apiPost('/providers/validate', { baseUrl, apiKey, modelId });
+    if (result.valid) {
+      const method = result.method ? ` (via ${result.method})` : '';
+      resultEl.innerHTML = `<span class="badge badge-valid">Valid${method}</span>`;
+    } else {
+      resultEl.innerHTML = `<span class="badge badge-invalid">Invalid: ${escapeHtml(result.error || 'unknown error')}</span>`;
+    }
+  } catch (e) {
+    resultEl.innerHTML = `<span class="badge badge-invalid">Error: ${escapeHtml(e.message)}</span>`;
+  }
+}
+
 async function addProvider() {
   const p = {
-    name: document.getElementById('p-name').value,
-    prefix: document.getElementById('p-prefix').value,
-    baseUrl: document.getElementById('p-url').value,
+    name: document.getElementById('p-name').value.trim(),
+    prefix: document.getElementById('p-prefix').value.trim(),
+    baseUrl: document.getElementById('p-url').value.trim(),
     apiType: 'openai-compatible',
     isActive: true,
-    keys: []
+    keys: [],
+    models: []
   };
+  if (!p.name || !p.prefix || !p.baseUrl) {
+    alert('Name, Prefix, and Base URL are required');
+    return;
+  }
   await apiPost('/providers', p);
   document.getElementById('provider-form').style.display = 'none';
   renderProviders(document.getElementById('page-content'));
 }
 
-function showAddKey(providerId) {
-  const el = document.getElementById('keys-' + providerId);
+// --- Provider Detail View ---
+
+async function renderProviderDetail(c, id) {
+  const data = await apiGet('/providers');
+  const p = (data.providers || []).find(x => x.id === id);
+  if (!p) {
+    c.innerHTML = '<div class="empty">Provider not found.</div>';
+    return;
+  }
+  providerDetailCache = p;
+  c.innerHTML = `
+    <div class="detail-header">
+      <h2>${escapeHtml(p.name)}</h2>
+      <div class="flex" style="gap:8px">
+        <button class="btn btn-sm" onclick="backToProviderList()">Back</button>
+        <button class="btn btn-sm ${p.isActive ? '' : 'btn-primary'}" onclick="toggleProvider('${p.id}', ${!p.isActive})">${p.isActive ? 'Disable' : 'Enable'}</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}')">Delete</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted">Prefix: <span class="code">${escapeHtml(p.prefix)}</span> | Base URL: <span class="code">${escapeHtml(p.baseUrl)}</span></p>
+    </div>
+    <div id="detail-keys"></div>
+    <div id="detail-rotation"></div>
+    <div id="detail-models"></div>
+  `;
+  renderDetailKeys(p);
+  renderDetailRotation(p);
+  renderDetailModels(p);
+}
+
+// --- Keys Section in Detail ---
+
+function renderDetailKeys(p) {
+  const el = document.getElementById('detail-keys');
+  const keys = p.keys || [];
   el.innerHTML = `
     <div class="card">
+      <div class="section-title">Keys (${keys.length})</div>
+      <div class="flex mb-12" style="gap:8px">
+        <button class="btn btn-sm btn-primary" onclick="showAddKeyDetail('${p.id}')">+ Add Key</button>
+        <button class="btn btn-sm" onclick="showBulkAddKeys('${p.id}')">Bulk Add</button>
+      </div>
+      <div id="key-form-${p.id}"></div>
+      ${keys.length === 0 ? '<div class="empty">No keys yet.</div>' : `
+      <table>
+        <thead><tr><th>Name</th><th>Key</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${keys.map(k => `
+            <tr>
+              <td>${escapeHtml(k.name)}</td>
+              <td><span class="code">${maskKey(k.key)}</span></td>
+              <td>${k.priority}</td>
+              <td><span class="badge ${k.isActive ? 'badge-active' : 'badge-inactive'}">${k.isActive ? 'Active' : 'Paused'}</span></td>
+              <td>
+                <button class="btn btn-sm" onclick="testKeyDetail('${p.id}','${k.id}')">Test</button>
+                <button class="btn btn-sm" onclick="toggleKeyDetail('${p.id}','${k.id}',${!k.isActive})">${k.isActive ? 'Pause' : 'Resume'}</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteKeyDetail('${p.id}','${k.id}')">Delete</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      `}
+    </div>
+  `;
+}
+
+function showAddKeyDetail(providerId) {
+  const el = document.getElementById('key-form-' + providerId);
+  el.innerHTML = `
+    <div class="card" style="background:var(--surface2)">
       <div class="card-title">New Key</div>
-      <div class="form-group mt-12"><label>Name</label><input id="k-name" placeholder="Main"></div>
-      <div class="form-group"><label>API Key</label><input id="k-key" placeholder="sk-..."></div>
-      <div class="form-group"><label>Priority (lower = higher)</label><input type="number" id="k-priority" value="1" style="max-width:120px"></div>
+      <div class="form-group mt-12"><label>Name</label><input id="dk-name" placeholder="Main"></div>
+      <div class="form-group"><label>API Key</label><input type="password" id="dk-key" placeholder="sk-..."></div>
+      <div class="form-group"><label>Priority (lower = higher)</label><input type="number" id="dk-priority" value="1" style="max-width:120px"></div>
       <div class="flex" style="gap:8px">
-        <button class="btn btn-primary" onclick="addKey('${providerId}')">Create</button>
-        <button class="btn" onclick="renderProviders(document.getElementById('page-content'))">Cancel</button>
+        <button class="btn btn-primary" onclick="addKeyDetail('${providerId}')">Create</button>
+        <button class="btn" onclick="document.getElementById('key-form-${providerId}').innerHTML=''">Cancel</button>
       </div>
     </div>
   `;
 }
 
-async function addKey(providerId) {
+async function addKeyDetail(providerId) {
   const k = {
-    name: document.getElementById('k-name').value,
-    key: document.getElementById('k-key').value,
-    priority: parseInt(document.getElementById('k-priority').value),
+    name: document.getElementById('dk-name').value.trim(),
+    key: document.getElementById('dk-key').value.trim(),
+    priority: parseInt(document.getElementById('dk-priority').value) || 1,
     isActive: true
   };
+  if (!k.key) { alert('API Key is required'); return; }
   await apiPost('/providers/' + providerId + '/keys', k);
+  const c = document.getElementById('page-content');
+  currentProviderId = providerId;
+  renderProviders(c);
+}
+
+function showBulkAddKeys(providerId) {
+  const el = document.getElementById('key-form-' + providerId);
+  el.innerHTML = `
+    <div class="card" style="background:var(--surface2)">
+      <div class="card-title">Bulk Add Keys</div>
+      <p class="muted mt-12">One key per line. Format: <span class="code">name|key</span> or just <span class="code">key</span></p>
+      <div class="form-group mt-12"><textarea id="bk-textarea" rows="8" placeholder="Main|sk-aaa&#10;Backup|sk-bbb&#10;sk-ccc"></textarea></div>
+      <div class="form-group"><label>Default Priority</label><input type="number" id="bk-priority" value="1" style="max-width:120px"></div>
+      <div class="flex" style="gap:8px">
+        <button class="btn btn-primary" onclick="bulkAddKeys('${providerId}')">Add All</button>
+        <button class="btn" onclick="document.getElementById('key-form-${providerId}').innerHTML=''">Cancel</button>
+      </div>
+      <div id="bk-result" class="mt-12"></div>
+    </div>
+  `;
+}
+
+async function bulkAddKeys(providerId) {
+  const text = document.getElementById('bk-textarea').value;
+  const priority = parseInt(document.getElementById('bk-priority').value) || 1;
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  const keys = lines.map(line => {
+    const idx = line.indexOf('|');
+    if (idx > 0) {
+      return { name: line.slice(0, idx).trim(), key: line.slice(idx + 1).trim(), priority };
+    }
+    return { name: '', key: line.trim(), priority };
+  });
+  const resultEl = document.getElementById('bk-result');
+  resultEl.innerHTML = '<span class="badge badge-testing">Adding...</span>';
+  const result = await apiPost('/providers/' + providerId + '/keys/bulk', { keys });
+  if (result.errors && result.errors.length > 0) {
+    resultEl.innerHTML = `<span class="badge badge-valid">Added: ${result.added}</span> <span class="badge badge-invalid">Errors: ${result.errors.length}</span>`;
+  } else {
+    resultEl.innerHTML = `<span class="badge badge-valid">Added ${result.added} keys</span>`;
+  }
+  setTimeout(() => {
+    currentProviderId = providerId;
+    renderProviders(document.getElementById('page-content'));
+  }, 1000);
+}
+
+async function testKeyDetail(pid, kid) {
+  const result = await apiPost('/providers/' + pid + '/test', { keyId: kid });
+  if (result.valid) {
+    alert('Key is valid.');
+  } else {
+    alert('Key invalid: ' + (result.error || 'unknown error'));
+  }
+}
+
+async function toggleKeyDetail(pid, kid, active) {
+  const p = providerDetailCache;
+  const k = (p.keys || []).find(x => x.id === kid);
+  if (!k) return;
+  k.isActive = active;
+  await apiPut('/providers/' + pid + '/keys/' + kid, k);
+  currentProviderId = pid;
   renderProviders(document.getElementById('page-content'));
 }
 
+async function deleteKeyDetail(pid, kid) {
+  if (!confirm('Delete this key?')) return;
+  await apiDelete('/providers/' + pid + '/keys/' + kid);
+  currentProviderId = pid;
+  renderProviders(document.getElementById('page-content'));
+}
+
+// --- Rotation Section in Detail ---
+
+function renderDetailRotation(p) {
+  const el = document.getElementById('detail-rotation');
+  const strategy = p.rotationStrategy || '';
+  const sticky = p.stickyLimit || 0;
+  el.innerHTML = `
+    <div class="card">
+      <div class="section-title">Rotation Strategy</div>
+      <p class="muted mb-12">Overrides global settings for this provider. Leave "Inherit" to use global default.</p>
+      <div class="form-group">
+        <label>Strategy</label>
+        <select id="r-strategy">
+          <option value="" ${strategy === '' ? 'selected' : ''}>Inherit Global</option>
+          <option value="fill-first" ${strategy === 'fill-first' ? 'selected' : ''}>fill-first</option>
+          <option value="round-robin" ${strategy === 'round-robin' ? 'selected' : ''}>round-robin</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Sticky Limit (0 = inherit global, round-robin only)</label>
+        <input type="number" id="r-sticky" value="${sticky}" style="max-width:120px">
+      </div>
+      <button class="btn btn-primary" onclick="saveProviderRotation('${p.id}')">Save</button>
+    </div>
+  `;
+}
+
+async function saveProviderRotation(id) {
+  const p = providerDetailCache;
+  const strategy = document.getElementById('r-strategy').value;
+  const sticky = parseInt(document.getElementById('r-sticky').value) || 0;
+  p.rotationStrategy = strategy;
+  p.stickyLimit = sticky;
+  await apiPut('/providers/' + id, p);
+  alert('Rotation strategy saved.');
+}
+
+// --- Models Section in Detail ---
+
+function renderDetailModels(p) {
+  const el = document.getElementById('detail-models');
+  const models = p.models || [];
+  el.innerHTML = `
+    <div class="card">
+      <div class="section-title">Models (${models.length})</div>
+      <div class="flex mb-12" style="gap:8px">
+        <input id="m-input" placeholder="model-id (e.g. deepseek-chat)" style="flex:1">
+        <button class="btn btn-sm" onclick="testModelDetail('${p.id}')">Test</button>
+        <button class="btn btn-sm btn-primary" onclick="addModelDetail('${p.id}')">Add</button>
+      </div>
+      <div class="flex mb-12" style="gap:8px">
+        <button class="btn btn-sm" onclick="importModels('${p.id}')">Import from /models</button>
+      </div>
+      <div id="m-test-result" class="mb-12"></div>
+      <div id="model-list">
+        ${models.length === 0 ? '<div class="empty">No models configured. Use "Import from /models" or add manually.</div>' : 
+          models.map(m => {
+            const ts = modelTestStatus[m];
+            let statusClass = 'model-pending';
+            let statusIcon = '';
+            if (ts) {
+              if (ts.ok) { statusClass = 'model-ok'; statusIcon = 'OK'; }
+              else { statusClass = 'model-err'; statusIcon = 'FAIL'; }
+            }
+            return `
+              <div class="model-row">
+                <span class="model-id">${escapeHtml(p.prefix)}/${escapeHtml(m)}</span>
+                <span class="model-status ${statusClass}">${statusIcon || 'untested'}</span>
+                <button class="btn btn-sm" onclick="testSingleModel('${p.id}','${escapeHtml(m)}')">Test</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteModelDetail('${p.id}','${escapeHtml(m)}')">Delete</button>
+              </div>
+            `;
+          }).join('')
+        }
+      </div>
+    </div>
+  `;
+}
+
+async function testModelDetail(pid) {
+  const modelId = document.getElementById('m-input').value.trim();
+  if (!modelId) { alert('Enter a model ID first'); return; }
+  await doTestModel(pid, modelId);
+}
+
+async function testSingleModel(pid, modelId) {
+  await doTestModel(pid, modelId);
+  currentProviderId = pid;
+  renderProviders(document.getElementById('page-content'));
+}
+
+async function doTestModel(pid, modelId) {
+  const resultEl = document.getElementById('m-test-result');
+  if (resultEl) resultEl.innerHTML = `<span class="badge badge-testing">Testing ${escapeHtml(modelId)}...</span>`;
+  try {
+    const result = await apiPost('/providers/' + pid + '/models/test', { model: modelId });
+    modelTestStatus[modelId] = result;
+    if (resultEl) {
+      if (result.ok) {
+        resultEl.innerHTML = `<span class="badge badge-valid">${escapeHtml(modelId)}: OK (${result.latencyMs}ms)</span>`;
+      } else {
+        resultEl.innerHTML = `<span class="badge badge-invalid">${escapeHtml(modelId)}: ${escapeHtml(result.error || 'failed')} (${result.latencyMs}ms)</span>`;
+      }
+    }
+  } catch (e) {
+    if (resultEl) resultEl.innerHTML = `<span class="badge badge-invalid">Error: ${escapeHtml(e.message)}</span>`;
+  }
+}
+
+async function addModelDetail(pid) {
+  const modelId = document.getElementById('m-input').value.trim();
+  if (!modelId) { alert('Enter a model ID'); return; }
+  await apiPost('/providers/' + pid + '/models', { model: modelId });
+  currentProviderId = pid;
+  renderProviders(document.getElementById('page-content'));
+}
+
+async function deleteModelDetail(pid, modelId) {
+  if (!confirm('Delete model ' + modelId + '?')) return;
+  await apiDelete('/providers/' + pid + '/models/' + encodeURIComponent(modelId));
+  delete modelTestStatus[modelId];
+  currentProviderId = pid;
+  renderProviders(document.getElementById('page-content'));
+}
+
+async function importModels(pid) {
+  const p = providerDetailCache;
+  const resultEl = document.getElementById('m-test-result');
+  if (resultEl) resultEl.innerHTML = '<span class="badge badge-testing">Fetching models...</span>';
+  try {
+    const data = await apiGet('/providers/' + pid + '/models');
+    const models = data.models || [];
+    if (models.length === 0) {
+      if (resultEl) resultEl.innerHTML = '<span class="badge badge-invalid">No models returned by upstream</span>';
+      return;
+    }
+    const existing = new Set(p.models || []);
+    let added = 0;
+    for (const m of models) {
+      if (!existing.has(m.id)) {
+        await apiPost('/providers/' + pid + '/models', { model: m.id });
+        added++;
+      }
+    }
+    if (resultEl) resultEl.innerHTML = `<span class="badge badge-valid">Imported ${added} models (${models.length} total from upstream, ${models.length - added} already existed)</span>`;
+    setTimeout(() => {
+      currentProviderId = pid;
+      renderProviders(document.getElementById('page-content'));
+    }, 1500);
+  } catch (e) {
+    if (resultEl) {
+      const msg = e.message || 'unknown error';
+      resultEl.innerHTML = `<span class="badge badge-invalid">Failed: ${escapeHtml(msg)}</span>`;
+    }
+  }
+}
+
+// --- Provider list-level actions (still used by detail header) ---
+
 async function toggleProvider(id, active) {
-  const p = providersCache.find(x => x.id === id);
+  const p = providerDetailCache || providersCache.find(x => x.id === id);
+  if (!p) return;
   p.isActive = active;
   await apiPut('/providers/' + id, p);
+  currentProviderId = id;
   renderProviders(document.getElementById('page-content'));
 }
 
 async function deleteProvider(id) {
-  if (!confirm('Delete this provider?')) return;
+  if (!confirm('Delete this provider and all its keys?')) return;
   await apiDelete('/providers/' + id);
-  renderProviders(document.getElementById('page-content'));
+  backToProviderList();
 }
 
-async function toggleKey(pid, kid, active) {
-  const p = providersCache.find(x => x.id === pid);
-  const k = p.keys.find(x => x.id === kid);
-  k.isActive = active;
-  await apiPut('/providers/' + pid + '/keys/' + kid, k);
-  renderProviders(document.getElementById('page-content'));
-}
+// ===================== Combos Page =====================
 
-async function deleteKey(pid, kid) {
-  if (!confirm('Delete this key?')) return;
-  await apiDelete('/providers/' + pid + '/keys/' + kid);
-  renderProviders(document.getElementById('page-content'));
-}
-
-// --- Combos Page ---
 async function renderCombos(c) {
   const data = await apiGet('/combos');
   const combos = data.combos || [];
@@ -300,11 +616,11 @@ async function renderCombos(c) {
   list.innerHTML = combos.map(cb => `
     <div class="card">
       <div class="card-header">
-        <span class="card-title">${cb.name}</span>
-        <span class="badge badge-active">${cb.strategy}</span>
+        <span class="card-title">${escapeHtml(cb.name)}</span>
+        <span class="badge badge-active">${escapeHtml(cb.strategy)}</span>
       </div>
       <p class="muted">Models: ${cb.models?.join(', ') || 'none'}</p>
-      ${cb.fusionJudge ? `<p class="muted">Judge: ${cb.fusionJudge}</p>` : ''}
+      ${cb.fusionJudge ? `<p class="muted">Judge: ${escapeHtml(cb.fusionJudge)}</p>` : ''}
       <div class="mt-12">
         <button class="btn btn-sm btn-danger" onclick="deleteCombo('${cb.id}')">Delete</button>
       </div>
@@ -326,7 +642,7 @@ function showAddCombo() {
           <option value="fusion">fusion</option>
         </select>
       </div>
-      <div class="form-group"><label>Models (comma-separated, e.g. deepseek/deepseek-chat,my-custom/gpt-4o)</label>
+      <div class="form-group"><label>Models (one per line, e.g. deepseek/deepseek-chat)</label>
         <textarea id="c-models" rows="3" placeholder="deepseek/deepseek-chat&#10;my-custom/gpt-4o"></textarea>
       </div>
       <div class="form-group"><label>Fusion Judge (optional, fusion only)</label><input id="c-judge" placeholder="deepseek/deepseek-chat"></div>
@@ -384,9 +700,9 @@ async function renderUsage(c) {
         ${entries.map(e => `
           <tr>
             <td>${new Date(e.timestamp).toLocaleTimeString()}</td>
-            <td>${e.provider}</td>
-            <td>${e.model}</td>
-            <td>${e.keyName}</td>
+            <td>${escapeHtml(e.provider)}</td>
+            <td>${escapeHtml(e.model)}</td>
+            <td>${escapeHtml(e.keyName)}</td>
             <td><span class="badge ${e.status === 'success' ? 'badge-active' : 'badge-locked'}">${e.status}</span></td>
             <td>${e.latencyMs}ms</td>
             <td>${e.inputTokens}/${e.outputTokens}</td>

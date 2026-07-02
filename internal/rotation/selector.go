@@ -62,9 +62,9 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 	}
 
 	var chosen config.Key
-	strategy := s.Settings().Strategy
+	strategy := s.effectiveStrategy(provider)
 	if strategy == "round-robin" {
-		chosen = s.selectRoundRobin(provider.ID, candidates, model)
+		chosen = s.selectRoundRobin(provider, candidates, model)
 	} else {
 		chosen = s.selectFillFirst(candidates)
 	}
@@ -90,11 +90,13 @@ func (s *Selector) selectFillFirst(keys []config.Key) config.Key {
 	return best
 }
 
-func (s *Selector) selectRoundRobin(providerID string, keys []config.Key, model string) config.Key {
-	stickyLimit := s.Settings().StickyLimit
+func (s *Selector) selectRoundRobin(provider *config.Provider, keys []config.Key, model string) config.Key {
+	stickyLimit := s.effectiveStickyLimit(provider)
 	if stickyLimit <= 0 {
 		stickyLimit = 3
 	}
+
+	providerID := provider.ID
 
 	var current *config.Key
 	var currentLastUsed time.Time
@@ -176,4 +178,20 @@ func (s *Selector) UpdateSettings(newSettings config.RotationConfig) {
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 	*s.settings = newSettings
+}
+
+// effectiveStrategy returns the provider-specific rotation strategy if set, otherwise the global default.
+func (s *Selector) effectiveStrategy(provider *config.Provider) string {
+	if provider.RotationStrategy != "" {
+		return provider.RotationStrategy
+	}
+	return s.Settings().Strategy
+}
+
+// effectiveStickyLimit returns the provider-specific sticky limit if set, otherwise the global default.
+func (s *Selector) effectiveStickyLimit(provider *config.Provider) int {
+	if provider.StickyLimit > 0 {
+		return provider.StickyLimit
+	}
+	return s.Settings().StickyLimit
 }

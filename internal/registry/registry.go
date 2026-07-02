@@ -100,6 +100,8 @@ func (r *Registry) UpdateProvider(id string, updates config.Provider) bool {
 			r.config.Providers[i].Prefix = updates.Prefix
 			r.config.Providers[i].BaseURL = updates.BaseURL
 			r.config.Providers[i].IsActive = updates.IsActive
+			r.config.Providers[i].RotationStrategy = updates.RotationStrategy
+			r.config.Providers[i].StickyLimit = updates.StickyLimit
 			return true
 		}
 	}
@@ -115,6 +117,75 @@ func (r *Registry) DeleteProvider(id string) bool {
 			for _, k := range p.Keys {
 				delete(r.states, stateKey(id, k.ID))
 			}
+			return true
+		}
+	}
+	return false
+}
+
+// --- Models ---
+
+// ListModels returns the custom model IDs for a provider.
+func (r *Registry) ListModels(providerID string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID == providerID {
+			out := make([]string, len(r.config.Providers[i].Models))
+			copy(out, r.config.Providers[i].Models)
+			return out
+		}
+	}
+	return nil
+}
+
+// AddModel appends a model ID to the provider if not already present.
+func (r *Registry) AddModel(providerID, model string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		for _, m := range r.config.Providers[i].Models {
+			if m == model {
+				return true
+			}
+		}
+		r.config.Providers[i].Models = append(r.config.Providers[i].Models, model)
+		return true
+	}
+	return false
+}
+
+// DeleteModel removes a model ID from the provider.
+func (r *Registry) DeleteModel(providerID, model string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		models := r.config.Providers[i].Models
+		for j, m := range models {
+			if m == model {
+				r.config.Providers[i].Models = append(models[:j], models[j+1:]...)
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// UpdateProviderStrategy updates per-provider rotation strategy override.
+func (r *Registry) UpdateProviderStrategy(providerID, strategy string, stickyLimit int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID == providerID {
+			r.config.Providers[i].RotationStrategy = strategy
+			r.config.Providers[i].StickyLimit = stickyLimit
 			return true
 		}
 	}

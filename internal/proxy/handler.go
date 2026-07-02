@@ -213,11 +213,21 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 		if !p.IsActive {
 			continue
 		}
-		models = append(models, modelObj{
-			ID:      p.Prefix + "/*",
-			Object:  "model",
-			OwnedBy: p.Name,
-		})
+		if len(p.Models) > 0 {
+			for _, m := range p.Models {
+				models = append(models, modelObj{
+					ID:      p.Prefix + "/" + m,
+					Object:  "model",
+					OwnedBy: p.Name,
+				})
+			}
+		} else {
+			models = append(models, modelObj{
+				ID:      p.Prefix + "/*",
+				Object:  "model",
+				OwnedBy: p.Name,
+			})
+		}
 	}
 	for _, c := range combos {
 		models = append(models, modelObj{

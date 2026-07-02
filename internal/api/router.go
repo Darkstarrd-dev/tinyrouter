@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -16,14 +17,15 @@ import (
 
 // Router holds all dependencies needed to wire up HTTP routes.
 type Router struct {
-	reg         *registry.Registry
-	cfg         *config.Config
-	configPath  string
-	usage       *usage.RingBuffer
-	logger      *console.Logger
+	reg          *registry.Registry
+	cfg          *config.Config
+	configPath   string
+	usage        *usage.RingBuffer
+	logger       *console.Logger
 	proxyHandler *proxy.Handler
-	selector    *rotation.Selector
-	comboRes    *combo.Resolver
+	selector     *rotation.Selector
+	comboRes     *combo.Resolver
+	client       *http.Client
 }
 
 // New creates an API Router.
@@ -35,6 +37,9 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 		usage:        usageBuf,
 		logger:       logger,
 		proxyHandler: proxyHandler,
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+		},
 	}
 }
 
@@ -67,12 +72,23 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 		// Providers
 		r.Get("/providers", rt.listProviders)
 		r.Post("/providers", rt.createProvider)
+		r.Post("/providers/validate", rt.validateProvider)
 		r.Put("/providers/{id}", rt.updateProvider)
 		r.Delete("/providers/{id}", rt.deleteProvider)
+
+		// Provider testing
+		r.Post("/providers/{id}/test", rt.testProviderKey)
+
+		// Provider models
+		r.Get("/providers/{id}/models", rt.fetchProviderModels)
+		r.Post("/providers/{id}/models", rt.addProviderModel)
+		r.Post("/providers/{id}/models/test", rt.testProviderModel)
+		r.Delete("/providers/{id}/models/{modelId}", rt.deleteProviderModel)
 
 		// Keys
 		r.Get("/providers/{id}/keys", rt.listKeys)
 		r.Post("/providers/{id}/keys", rt.createKey)
+		r.Post("/providers/{id}/keys/bulk", rt.bulkAddKeys)
 		r.Put("/providers/{id}/keys/{kid}", rt.updateKey)
 		r.Delete("/providers/{id}/keys/{kid}", rt.deleteKey)
 		r.Get("/providers/{id}/keys/{kid}/state", rt.getKeyState)
