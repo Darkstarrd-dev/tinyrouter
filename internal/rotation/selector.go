@@ -9,6 +9,14 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 )
 
+// KeySelector combines key selection and cooldown management.
+// *Selector implements this interface.
+type KeySelector interface {
+	CooldownManager
+	SelectKey(providerID, model string, excludeKeyIDs []string) (*SelectedKey, error)
+	Settings() config.RotationConfig
+}
+
 type Selector struct {
 	reg        *registry.Registry
 	settings   *config.RotationConfig
@@ -85,3 +93,6 @@ func (s *Selector) UpdateSettings(newSettings config.RotationConfig) {
 	defer s.settingsMu.Unlock()
 	*s.settings = newSettings
 }
+
+// Compile-time interface checks.
+var _ KeySelector = (*Selector)(nil)

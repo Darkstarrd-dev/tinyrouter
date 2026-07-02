@@ -17,15 +17,15 @@ import (
 
 type Handler struct {
 	reg           *registry.Registry
-	selector      *rotation.Selector
+	selector      rotation.KeySelector
 	comboRes      *combo.Resolver
-	usage         *usage.RingBuffer
+	usage         usage.UsageStore
 	logger        *console.Logger
 	client        *http.Client
 	UsageUpdateCh chan struct{}
 }
 
-func New(reg *registry.Registry, selector *rotation.Selector, comboRes *combo.Resolver, usageBuf *usage.RingBuffer, logger *console.Logger) *Handler {
+func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, logger *console.Logger) *Handler {
 	return &Handler{
 		reg:           reg,
 		selector:      selector,

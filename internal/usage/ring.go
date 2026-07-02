@@ -32,6 +32,12 @@ type Summary struct {
 	TotalOutputTokens int            `json:"totalOutputTokens"`
 }
 
+// UsageStore provides write access to usage entries.
+// *RingBuffer implements this interface.
+type UsageStore interface {
+	Add(entry Entry)
+}
+
 // RingBuffer is a fixed-size circular buffer for usage entries.
 type RingBuffer struct {
 	mu      sync.RWMutex
@@ -151,3 +157,6 @@ func (rb *RingBuffer) Size() int {
 	defer rb.mu.RUnlock()
 	return rb.size
 }
+
+// Compile-time interface check.
+var _ UsageStore = (*RingBuffer)(nil)
