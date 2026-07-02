@@ -14,6 +14,10 @@ go.work.sum
 .vscode/
 .idea/
 
+# Logs
+server.log
+*.log
+
 # OS
 .DS_Store
 Thumbs.db
