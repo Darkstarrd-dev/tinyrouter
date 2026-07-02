@@ -247,6 +247,10 @@ tbody tr:last-child td{border-bottom:none}
 .modal-title{font-size:calc(var(--font-base) + 3.5px);font-weight:700;margin-bottom:12px;color:var(--text)}
 .modal-body{font-size:var(--font-base);color:var(--text-secondary);line-height:1.6;margin-bottom:24px}
 .modal-footer{display:flex;justify-content:flex-end;gap:8px}
+.import-model-item{color:var(--text-secondary);user-select:none}
+.import-model-item:hover{background:var(--glass-hover);border-color:var(--glass-border-hover)}
+.import-model-item.selected{background:rgba(79,195,247,0.12);border-color:var(--accent);color:var(--accent)}
+[data-theme="light"] .import-model-item.selected{background:rgba(14,165,233,0.12)}
 
 /* ===================== Skeleton ===================== */
 .skeleton{background:linear-gradient(90deg,var(--skeleton-base) 25%,var(--skeleton-shine) 37%,var(--skeleton-base) 63%);background-size:200% 100%;animation:shimmer 1.5s ease-in-out infinite;border-radius:10px}

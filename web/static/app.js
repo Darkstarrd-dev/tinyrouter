@@ -73,6 +73,8 @@ const L = {
     comboEdit: 'Edit Combo', editCombo: 'Edit', saveCombo: 'Update',
     comboUpdated: 'Combo updated', importFromProvider: 'Import from Provider',
     selectModels: 'Select Models', addSelected: 'Add Selected', noModelsAvailable: 'No models available',
+    selectAll: 'Select All', deselectAll: 'Deselect All', close: 'Close',
+    pause: 'Paused',
   },
   cn: {
     endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台',
@@ -145,6 +147,8 @@ const L = {
     comboEdit: '编辑模型组', editCombo: '编辑', saveCombo: '更新',
     comboUpdated: '模型组已更新', importFromProvider: '从服务商导入',
     selectModels: '选择模型', addSelected: '添加选中', noModelsAvailable: '无可用模型',
+    selectAll: '全选', deselectAll: '取消全选', close: '关闭',
+    pause: '已暂停',
   }
 };
 
@@ -170,6 +174,7 @@ function toggleLang() {
   document.documentElement.setAttribute('data-lang', next);
   localStorage.setItem('lang', next);
   updateLangButton(next);
+  updateSidebarNav();
   var page = currentPage;
   if (currentProviderId) {
     renderProviders(document.getElementById('page-content'));
@@ -189,6 +194,7 @@ let currentProviderId = null;
 let providersCache = [];
 let providerDetailCache = null;
 let modelTestStatus = {};
+let importTarget = 'models';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
@@ -643,19 +649,19 @@ function renderDetailKeys(p) {
       <div id="key-form-' + p.id + '"></div>' +
       (keys.length === 0 ? '<div class="empty">' + t('noKeys') + '</div>' : '\
       <table>\
-        <thead><tr><th>' + t('keyName') + '</th><th>' + t('key') + '</th><th>' + t('priority') + '</th><th>' + t('status') + '</th><th>' + t('actions') + '</th></tr></thead>\
+        <thead><tr><th>' + t('keyName') + '</th><th>' + t('actions') + '</th><th>' + t('key') + '</th><th>' + t('priority') + '</th><th>' + t('status') + '</th></tr></thead>\
         <tbody>' +
           keys.map(function(k) {
             return '<tr>\
               <td>' + escapeHtml(k.name) + '</td>\
-              <td><span class="code copyable" data-copy="' + escapeHtml(k.key) + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'), \'' + escapeHtml(k.name || 'key') + '\')" title="' + t('clickToCopy') + '">' + maskKey(k.key) + '</span></td>\
-              <td>' + k.priority + '</td>\
-              <td><span class="badge ' + (k.isActive ? 'badge-active' : 'badge-inactive') + '">' + (k.isActive ? t('active') : t('pause')) + '</span></td>\
               <td>\
                 <button class="btn btn-sm" onclick="testKeyDetail(\'' + p.id + '\',\'' + k.id + '\')">' + t('test') + '</button>\
                 <button class="btn btn-sm" onclick="toggleKeyDetail(\'' + p.id + '\',\'' + k.id + '\',' + (!k.isActive) + ')">' + (k.isActive ? t('pause') : t('resume')) + '</button>\
                 <button class="btn btn-sm btn-danger" onclick="deleteKeyDetail(\'' + p.id + '\',\'' + k.id + '\')">' + t('delete') + '</button>\
               </td>\
+              <td><span class="code copyable" data-copy="' + escapeHtml(k.key) + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'), \'' + escapeHtml(k.name || 'key') + '\')" title="' + t('clickToCopy') + '">' + maskKey(k.key) + '</span></td>\
+              <td>' + k.priority + '</td>\
+              <td><span class="badge ' + (k.isActive ? 'badge-active' : 'badge-inactive') + '">' + (k.isActive ? t('active') : t('pause')) + '</span></td>\
             </tr>';
           }).join('') + '\
         </tbody>\
@@ -757,7 +763,9 @@ async function deleteKeyDetail(pid, kid) {
   await apiDelete('/providers/' + pid + '/keys/' + kid);
   toast(t('keyDeleted'), 'success');
   currentProviderId = pid;
+  var scrollTop = document.getElementById('page-content').scrollTop || document.querySelector('.main').scrollTop;
   renderProviders(document.getElementById('page-content'));
+  requestAnimationFrame(function() { (document.querySelector('.main') || document.getElementById('page-content')).scrollTop = scrollTop; });
 }
 
 function renderDetailRotation(p) {
@@ -806,10 +814,10 @@ function renderDetailModels(p) {
       else { statusClass = 'model-err'; statusText = ts.error || 'FAIL'; }
     }
     return '<div class="model-row">\
-      <span class="model-id copyable" onclick="copyToClipboard(\'' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '\')" title="' + t('clickToCopy') + '">' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '</span>\
-      <span class="model-status ' + statusClass + '">' + escapeHtml(statusText) + '</span>\
       <button class="btn btn-sm" onclick="testSingleModel(\'' + p.id + '\',\'' + escapeHtml(m) + '\')">' + t('test') + '</button>\
       <button class="btn btn-sm btn-danger" onclick="deleteModelDetail(\'' + p.id + '\',\'' + escapeHtml(m) + '\')">' + t('delete') + '</button>\
+      <span class="model-id copyable" onclick="copyToClipboard(\'' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '\')" title="' + t('clickToCopy') + '">' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '</span>\
+      <span class="model-status ' + statusClass + '">' + escapeHtml(statusText) + '</span>\
     </div>';
   }).join('');
   el.innerHTML = '\
@@ -876,11 +884,14 @@ async function addModelDetail(pid) {
 }
 
 async function deleteModelDetail(pid, modelId) {
-  await apiDelete('/providers/' + pid + '/models/' + encodeURIComponent(modelId));
+  var resp = await apiDelete('/providers/' + pid + '/models?model=' + encodeURIComponent(modelId));
+  if (resp.error) { toast(t('modelTestFailed') + resp.error, 'error'); return; }
   delete modelTestStatus[modelId];
   toast(t('modelDeleted'), 'success');
   currentProviderId = pid;
-  renderProviders(document.getElementById('page-content'));
+  var scrollTop = document.getElementById('page-content').scrollTop || document.querySelector('.main').scrollTop;
+  await renderProviders(document.getElementById('page-content'));
+  requestAnimationFrame(function() { (document.querySelector('.main') || document.getElementById('page-content')).scrollTop = scrollTop; });
 }
 
 async function importModels(pid) {
@@ -1027,11 +1038,15 @@ function showAddCombo() {
       </div>\
       <div class="form-group"><label>' + t('comboModels') + '</label>\
         <div style="display:flex;gap:8px;margin-bottom:8px">\
-          <button class="btn btn-sm" onclick="importModelsFromProvider()">' + t('importFromProvider') + '</button>\
+          <button class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
         </div>\
         <textarea id="c-models" rows="3" placeholder="deepseek/deepseek-chat\nmy-custom/gpt-4o"></textarea>\
       </div>\
-      <div class="form-group"><label>' + t('fusionJudge') + '</label><input id="c-judge" placeholder="deepseek/deepseek-chat"></div>\
+      <div class="form-group"><label>' + t('fusionJudge') + '</label>\
+        <div style="display:flex;gap:8px;margin-bottom:8px">\
+          <button class="btn btn-sm" onclick="importModelsFromProvider(\'judge\')">' + t('importFromProvider') + '</button>\
+        </div>\
+        <input id="c-judge" placeholder="deepseek/deepseek-chat"></div>\
       <div class="flex" style="gap:8px">\
         <button class="btn btn-primary" onclick="addCombo()">' + t('create') + '</button>\
         <button class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
@@ -1080,11 +1095,15 @@ async function showEditCombo(id) {
       </div>\
       <div class="form-group"><label>' + t('comboModels') + '</label>\
         <div style="display:flex;gap:8px;margin-bottom:8px">\
-          <button class="btn btn-sm" onclick="importModelsFromProvider()">' + t('importFromProvider') + '</button>\
+          <button class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
         </div>\
         <textarea id="c-models" rows="3" placeholder="deepseek/deepseek-chat\nmy-custom/gpt-4o">' + escapeHtml((cb.models || []).join('\n')) + '</textarea>\
       </div>\
-      <div class="form-group"><label>' + t('fusionJudge') + '</label><input id="c-judge" value="' + escapeHtml(cb.fusionJudge || '') + '" placeholder="deepseek/deepseek-chat"></div>\
+      <div class="form-group"><label>' + t('fusionJudge') + '</label>\
+        <div style="display:flex;gap:8px;margin-bottom:8px">\
+          <button class="btn btn-sm" onclick="importModelsFromProvider(\'judge\')">' + t('importFromProvider') + '</button>\
+        </div>\
+        <input id="c-judge" value="' + escapeHtml(cb.fusionJudge || '') + '" placeholder="deepseek/deepseek-chat"></div>\
       <div class="flex" style="gap:8px">\
         <button class="btn btn-primary" onclick="saveEditCombo(\'' + id + '\')">' + t('saveCombo') + '</button>\
         <button class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
@@ -1106,7 +1125,8 @@ async function saveEditCombo(id) {
   renderCombos(document.getElementById('page-content'));
 }
 
-async function importModelsFromProvider() {
+async function importModelsFromProvider(target) {
+  importTarget = target || 'models';
   var providers = await apiGet('/providers');
   providers = providers.providers || [];
   if (providers.length === 0) {
@@ -1115,7 +1135,11 @@ async function importModelsFromProvider() {
   }
   var html = '<div class="modal" style="max-width:500px">\
     <div class="modal-title">' + t('selectModels') + '</div>\
-    <div class="modal-body" style="max-height:400px;overflow-y:auto">';
+    <div class="modal-body" style="max-height:400px;overflow-y:auto">\
+    <div style="display:flex;gap:6px;margin-bottom:12px">\
+      <button class="btn btn-sm" id="import-select-all">' + t('selectAll') + '</button>\
+      <button class="btn btn-sm" id="import-deselect-all">' + t('deselectAll') + '</button>\
+    </div>';
   for (var i = 0; i < providers.length; i++) {
     var p = providers[i];
     if (!p.isActive) continue;
@@ -1126,7 +1150,7 @@ async function importModelsFromProvider() {
     } else {
       for (var j = 0; j < models.length; j++) {
         var fullId = p.prefix + '/' + models[j];
-        html += '<label style="display:block;margin-bottom:4px;cursor:pointer"><input type="checkbox" class="import-model-cb" value="' + escapeHtml(fullId) + '"> ' + escapeHtml(fullId) + '</label>';
+        html += '<div class="import-model-item" data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
       }
     }
   }
@@ -1137,27 +1161,51 @@ async function importModelsFromProvider() {
     </div></div>';
   var overlay = document.getElementById('modal-overlay');
   overlay.innerHTML = html;
+  var isSingle = target === 'judge';
   requestAnimationFrame(function() { overlay.classList.add('show'); });
   document.getElementById('import-close').onclick = function() {
     overlay.classList.remove('show');
     overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
   };
+  document.getElementById('import-select-all').onclick = function() {
+    var items = document.querySelectorAll('.import-model-item');
+    for (var k = 0; k < items.length; k++) { items[k].classList.add('selected'); if (isSingle) break; }
+  };
+  document.getElementById('import-deselect-all').onclick = function() {
+    var items = document.querySelectorAll('.import-model-item');
+    for (var k = 0; k < items.length; k++) { items[k].classList.remove('selected'); }
+  };
   document.getElementById('import-add').onclick = function() {
-    var cbs = document.querySelectorAll('.import-model-cb:checked');
     var selected = [];
-    for (var k = 0; k < cbs.length; k++) selected.push(cbs[k].value);
-    var ta = document.getElementById('c-models');
-    if (ta && selected.length > 0) {
-      var existing = ta.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
-      for (var k = 0; k < selected.length; k++) {
-        if (existing.indexOf(selected[k]) < 0) existing.push(selected[k]);
+    var items = document.querySelectorAll('.import-model-item.selected');
+    for (var k = 0; k < items.length; k++) selected.push(items[k].getAttribute('data-value'));
+    if (target === 'judge') {
+      var inp = document.getElementById('c-judge');
+      if (inp && selected.length > 0) inp.value = selected[0];
+    } else {
+      var ta = document.getElementById('c-models');
+      if (ta && selected.length > 0) {
+        var existing = ta.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+        for (var k = 0; k < selected.length; k++) {
+          if (existing.indexOf(selected[k]) < 0) existing.push(selected[k]);
+        }
+        ta.value = existing.join('\n');
       }
-      ta.value = existing.join('\n');
     }
     overlay.classList.remove('show');
     overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
   };
   overlay.onclick = function(e) { if (e.target === overlay) { overlay.classList.remove('show'); overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true }); } };
+}
+
+function toggleImportModel(el) {
+  if (importTarget === 'judge') {
+    var items = document.querySelectorAll('.import-model-item');
+    for (var i = 0; i < items.length; i++) { items[i].classList.remove('selected'); }
+    el.classList.add('selected');
+  } else {
+    el.classList.toggle('selected');
+  }
 }
 
 // ===================== Usage Page =====================

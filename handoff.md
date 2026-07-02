@@ -51,6 +51,48 @@
 - **`config.yaml`**: SenseNova baseUrl 修复（`.../v1`）、重复 provider ID 修复（`prov_2`）、ModelScope name 恢复
 - **`internal/usage/ring.go`**: `Summary` 新增 `TotalInputTokens`/`TotalOutputTokens` 字段
 
+---
+
+## 本轮完成内容（第 3 轮）
+
+### 1. 表格布局调整
+
+- **Key 操作列**从最后一列移到 Name 和 Key 之间（Name → Actions → Key → Priority → Status），操作更直观
+- **Model 操作按钮**移到模型名之前（Test | Delete → 模型名 → 状态），删除/测试按钮不再需要滚动查找
+
+### 2. 删除后保留滚动位置
+
+`deleteKeyDetail` / `deleteModelDetail` 在调用 `renderProviders` 前保存 `scrollTop`，`requestAnimationFrame` 恢复滚动位置，支持连续操作
+
+### 3. Combo 模型选择 UI 重设计
+
+- 复选框 → 点击高亮选中（`.selected` 类名，浅蓝背景 + 强调色边框，CSS 动画过渡）
+- 增加"全选" / "取消全选"按钮
+- Fusion 裁决模型字段增加独立的"从服务商导入"按钮（单选模式，点击一个自动取消其他）
+
+### 4. 中文化完善
+
+- 补充 `close`/`pause`/`selectAll`/`deselectAll` 翻译
+- Sidebar 导航项（Endpoint/Providers/Combos/Usage/Console）及 Shutdown 按钮改为动态 `updateSidebarNav()`，切换语言时即时更新
+
+### 5. 修复模型删除无效（`/` 导致的 URL 路由问题）
+
+- **根因**: 模型 ID 含 `/`（如 `stepfun-ai/Step-3.7-Flash`），`encodeURIComponent` 编码为 `%2F` 后，Go HTTP 服务器解码回 `/` 导致 chi 路由错位，API 返回 404 但前端未检查响应
+- **修复**: 后端路由 `DELETE /providers/{id}/models/{modelId}` → `DELETE /providers/{id}/models?model=xxx`；前端使用 query param 并检查 `resp.error`
+
+### 6. 完善 `deleteModelDetail` 错误处理
+
+- 前端 `deleteModelDetail` 添加 `resp.error` 检查，API 失败时显示错误 toast 而非虚假的成功提示
+
+## 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| `web/static/app.js` | 表格列顺序、滚动保留、combo 模型选择 UI、翻译补全、deleteModelDetail 错误处理 |
+| `web/static/style.css` | 新增 `.import-model-item.selected` 样式 |
+| `internal/api/router.go` | 模型删除路由改为 query param |
+| `internal/api/providers_extra.go` | 模型删除 handler 改为 `r.URL.Query().Get("model")` |
+
 ## 架构决策记录
 
 ### 前缀解析策略

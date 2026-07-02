@@ -331,7 +331,7 @@ func (rt *Router) addProviderModel(w http.ResponseWriter, r *http.Request) {
 // deleteProviderModel removes a custom model ID from a provider.
 func (rt *Router) deleteProviderModel(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "id")
-	modelID := chi.URLParam(r, "modelId")
+	modelID := r.URL.Query().Get("model")
 
 	if rt.reg.DeleteModel(providerID, modelID) {
 		config.Save(rt.configPath, rt.reg.Config())
