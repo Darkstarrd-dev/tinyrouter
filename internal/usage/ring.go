@@ -158,5 +158,42 @@ func (rb *RingBuffer) Size() int {
 	return rb.size
 }
 
+// ModelStatEntry holds per-model aggregate statistics for the UI.
+type ModelStatEntry struct {
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	SuccessCount int    `json:"successCount"`
+	InputTokens  int    `json:"inputTokens"`
+	OutputTokens int    `json:"outputTokens"`
+}
+
+// ModelStats returns per-model aggregate statistics from the ring buffer.
+func (rb *RingBuffer) ModelStats() []ModelStatEntry {
+	rb.mu.RLock()
+	defer rb.mu.RUnlock()
+	type pmKey struct{ provider, model string }
+	stats := make(map[pmKey]*ModelStatEntry)
+	for i := 0; i < rb.size; i++ {
+		idx := (rb.head - 1 - i + rb.max) % rb.max
+		e := rb.entries[idx]
+		k := pmKey{e.Provider, e.Model}
+		s, ok := stats[k]
+		if !ok {
+			s = &ModelStatEntry{Provider: e.Provider, Model: e.Model}
+			stats[k] = s
+		}
+		if e.Status == "success" {
+			s.SuccessCount++
+		}
+		s.InputTokens += e.InputTokens
+		s.OutputTokens += e.OutputTokens
+	}
+	result := make([]ModelStatEntry, 0, len(stats))
+	for _, s := range stats {
+		result = append(result, *s)
+	}
+	return result
+}
+
 // Compile-time interface check.
 var _ UsageStore = (*RingBuffer)(nil)

@@ -116,18 +116,27 @@ function renderQuotaBars(bars) {
   if (!bars || bars.length === 0) return '';
   var html = '<div class="quota-section"><h3>Quota Monitor</h3>';
   bars.forEach(function(bar) {
-    var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
-    var color = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
-    var remaining = bar.totalCapacity - bar.totalUsed;
-    html += '<div class="quota-bar-item">' +
-      '<div class="quota-bar-header">' +
-        '<span class="quota-bar-model">' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + '</span>' +
-        '<span class="quota-bar-numbers">' + remaining + '/' + bar.totalCapacity + '</span>' +
-      '</div>' +
-      '<div class="quota-bar-track">' +
-        '<div class="quota-bar-fill" style="width:' + (100 - pct) + '%;background:' + color + '"></div>' +
-      '</div>' +
-    '</div>';
+    var tokenInfo = ' <span class="quota-bar-tokens">' + bar.successCount + ' ok &middot; in:' + formatMillionTokens(bar.inputTokens) + ' out:' + formatMillionTokens(bar.outputTokens) + '</span>';
+    if (bar.hasQuota) {
+      var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
+      var color = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
+      var remaining = bar.totalCapacity - bar.totalUsed;
+      html += '<div class="quota-bar-item">' +
+        '<div class="quota-bar-header">' +
+          '<span class="quota-bar-model">' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + tokenInfo + '</span>' +
+          '<span class="quota-bar-numbers">' + remaining + '/' + bar.totalCapacity + '</span>' +
+        '</div>' +
+        '<div class="quota-bar-track">' +
+          '<div class="quota-bar-fill" style="width:' + (100 - pct) + '%;background:' + color + '"></div>' +
+        '</div>' +
+      '</div>';
+    } else {
+      html += '<div class="quota-bar-item">' +
+        '<div class="quota-bar-header">' +
+          '<span class="quota-bar-model">' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + tokenInfo + '</span>' +
+        '</div>' +
+      '</div>';
+    }
   });
   html += '</div>';
   return html;

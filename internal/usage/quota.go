@@ -18,8 +18,13 @@ type KeyQuota struct {
 type QuotaBar struct {
 	Provider      string     `json:"provider"`
 	Model         string     `json:"model"`
+	PerKeyLimit   int        `json:"perKeyLimit"`
 	TotalCapacity int        `json:"totalCapacity"`
 	TotalUsed     int        `json:"totalUsed"`
+	HasQuota      bool       `json:"hasQuota"`
+	SuccessCount  int        `json:"successCount"`
+	InputTokens   int        `json:"inputTokens"`
+	OutputTokens  int        `json:"outputTokens"`
 	Keys          []KeyQuota `json:"keys"`
 }
 
@@ -35,9 +40,14 @@ func NewQuotaTracker() *QuotaTracker {
 }
 
 // Update records a quota snapshot for a specific key/model.
-func (qt *QuotaTracker) Update(providerName, model, keyID, keyName string, limit, remaining int) {
+// totalKeyCount is the total number of active keys for the provider (not just probed ones),
+// used to estimate TotalCapacity = perKeyLimit × totalKeyCount.
+func (qt *QuotaTracker) Update(providerName, model, keyID, keyName string, limit, remaining, totalKeyCount int) {
 	if limit <= 0 {
 		return
+	}
+	if totalKeyCount < 1 {
+		totalKeyCount = 1
 	}
 	qt.mu.Lock()
 	defer qt.mu.Unlock()
@@ -73,10 +83,10 @@ func (qt *QuotaTracker) Update(providerName, model, keyID, keyName string, limit
 		})
 	}
 
-	bar.TotalCapacity = 0
+	bar.PerKeyLimit = limit
+	bar.TotalCapacity = limit * totalKeyCount
 	bar.TotalUsed = 0
 	for _, k := range bar.Keys {
-		bar.TotalCapacity += k.Limit
 		bar.TotalUsed += (k.Limit - k.Remaining)
 	}
 }

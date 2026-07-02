@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"sort"
 	"time"
 
+	"github.com/tinyrouter/tinyrouter/internal/usage"
 	"github.com/tinyrouter/tinyrouter/web"
 )
 
@@ -45,6 +47,43 @@ func (rt *Router) clearUsage(w http.ResponseWriter, r *http.Request) {
 
 func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 	bars := rt.quotaTracker.All()
+	modelStats := rt.usage.ModelStats()
+
+	// Build a map of quota bars by "provider/model"
+	barMap := make(map[string]int)
+	for i := range bars {
+		bars[i].HasQuota = true
+		barMap[bars[i].Provider+"/"+bars[i].Model] = i
+	}
+
+	// Merge usage stats into quota bars; add non-quota models
+	for _, ms := range modelStats {
+		key := ms.Provider + "/" + ms.Model
+		if idx, ok := barMap[key]; ok {
+			bars[idx].SuccessCount = ms.SuccessCount
+			bars[idx].InputTokens = ms.InputTokens
+			bars[idx].OutputTokens = ms.OutputTokens
+		} else {
+			newBar := usage.QuotaBar{
+				Provider:     ms.Provider,
+				Model:        ms.Model,
+				HasQuota:     false,
+				SuccessCount: ms.SuccessCount,
+				InputTokens:  ms.InputTokens,
+				OutputTokens: ms.OutputTokens,
+			}
+			bars = append(bars, newBar)
+			barMap[key] = len(bars) - 1
+		}
+	}
+
+	// Sort by provider + model for stable ordering
+	sort.Slice(bars, func(i, j int) bool {
+		ki := bars[i].Provider + "/" + bars[i].Model
+		kj := bars[j].Provider + "/" + bars[j].Model
+		return ki < kj
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"quotas": bars,

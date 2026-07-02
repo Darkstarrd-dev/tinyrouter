@@ -60,8 +60,15 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		if keyState != nil {
 			keyState.UpdateQuota(model, snap.ModelLimit, snap.ModelRemaining, snap.GlobalLimit, snap.GlobalRemaining)
 		}
+		// Count active keys for total capacity estimation
+		activeKeyCount := 0
+		for _, k := range sel.Provider.Keys {
+			if k.IsActive {
+				activeKeyCount++
+			}
+		}
 		// Update the quota tracker for UI display
-		h.quotaTracker.Update(sel.Provider.Name, model, sel.Key.ID, sel.Key.Name, snap.ModelLimit, snap.ModelRemaining)
+		h.quotaTracker.Update(sel.Provider.Name, model, sel.Key.ID, sel.Key.Name, snap.ModelLimit, snap.ModelRemaining, activeKeyCount)
 	}
 
 	// If adapter detected quota exhaustion (ModelRemaining == 0), lock the key for this model
