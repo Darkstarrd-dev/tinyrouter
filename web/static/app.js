@@ -195,7 +195,7 @@ let providersCache = [];
 let providerDetailCache = null;
 let modelTestStatus = {};
 let importTarget = 'models';
-var usageRefreshTimer = null;
+var usageEventSource = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
@@ -1259,22 +1259,26 @@ async function renderUsage(c) {
 
 function startUsageRefresh() {
   stopUsageRefresh();
-  usageRefreshTimer = setInterval(async function() {
+  usageEventSource = new EventSource('/api/usage/events');
+  usageEventSource.onmessage = async function(ev) {
     try {
-      const [summary, usage] = await Promise.all([
-        apiGet('/usage/summary'),
-        apiGet('/usage?limit=500')
-      ]);
-      updateUsageSummary(summary);
-      updateUsageTable(usage.entries || []);
+      var data = JSON.parse(ev.data);
+      if (data.type === 'usage-updated') {
+        const [summary, usage] = await Promise.all([
+          apiGet('/usage/summary'),
+          apiGet('/usage?limit=500')
+        ]);
+        updateUsageSummary(summary);
+        updateUsageTable(usage.entries || []);
+      }
     } catch(e) {}
-  }, 3000);
+  };
 }
 
 function stopUsageRefresh() {
-  if (usageRefreshTimer) {
-    clearInterval(usageRefreshTimer);
-    usageRefreshTimer = null;
+  if (usageEventSource) {
+    usageEventSource.close();
+    usageEventSource = null;
   }
 }
 

@@ -43,6 +43,37 @@ func (rt *Router) clearUsage(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
+func (rt *Router) streamUsageEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeAPIError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n")
+	flusher.Flush()
+
+	ch := rt.proxyHandler.UsageUpdateCh
+	ctx := r.Context()
+	for {
+		select {
+		case <-ch:
+			fmt.Fprintf(w, "data: {\"type\":\"usage-updated\"}\n\n")
+			flusher.Flush()
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
 // --- Console Logs ---
 
 func (rt *Router) getConsoleLogs(w http.ResponseWriter, r *http.Request) {

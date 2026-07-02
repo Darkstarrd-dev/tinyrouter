@@ -16,21 +16,23 @@ import (
 )
 
 type Handler struct {
-	reg      *registry.Registry
-	selector *rotation.Selector
-	comboRes *combo.Resolver
-	usage    *usage.RingBuffer
-	logger   *console.Logger
-	client   *http.Client
+	reg           *registry.Registry
+	selector      *rotation.Selector
+	comboRes      *combo.Resolver
+	usage         *usage.RingBuffer
+	logger        *console.Logger
+	client        *http.Client
+	UsageUpdateCh chan struct{}
 }
 
 func New(reg *registry.Registry, selector *rotation.Selector, comboRes *combo.Resolver, usageBuf *usage.RingBuffer, logger *console.Logger) *Handler {
 	return &Handler{
-		reg:      reg,
-		selector: selector,
-		comboRes: comboRes,
-		usage:    usageBuf,
-		logger:   logger,
+		reg:           reg,
+		selector:      selector,
+		comboRes:      comboRes,
+		usage:         usageBuf,
+		logger:        logger,
+		UsageUpdateCh: make(chan struct{}, 1),
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 		},
@@ -180,12 +182,14 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			bodyStr := string(body)
+			latency429 := time.Since(startTime).Milliseconds()
 
 			if rotation.IsDailyQuota429(bodyStr, upstreamModel) {
 				h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, upstreamModel, bodyStr)
 				excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
 				temp429Retries = 0
 				h.logger.Warn("429 daily quota: %s | locked Key %s until next CST day", truncStr(bodyStr, 200), sel.Key.Name)
+				h.recordUsage(sel.Provider.Name, upstreamModel, sel, "error", latency429, 0, 0, bodyStr)
 				continue
 			}
 
@@ -193,6 +197,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 				temp429Retries++
 				h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
 					truncStr(bodyStr, 200), h.selector.Settings().RetryDelaySec, temp429Retries, maxRetries, sel.Key.Name)
+				h.recordUsage(sel.Provider.Name, upstreamModel, sel, "error", latency429, 0, 0, bodyStr)
 				time.Sleep(time.Duration(h.selector.Settings().RetryDelaySec) * time.Second)
 				continue
 			}
@@ -200,6 +205,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			excludeKeyIDs = append(excludeKeyIDs, sel.Key.ID)
 			temp429Retries = 0
 			h.logger.Warn("429 retries exhausted for Key %s, switching", sel.Key.Name)
+			h.recordUsage(sel.Provider.Name, upstreamModel, sel, "error", latency429, 0, 0, bodyStr)
 			continue
 		}
 
@@ -298,6 +304,12 @@ func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey,
 		OutputTokens: outputTokens,
 		Error:        errMsg,
 	})
+	if status == "success" {
+		select {
+		case h.UsageUpdateCh <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func splitModel(s string) (string, string) {
