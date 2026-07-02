@@ -141,7 +141,9 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		maxRetries = 5
 	}
 
-	if isStream {
+	cfgProvider, _ := h.reg.GetProvider(providerID)
+	injectStreamOpts := isStream && cfgProvider != nil && cfgProvider.InjectStreamOpts
+	if injectStreamOpts {
 		if _, ok := parsed["stream_options"]; !ok {
 			parsed["stream_options"] = map[string]any{"include_usage": true}
 		}

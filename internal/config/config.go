@@ -38,6 +38,7 @@ type Provider struct {
 	Models           []string `yaml:"models,omitempty" json:"models,omitempty"`
 	RotationStrategy string   `yaml:"rotationStrategy,omitempty" json:"rotationStrategy,omitempty"`
 	StickyLimit      int      `yaml:"stickyLimit,omitempty" json:"stickyLimit,omitempty"`
+	InjectStreamOpts bool     `yaml:"injectStreamOptions,omitempty" json:"injectStreamOptions,omitempty"`
 }
 
 // Combo represents a model combination with a routing strategy.
