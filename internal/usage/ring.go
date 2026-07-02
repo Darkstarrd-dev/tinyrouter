@@ -61,16 +61,21 @@ func (rb *RingBuffer) Add(entry Entry) {
 	}
 }
 
-// All returns all entries in reverse chronological order.
-func (rb *RingBuffer) All() []Entry {
-	rb.mu.RLock()
-	defer rb.mu.RUnlock()
+// allLocked returns all entries in reverse chronological order. Caller must hold the lock.
+func (rb *RingBuffer) allLocked() []Entry {
 	result := make([]Entry, rb.size)
 	for i := 0; i < rb.size; i++ {
 		idx := (rb.head - 1 - i + rb.max) % rb.max
 		result[i] = rb.entries[idx]
 	}
 	return result
+}
+
+// All returns all entries in reverse chronological order.
+func (rb *RingBuffer) All() []Entry {
+	rb.mu.RLock()
+	defer rb.mu.RUnlock()
+	return rb.allLocked()
 }
 
 // Summary returns aggregate statistics.
@@ -118,7 +123,7 @@ func (rb *RingBuffer) Resize(newMax int) {
 	}
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
-	old := rb.All()
+	old := rb.allLocked()
 	if newMax < len(old) {
 		old = old[:newMax]
 	}
@@ -126,7 +131,8 @@ func (rb *RingBuffer) Resize(newMax int) {
 	rb.max = newMax
 	rb.size = 0
 	rb.head = 0
-	for _, e := range old {
+	for i := len(old) - 1; i >= 0; i-- {
+		e := old[i]
 		rb.entries[rb.head] = e
 		rb.head = (rb.head + 1) % rb.max
 		if rb.size < rb.max {
