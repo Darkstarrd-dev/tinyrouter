@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -26,10 +27,11 @@ type Router struct {
 	selector     *rotation.Selector
 	comboRes     *combo.Resolver
 	client       *http.Client
+	shutdown     context.CancelFunc
 }
 
 // New creates an API Router.
-func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, logger *console.Logger, proxyHandler *proxy.Handler) *Router {
+func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc) *Router {
 	return &Router{
 		reg:          reg,
 		cfg:          cfg,
@@ -37,6 +39,7 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 		usage:        usageBuf,
 		logger:       logger,
 		proxyHandler: proxyHandler,
+		shutdown:     shutdown,
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -68,6 +71,9 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 		r.Get("/settings", rt.getSettings)
 		r.Patch("/settings", rt.updateSettings)
 		r.Post("/reload", rt.reload)
+
+		// Shutdown
+		r.Post("/shutdown", rt.handleShutdown)
 
 		// Providers
 		r.Get("/providers", rt.listProviders)

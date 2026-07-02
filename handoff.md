@@ -1,118 +1,91 @@
-# Handoff: Providers 功能增强
+# Handoff: WebUI Redesign & UX Enhancements
 
 ## 本轮完成内容
 
-### 1. URL 路径自动判断
+### 1. WebUI 全面重设计 — 深色玻璃拟态
 
-`internal/proxy/upstream.go` — 新增 `normalizeBaseURL()` 和 `BuildUpstreamURL()`
+`web/static/style.css` — 完全重写设计系统：
 
-自动处理三种 BaseURL 格式：
-- `https://api.deepseek.com`（根路径） → 追加 `/v1/chat/completions`
-- `https://api.deepseek.com/v1`（含版本） → 追加 `/chat/completions`
-- `https://token.sensenova.cn/v1/chat/completions`（完整路径） → 标准化后使用
+- **设计语言**: 深色玻璃拟态（Glassmorphism），`backdrop-filter: blur()` + `rgba` 半透明层叠
+- **背景**: 径向渐变 `#12121a → #0a0a0f`
+- **色彩体系**: 渐变强调色 `#4fc3f7 → #7c4dff`，柔和的状态色（绿/橙/红）
+- **组件样式**: 全新卡片、按钮（primary/danger/ghost）、徽章（带圆点指示器）、表格、表单
+- **动效**: 页面入场 `fadeIn + translateY`、骨架屏 `shimmer` 脉动、徽章 `pulse`、按钮悬停上浮
 
-### 2. Config 结构变更
+### 2. 布局修复
 
-`internal/config/config.go` — Provider 新增字段：
+`web/static/style.css` — `.app` 容器缺失 `display: flex`，导致 sidebar 和 main 垂直堆叠：
 
-```go
-type Provider struct {
-    // ... 原有字段 ...
-    Models           []string `yaml:"models,omitempty" json:"models,omitempty"`
-    RotationStrategy string   `yaml:"rotationStrategy,omitempty" json:"rotationStrategy,omitempty"`
-    StickyLimit      int      `yaml:"stickyLimit,omitempty" json:"stickyLimit,omitempty"`
-}
+```css
+.app { display: flex; width: 100%; height: 100vh; overflow: hidden; }
+.sidebar { flex-shrink: 0; height: 100%; display: flex; flex-direction: column; }
+.main { flex: 1; min-width: 0; height: 100%; overflow-y: auto; }
 ```
 
-- `Models`: 存储该 provider 的自定义 model ID 列表（上游实际 model name）
-- `RotationStrategy`: 覆盖全局设置，可选值 `""`(继承) / `"fill-first"` / `"round-robin"`
-- `StickyLimit`: 覆盖全局粘性限制，`0` = 继承全局
+### 3. 交互改进 — Toast + Modal + Skeleton
 
-### 3. Registry 新增方法
+`web/static/app.js` — 替换原生弹窗：
 
-`internal/registry/registry.go`:
-- `ListModels(providerID) []string`
-- `AddModel(providerID, model) bool` — 去重添加
-- `DeleteModel(providerID, model) bool`
-- `UpdateProviderStrategy(providerID, strategy, stickyLimit) bool`
-- `UpdateProvider` 现在也同步 Models/RotationStrategy/StickyLimit
+- **`alert(msg)` → `toast(msg, type)`**: 右上角玻璃滑入通知，带进度条，4 种类型（success/error/info/warning）
+- **`confirm(msg)` → `await confirmModal(msg)`**: 居中玻璃弹窗，遮罩层 `blur(8px)`，支持 backdrop 点击关闭
+- **骨架屏**: 所有页面加载时显示脉动骨架占位，数据到达后替换
 
-### 4. Rotation 支持 provider 级别覆盖
+### 4. 深色 / 浅色主题切换
 
-`internal/rotation/selector.go`:
-- `effectiveStrategy(provider)` — 优先使用 provider.RotationStrategy，否则用全局
-- `effectiveStickyLimit(provider)` — 优先使用 provider.StickyLimit，否则用全局
+- `style.css` 使用 CSS 变量，`:root` 为深色，`[data-theme="light"]` 覆盖全套配色
+- `index.html` 在 `<head>` 内联脚本先读取 `localStorage`，避免 Flash of Unstyled Content
+- 侧边栏标题旁 **Light/Dark** 按钮，偏好持久化
+- 浅色主题使用低不透明度黑色层代替白色层，保持玻璃质感
 
-### 5. 7 个新 API 端点
+### 5. 字体大小切换 S/M/L
 
-`internal/api/providers_extra.go`:
+- `style.css` 新增 `--font-*` 变量组（base/h2/h3/card/stat/log/code/badge...）
+- `[data-font-size="m"]` 和 `[data-font-size="l"]` 三套字号档位
+- 侧边栏标题旁 **S/M/L** 按钮，循环切换，`localStorage` 持久化
+- 内联脚本预读取防闪烁
 
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| POST | `/api/providers/validate` | 创建前测试连通性。请求体: `{baseUrl, apiKey, modelId?}`。先 GET /v1/models，失败且有 modelId 时回退 POST /v1/chat/completions。401/403=无效，其他=有效 |
-| POST | `/api/providers/{id}/test` | 测试指定 key。请求体: `{keyId?}`。默认使用第一个活跃 key |
-| GET | `/api/providers/{id}/models` | 从上游 /v1/models 获取模型列表。使用第一个活跃 key |
-| POST | `/api/providers/{id}/models/test` | 测试模型连通性。请求体: `{model}`。发送最小 chat completion，返回 `{ok, latencyMs, error, status}` |
-| POST | `/api/providers/{id}/models` | 添加自定义模型 ID。请求体: `{model}` |
-| DELETE | `/api/providers/{id}/models/{modelId}` | 删除自定义模型 ID |
-| POST | `/api/providers/{id}/keys/bulk` | 批量添加 keys。请求体: `{keys: [{name, key, priority?}]}`。返回 `{added, errors}` |
+### 6. 启动自动打开浏览器
 
-### 6. ListModels 显示具体模型
+`main.go` — 服务启动 300ms 后自动打开默认浏览器：
 
-- `/v1/models`（OpenAI 格式）和 `/api/models`（管理 API）现在优先显示具体的 `prefix/modelId`
-- 如果 provider.Models 为空，显示 `prefix/*`
+| 系统 | 命令 |
+|---|---|
+| Windows | `rundll32 url.dll,FileProtocolHandler` |
+| macOS | `open` |
+| Linux | `xdg-open` |
 
-### 7. config.yaml 修复
+### 7. 网页内 Shutdown 按钮
 
-SenseNova URL 从 `https://token.sensenova.cn/v1/chat/completions` 更正为 `https://token.sensenova.cn/v1`
+- `main.go` — 新增 `context.WithCancel` 作为关闭信号，`select` 同时监听 OS 信号和 UI 触发
+- `internal/api/router.go` — Router 新增 `shutdown context.CancelFunc` 字段
+- `internal/api/misc.go` — 新增 `POST /api/shutdown` 端点，延迟 100ms 后触发优雅关闭
+- `web/static/app.js` — `shutdownServer()` 调用 `/api/shutdown` → 显示停止提示页 → `window.close()`
 
-### 8. 前端 UI 增强
+**注意**: 浏览器安全策略限制，JS 只能关闭 `window.open()` 打开的窗口。系统自动打开的标签页会显示 "You may close this window" 提示页。
 
-`web/static/app.js` — Providers 页面完全重写：
+### 8. 静态资源缓存控制
 
-**添加 Provider 表单（增强版）：**
-- 新增 API Key 输入（仅用于测试，不保存到 provider）
-- 新增 Model ID 输入（可选，当 /v1/models 不可用时作为回退测试）
-- "Check" 按钮调用 `POST /api/providers/validate`，显示 Valid/Invalid 徽章
-
-**Provider 详情视图（新）：**
-- 点击 provider 卡片进入详情页（替代原有的内联 key 表格）
-- 返回按钮、启用/禁用切换、删除
-- **Keys Section:**
-  - Key 表格：Name、Key（掩码）、Priority、Status
-  - 单 Key 添加：Name + API Key + Priority + "Create"
-  - 批量添加：textarea 每行一个 key，格式 `name|key` 或只 `key`
-  - 每个 key 有 Test / Pause-Resume / Delete 按钮
-- **Rotation Section:**
-  - 策略选择：Inherit Global / fill-first / round-robin
-  - Sticky Limit 输入（0 = 继承全局）
-  - Save 按钮（保存到 provider 字段）
-- **Models Section:**
-  - 模型列表：每行显示 `prefix/modelId` + 测试状态 + Test 按钮 + Delete 按钮
-  - Add Model 行：输入框 + "Test" 按钮 + "Add" 按钮
-  - "Import from /models" 按钮：从上游导入，自动添加新模型
+`internal/api/misc.go` — `serveUI()` 为静态文件添加 `Cache-Control: no-cache, must-revalidate` 头，确保开发时 CSS/JS 更新立即可见。
 
 ## 架构决策记录
 
-### URL 规范化策略
-为了让配置更灵活，BaseURL 支持三种形式（根路径、带 /v1、带完整路径），通过 `normalizeBaseURL()` 统一处理。代价是每次请求都要做字符串处理，但性能损耗可以忽略。
+### CSS 变量驱动主题
+选择使用纯 CSS 变量 + `data-theme` / `data-font-size` 属性切换，而非 CSS-in-JS 或预处理器。优点是零运行时开销，变量在浏览器 DevTools 中可直接调试。
 
-### Provider 级别覆盖 vs 全局设置
-选择覆盖模式：provider 设置优先级高于全局，未设置时自动继承全局。这样既保留了对各 provider 的精细控制，又不增加迁移成本。
+### 关闭信号传递
+使用 `context.WithCancel` 传递关闭信号，而非 `chan struct{}`。优点是闭包安全、可多次调用 cancel()（幂等）。
 
-### 模型存储位置
-模型 ID 直接存储在 `provider.Models` 字段中（YAML 序列化），不创建独立的数据结构。简单够用，代价是即使没有自定义模型，空数组也会写入 YAML（用 `omitempty` 规避）。
+### 字体大小联动缩放
+不使用全局 `transform: scale()`，而是为每个字体相关属性定义 CSS 变量。这样确保精确控制每一处字号，不影响布局盒模型和 spacing。
 
 ## 未完成事项
 
-暂无。所有计划功能均已实现。
+1. **provider 详情页的骨架屏**：当前 detail view 直接显示内容而非骨架，可后续优化
+2. **Console 页添加骨架/加载态**：目前直接显示日志容器，可加初始加载动画
 
 ## 已知问题和注意事项
 
-1. **URL 规范化限制**：`normalizeBaseURL` 只处理 `/chat/completions`、`/completions`、`/models` 这三种后缀。如果上游使用其他路径，需要手动调整 BaseURL 配置。
-
-2. **Config 文件变更**：添加了新的 Provider 字段后，旧 config.yaml 可以正常加载（新字段使用 Go 零值），但需要手动添加 `rotationStrategy`/`stickyLimit`/`models` 才能生效。
-
-3. **SenseNova 配置**：已修复 BaseURL，但原始配置中的 API Key 可能已过时。需要用户自行更新。
-
-4. **批量导入模型**：Import from /models 按钮逐个调用 `POST /api/providers/{id}/models`，大模型列表时会有 N+1 问题。后续可以添加批量添加模型的端点优化。
+1. **浏览器自动关闭限制**：Shutdown 按钮调用 `window.close()` 在多数现代浏览器中会静默失败（非 `window.open()` 打开的窗口）。用户需要手动关闭标签页。
+2. **Light 主题玻璃效果**：浅色背景下的玻璃拟态效果不如深色明显，因为 `backdrop-filter` 在浅色背景上的视觉对比度较低。
+3. **字体 S/M/L 只影响字号**：行高、内边距、间距等不会随字体大小变化，L 档位下可能需要后续微调。
+4. **config.yaml 变更**：`Register` 结构体新增 model 验证相关字段（本次未修改 Provider 配置结构，无迁移成本）。

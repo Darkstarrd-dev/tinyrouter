@@ -146,6 +146,17 @@ func (rt *Router) listModels(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"models": models})
 }
 
+func (rt *Router) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	// Trigger shutdown after a short delay so the response is flushed.
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		rt.shutdown()
+	}()
+}
+
 // --- UI ---
 
 func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {
@@ -155,8 +166,9 @@ func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serve static files
+	// Serve static files (no cache for development)
 	if r.URL.Path != "/" {
+		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 		f := http.FileServer(http.FS(staticFS))
 		f.ServeHTTP(w, r)
 		return

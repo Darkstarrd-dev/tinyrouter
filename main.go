@@ -7,7 +7,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -38,7 +40,10 @@ func main() {
 	selector := rotation.New(reg, &cfg.Rotation)
 	comboRes := combo.New(reg)
 	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, logger)
-	apiRouter := api.New(reg, cfg, *configPath, usageBuf, logger, proxyHandler)
+
+	// Shutdown is triggered by the UI via POST /api/shutdown.
+	shutdownCtx, triggerShutdown := context.WithCancel(context.Background())
+	apiRouter := api.New(reg, cfg, *configPath, usageBuf, logger, proxyHandler, triggerShutdown)
 
 	// Build HTTP server
 	handler := apiRouter.Routes(proxyHandler)
@@ -60,11 +65,23 @@ func main() {
 		}
 	}()
 
-	// Graceful shutdown
+	// Open browser after a short delay so the server is ready.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		if err := openBrowser(fmt.Sprintf("http://%s", addr)); err != nil {
+			logger.Info("failed to open browser: %v", err)
+		}
+	}()
+
+	// Graceful shutdown: wait for OS signal or UI-triggered shutdown.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	logger.Info("shutting down...")
+	select {
+	case <-quit:
+		logger.Info("shutting down (signal)...")
+	case <-shutdownCtx.Done():
+		logger.Info("shutting down (UI)...")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -72,4 +89,18 @@ func main() {
 		log.Fatalf("forced shutdown: %v", err)
 	}
 	logger.Info("stopped")
+}
+
+// openBrowser opens the default browser for the current OS.
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	return cmd.Start()
 }

@@ -1,27 +1,46 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TinyRouter</title>
+<script>
+(function() {
+  var theme = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  var fontSize = localStorage.getItem('fontSize') || 's';
+  document.documentElement.setAttribute('data-font-size', fontSize);
+})();
+</script>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="app">
 <aside class="sidebar">
+<div class="sidebar-header">
 <h1>TinyRouter</h1>
-<nav>
+<div class="header-controls">
+<button class="theme-toggle" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">Light</button>
+<button class="theme-toggle" id="font-btn" onclick="toggleFontSize()" title="Toggle font size">S</button>
+</div>
+</div>
+<nav class="sidebar-nav">
 <div class="nav-item active" data-page="endpoint">Endpoint</div>
 <div class="nav-item" data-page="providers">Providers</div>
 <div class="nav-item" data-page="combos">Combos</div>
 <div class="nav-item" data-page="usage">Usage</div>
 <div class="nav-item" data-page="console">Console</div>
 </nav>
+<div class="sidebar-footer">
+<button class="shutdown-btn" onclick="shutdownServer()">Shutdown</button>
+</div>
 </aside>
 <main class="main">
 <div id="page-content"></div>
 </main>
 </div>
+<div id="toast-container"></div>
+<div id="modal-overlay" class="modal-overlay"></div>
 <script src="/app.js"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,7 +40,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *registry.Registry, string
 	comboRes := combo.New(reg)
 	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, logger)
 	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
-	apiRouter := New(reg, cfg, tmpFile, usageBuf, logger, proxyHandler)
+	apiRouter := New(reg, cfg, tmpFile, usageBuf, logger, proxyHandler, context.CancelFunc(func() {}))
 	handler := apiRouter.Routes(proxyHandler)
 	return httptest.NewServer(handler), reg, tmpFile
 }
