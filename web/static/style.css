@@ -386,7 +386,7 @@ tbody tr:last-child td{border-bottom:none}
 .model-key-quota-fill{height:100%;border-radius:3px;transition:width .3s}
 .model-key-quota-numbers{font-size:var(--font-badge);color:var(--text-muted);font-variant-numeric:tabular-nums;text-align:right}
 .model-key-lock-info{font-size:var(--font-badge);color:var(--warn)}
-.model-key-error{font-size:var(--font-badge);color:var(--danger);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}
+.model-key-error{font-size:var(--font-badge);color:var(--danger);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;justify-self:end;text-align:right}
 .model-key-metrics{display:inline-flex;gap:8px}
 .model-key-metric.model-key-succ{color:var(--accent2)}
 .model-key-metric.model-key-succ .model-key-err{color:var(--danger)}

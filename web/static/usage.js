@@ -4,6 +4,7 @@ var lastUsageSig = '';
 var lastUsageEntries = [];
 var modelColorMap = {};
 var expandedModels = new Set();
+var lockCountdownTimerStarted = false;
 
 var TREND_PALETTE = [
   '#4fc3f7', '#10a37f', '#d97706', '#4285f4', '#a855f7', '#ff6a00',
@@ -439,12 +440,41 @@ function renderQuotaBars(bars) {
   return html;
 }
 
+function formatRemaining(ms) {
+  if (ms <= 0) return '0s';
+  var totalSec = Math.floor(ms / 1000);
+  var m = Math.floor(totalSec / 60);
+  var s = totalSec % 60;
+  if (m > 0) return m + 'm ' + s + 's';
+  return s + 's';
+}
+
+function updateLockCountdowns() {
+  var els = document.querySelectorAll('.model-key-countdown[data-unlock]');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    var unlock = el.getAttribute('data-unlock');
+    if (!unlock) continue;
+    var remaining = new Date(unlock).getTime() - Date.now();
+    if (remaining <= 0) {
+      el.textContent = '0s';
+      el.classList.add('model-key-countdown-done');
+    } else {
+      el.textContent = formatRemaining(remaining);
+    }
+  }
+}
+
 function updateQuotaBars(bars) {
   var container = document.querySelector('.quota-monitor-card > .card');
   if (!container) return;
   container.outerHTML = renderQuotaBars(bars);
   reexpandModelDetails();
   attachQuotaBarHover();
+  if (!lockCountdownTimerStarted) {
+    lockCountdownTimerStarted = true;
+    setInterval(updateLockCountdowns, 1000);
+  }
 }
 
 // (C) Hover a quota-bar track to see exact used/remain/total/per-key numbers.
@@ -568,8 +598,7 @@ function renderModelKeyDetail(provider, model, data) {
 
     var lockInfo = '';
     if (k.modelLock) {
-      var lockTime = new Date(k.modelLock);
-      lockInfo = '<span class="model-key-lock-info">' + t('unlockAt') + ' ' + lockTime.toLocaleTimeString() + '</span>';
+      lockInfo = '<span class="model-key-lock-info model-key-countdown" data-unlock="' + k.modelLock + '">' + formatRemaining(new Date(k.modelLock).getTime() - Date.now()) + '</span>';
     }
 
     var errorInfo = '';
