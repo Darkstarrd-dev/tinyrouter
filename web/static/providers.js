@@ -362,20 +362,20 @@ function renderDetailModels(p) {
     var chevronDown = '<svg class="quota-bar-chevron model-row-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
     return '<div class="model-row" id="' + rowId + '">' +
       '<div class="model-row-main" onclick="toggleModelDetailRow(event, \'' + pidEsc + '\', \'' + midEsc + '\')">' +
+        chevronDown +
         (ts
           ? (ts.ok
               ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
               : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
           : '<button class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midEsc + '\'))">' + t('test') + '</button>') +
-        '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midEsc + '\')">' + t('delete') + '</button>' +
-        '<span class="model-id copyable" onclick="event.stopPropagation(); copyToClipboard(\'' + prefixEsc + '/' + midEsc + '\')" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + midEsc + '</span>' +
         '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
           '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
           '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
           '<option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>' +
         '</select>' +
         allBadge +
-        chevronDown +
+        '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midEsc + '\')">' + t('delete') + '</button>' +
+        '<span class="model-id copyable" onclick="event.stopPropagation(); copyToClipboard(\'' + prefixEsc + '/' + midEsc + '\')" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + midEsc + '</span>' +
       '</div>' +
       '<div class="model-key-detail-wrap" id="' + detailId + '"></div>' +
     '</div>';
@@ -434,7 +434,7 @@ async function fetchModelDetailRow(pid, mid) {
   if (!wrap) return;
   try {
     var p = providerDetailCache;
-    var data = await apiGet('/usage/model-keys?provider=' + encodeURIComponent(p.Name) + '&model=' + encodeURIComponent(mid));
+    var data = await apiGet('/usage/model-keys?provider=' + encodeURIComponent(p.name) + '&model=' + encodeURIComponent(mid));
     renderModelKeyDetailRow(pid, mid, data);
   } catch (e) {
     wrap.innerHTML = '<div class="model-key-detail-empty">' + escapeHtml(e.message || String(e)) + '</div>';
@@ -449,7 +449,13 @@ function renderModelKeyDetailRow(pid, mid, data) {
     wrap.innerHTML = '<div class="model-key-detail-empty">' + t('noKeysConfigured') + '</div>';
     return;
   }
-  var html = '<div class="model-key-detail">';
+  // Actions row first (Run All-Keys Test button + status)
+  var html = '<div class="model-key-detail-actions">' +
+    '<button class="btn btn-sm btn-primary" id="run-alltest-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '" onclick="runAllKeysTest(\'' + escapeHtml(pid) + '\', \'' + escapeHtml(mid) + '\')">' + t('runAllKeysTest') + '</button>' +
+    '<span class="model-alltest-status" id="alltest-status-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '"></span>' +
+  '</div>';
+  // Each key on its own grid row
+  html += '<div class="model-key-detail">';
   data.keys.forEach(function(k) {
     var color = typeof getModelColor !== 'undefined' ? getModelColor(data.provider, data.model) : 'var(--accent2)';
     var statusBadge = '';
@@ -483,10 +489,6 @@ function renderModelKeyDetailRow(pid, mid, data) {
         lockInfo = '<span class="model-key-lock-info">' + t('unlockAt') + ' ' + lockTime.toLocaleTimeString() + '</span>';
       } catch (_) {}
     }
-    var errorInfo = '';
-    if (k.lastError) {
-      errorInfo = '<div class="model-key-error">' + escapeHtml(k.lastError) + '</div>';
-    }
     var inUseBadge = '';
     var rowClass = 'model-key-row';
     var usable = k.isActive && k.status === 'active' && !k.modelLock;
@@ -496,20 +498,23 @@ function renderModelKeyDetailRow(pid, mid, data) {
     } else if (!usable) {
       rowClass = 'model-key-row model-key-row-disabled';
     }
+    var errStr = '';
+    if (k.lastError) {
+      errStr = k.lastError.length > 60 ? k.lastError.slice(0, 60) + '…' : k.lastError;
+    }
     html += '<div class="' + rowClass + '" data-keyname="' + escapeHtml(k.keyName) + '">' +
       '<span class="model-color-dot" style="background:' + color + '"></span>' +
       '<span class="model-key-name">' + escapeHtml(k.keyName) + '</span>' +
-      quotaInfo + quotaBar + statusBadge + inUseBadge + lockInfo + errorInfo +
+      '<div class="model-key-badges">' + statusBadge + inUseBadge + '</div>' +
+      '<div class="model-key-quota">' + quotaBar + quotaInfo + '</div>' +
+      (lockInfo || '<span></span>') +
       '<span class="model-key-ttft"></span>' +
       '<span class="model-key-speed"></span>' +
       '<span class="model-key-tokens"></span>' +
+      '<span class="model-key-error"' + (k.lastError ? ' title="' + escapeHtml(k.lastError) + '"' : '') + '>' + (errStr ? escapeHtml(errStr) : '') + '</span>' +
     '</div>';
   });
   html += '</div>';
-  html += '<div class="model-key-detail-actions">' +
-    '<button class="btn btn-sm btn-primary" id="run-alltest-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '" onclick="runAllKeysTest(\'' + escapeHtml(pid) + '\', \'' + escapeHtml(mid) + '\')">' + t('runAllKeysTest') + '</button>' +
-    '<span class="model-alltest-status" id="alltest-status-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '"></span>' +
-  '</div>';
   wrap.innerHTML = html;
   var prev = allKeysTestResults[pid + '/' + mid];
   if (prev && prev.results) {
@@ -524,24 +529,68 @@ async function runAllKeysTest(pid, mid) {
   var statusEl = document.getElementById(statusId);
   if (btn) btn.disabled = true;
   if (statusEl) statusEl.innerHTML = '<span class="badge badge-testing">' + t('runningAllKeysTest') + '</span>';
+  // Clear any previous per-key metrics so a retest shows progress cleanly.
+  var wrap = document.getElementById('mdetail-' + sanitizeId(pid) + '-' + sanitizeId(mid));
+  if (wrap) {
+    wrap.querySelectorAll('.model-key-row').forEach(function(row) {
+      ['model-key-ttft', 'model-key-speed', 'model-key-tokens'].forEach(function(cls) {
+        var el = row.querySelector('.' + cls);
+        if (el) el.innerHTML = '';
+      });
+    });
+  }
+  var results = [];
+  var total = 0;
   try {
-    var result = await apiPost('/providers/' + pid + '/models/test-all', { model: mid });
-    allKeysTestResults[pid + '/' + mid] = result;
-    if (result.results) {
-      renderKeyTestResults(pid, mid, result.results);
-      var okCnt = 0, failCnt = 0;
-      result.results.forEach(function(r) { if (r.ok) okCnt++; else failCnt++; });
-      var badgeId = 'mrow-' + sanitizeId(pid) + '-' + sanitizeId(mid);
-      var row = document.getElementById(badgeId);
-      if (row) {
-        var badge = row.querySelector('.model-alltest-badge');
-        if (badge) {
-          badge.classList.add('show');
-          badge.innerHTML = '<span class="ok">' + okCnt + '</span>/<span class="fail">' + failCnt + '</span>';
+    const resp = await fetch('/api/providers/' + pid + '/models/test-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      body: JSON.stringify({ model: mid })
+    });
+    if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    var buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      var events = buffer.split('\n\n');
+      buffer = events.pop();
+      for (var i = 0; i < events.length; i++) {
+        var ev = events[i];
+        var lines = ev.split('\n');
+        var eventType = '', dataStr = '';
+        for (var j = 0; j < lines.length; j++) {
+          if (lines[j].indexOf('event:') === 0) eventType = lines[j].slice(6).trim();
+          else if (lines[j].indexOf('data:') === 0) dataStr += lines[j].slice(5).trim();
+        }
+        if (eventType === 'meta') {
+          try { total = JSON.parse(dataStr).total; } catch (_) {}
+          if (statusEl) statusEl.innerHTML = '<span class="badge badge-testing">0/' + total + '</span>';
+        } else if (eventType === 'key') {
+          var r;
+          try { r = JSON.parse(dataStr); } catch (_) { continue; }
+          results.push(r);
+          renderKeySingleResult(pid, mid, r);
+          if (statusEl) statusEl.innerHTML = '<span class="badge badge-testing">' + results.length + '/' + total + '</span>';
+        } else if (eventType === 'done') {
+          var summary;
+          try { summary = JSON.parse(dataStr); } catch (_) { summary = {}; }
+          allKeysTestResults[pid + '/' + mid] = { results: results };
+          if (statusEl) statusEl.innerHTML = '<span class="badge badge-valid">' + t('allKeysTestDone') + ' (' + (summary.ok || 0) + '/' + (summary.fail || 0) + ')</span>';
+          var okCnt = summary.ok || 0, failCnt = summary.fail || 0;
+          var row = document.getElementById('mrow-' + sanitizeId(pid) + '-' + sanitizeId(mid));
+          if (row) {
+            var badge = row.querySelector('.model-alltest-badge');
+            if (badge) {
+              badge.classList.add('show');
+              badge.innerHTML = '<span class="ok">' + okCnt + '</span>/<span class="fail">' + failCnt + '</span>';
+            }
+          }
         }
       }
     }
-    if (statusEl) statusEl.innerHTML = '<span class="badge badge-valid">' + t('allKeysTestDone') + ' (' + (result.results ? result.results.length : 0) + ')</span>';
   } catch (e) {
     if (statusEl) statusEl.innerHTML = '<span class="badge badge-invalid">' + escapeHtml(e.message || String(e)) + '</span>';
   } finally {
@@ -549,26 +598,32 @@ async function runAllKeysTest(pid, mid) {
   }
 }
 
-function renderKeyTestResults(pid, mid, results) {
+function renderKeySingleResult(pid, mid, r) {
   var detailId = 'mdetail-' + sanitizeId(pid) + '-' + sanitizeId(mid);
   var wrap = document.getElementById(detailId);
   if (!wrap) return;
+  var rows = wrap.querySelectorAll('.model-key-row[data-keyname="' + escapeAttr(r.keyName) + '"]');
+  rows.forEach(function(row) {
+    var ttftEl = row.querySelector('.model-key-ttft');
+    var speedEl = row.querySelector('.model-key-speed');
+    var tokensEl = row.querySelector('.model-key-tokens');
+    if (r.ok) {
+      row.classList.remove('model-key-row-disabled');
+      if (ttftEl) ttftEl.innerHTML = '<span class="model-key-metric">' + t('firstToken') + ' ' + r.ttftMs + 'ms</span>';
+      if (speedEl) speedEl.innerHTML = '<span class="model-key-metric">' + t('speed') + ' ' + (r.tokensPerSec != null ? r.tokensPerSec.toFixed(1) : '0') + ' ' + t('tokPerSec') + '</span>';
+      if (tokensEl) tokensEl.innerHTML = '<span class="model-key-metric">' + t('outputTokensLabel') + ' ' + r.outputTokens + '</span>';
+    } else {
+      row.classList.add('model-key-row-disabled');
+      if (ttftEl) ttftEl.innerHTML = '<span class="model-key-metric model-key-metric-err">FAIL' + (r.status ? ' ' + r.status : '') + '</span>';
+      if (speedEl) speedEl.innerHTML = '';
+      if (tokensEl) tokensEl.innerHTML = '<span class="model-key-metric model-key-metric-err">' + escapeHtml(r.error || '') + '</span>';
+    }
+  });
+}
+
+function renderKeyTestResults(pid, mid, results) {
   results.forEach(function(r) {
-    var rows = wrap.querySelectorAll('.model-key-row[data-keyname="' + escapeAttr(r.keyName) + '"]');
-    rows.forEach(function(row) {
-      var ttftEl = row.querySelector('.model-key-ttft');
-      var speedEl = row.querySelector('.model-key-speed');
-      var tokensEl = row.querySelector('.model-key-tokens');
-      if (r.ok) {
-        if (ttftEl) ttftEl.innerHTML = '<span class="model-key-metric">' + t('ttft') + ' ' + r.ttftMs + 'ms</span>';
-        if (speedEl) speedEl.innerHTML = '<span class="model-key-metric">' + (r.tokensPerSec != null ? r.tokensPerSec.toFixed(1) : '0') + ' ' + t('tokPerSec') + '</span>';
-        if (tokensEl) tokensEl.innerHTML = '<span class="model-key-metric">' + t('out') + ' ' + r.outputTokens + '</span>';
-      } else {
-        if (ttftEl) ttftEl.innerHTML = '<span class="model-key-metric model-key-metric-err">FAIL' + (r.status ? ' ' + r.status : '') + '</span>';
-        if (speedEl) speedEl.innerHTML = '';
-        if (tokensEl) tokensEl.innerHTML = '<span class="model-key-metric model-key-metric-err">' + escapeHtml(r.error || '') + '</span>';
-      }
-    });
+    renderKeySingleResult(pid, mid, r);
   });
 }
 

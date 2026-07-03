@@ -28,6 +28,9 @@ function navigateTo(page) {
     el.classList.toggle('active', el.dataset.page === page);
   });
   const container = document.getElementById('page-content');
+  // Remove any per-page main modifier classes before rendering the new page.
+  const mainEl = document.querySelector('.main');
+  if (mainEl) mainEl.classList.remove('main-no-scroll');
   container.innerHTML = '';
   container.classList.remove('page-enter');
   const p = (() => {

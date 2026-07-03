@@ -93,6 +93,9 @@ const L = {
     ttft: 'TTFT',
     tokPerSec: 'tok/s',
     out: 'out',
+    firstToken: 'First Token',
+    speed: 'Speed',
+    outputTokensLabel: 'Output',
   },
   cn: {
     endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台',
@@ -187,6 +190,9 @@ const L = {
     ttft: 'TTFT',
     tokPerSec: 'tok/s',
     out: '出',
+    firstToken: '首字延迟',
+    speed: '速度',
+    outputTokensLabel: '输出',
   }
 };
 
