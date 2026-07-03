@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 	"github.com/tinyrouter/tinyrouter/web"
 )
@@ -89,6 +90,79 @@ func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"quotas": bars,
+	})
+}
+
+func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
+	providerName := r.URL.Query().Get("provider")
+	model := r.URL.Query().Get("model")
+	if providerName == "" || model == "" {
+		writeAPIError(w, http.StatusBadRequest, "provider and model are required")
+		return
+	}
+
+	var provider *config.Provider
+	for _, p := range rt.reg.ListProviders() {
+		if p.Name == providerName {
+			pp := p
+			provider = &pp
+			break
+		}
+	}
+	if provider == nil {
+		writeAPIError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	type keyDetail struct {
+		KeyID       string  `json:"keyId"`
+		KeyName     string  `json:"keyName"`
+		IsActive    bool    `json:"isActive"`
+		Status      string  `json:"status"`
+		HasQuota    bool    `json:"hasQuota"`
+		ModelLimit  int     `json:"modelLimit"`
+		ModelRemain int     `json:"modelRemaining"`
+		ModelLock   *string `json:"modelLock"`
+		LastError   string  `json:"lastError"`
+	}
+
+	hasQuota := false
+	details := make([]keyDetail, 0, len(provider.Keys))
+	for _, k := range provider.Keys {
+		kd := keyDetail{
+			KeyID:    k.ID,
+			KeyName:  k.Name,
+			IsActive: k.IsActive,
+			Status:   "active",
+		}
+		state := rt.reg.GetKeyState(provider.ID, k.ID)
+		if state != nil {
+			state.Lock()
+			kd.Status = state.Status
+			if unlock, ok := state.ModelLocks[model]; ok {
+				if time.Now().Before(unlock) {
+					s := unlock.Format("2006-01-02T15:04:05Z07:00")
+					kd.ModelLock = &s
+				}
+			}
+			kd.LastError = state.LastError
+			if q := state.ModelQuotas[model]; q != nil {
+				kd.HasQuota = true
+				kd.ModelLimit = q.ModelLimit
+				kd.ModelRemain = q.ModelRemaining
+				hasQuota = true
+			}
+			state.Unlock()
+		}
+		details = append(details, kd)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"provider": providerName,
+		"model":    model,
+		"hasQuota": hasQuota,
+		"keys":     details,
 	})
 }
 

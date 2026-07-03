@@ -333,14 +333,19 @@ function renderDetailModels(p) {
     var ts = modelTestStatus[m];
     var statusClass = 'model-pending';
     var statusText = t('untested');
+    var quotaHtml = '';
     if (ts) {
       if (ts.ok) { statusClass = 'model-ok'; statusText = 'OK'; }
       else { statusClass = 'model-err'; statusText = ts.error || 'FAIL'; }
+      if (ts.quotaTotal > 0) {
+        quotaHtml = '<span class="model-quota" title="' + t('quotaTooltip') + '">' + ts.quotaRemain + '/' + ts.quotaTotal + '</span>';
+      }
     }
     return '<div class="model-row">\
         <button class="btn btn-sm" onclick="withLoading(this, () => testSingleModel(\'' + p.id + '\',\'' + escapeHtml(m) + '\'))">' + t('test') + '</button>\
       <button class="btn btn-sm btn-danger" onclick="deleteModelDetail(\'' + p.id + '\',\'' + escapeHtml(m) + '\')">' + t('delete') + '</button>\
       <span class="model-id copyable" onclick="copyToClipboard(\'' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '\')" title="' + t('clickToCopy') + '">' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '</span>\
+      ' + quotaHtml + '\
       <span class="model-status ' + statusClass + '">' + escapeHtml(statusText) + '</span>\
     </div>';
   }).join('');

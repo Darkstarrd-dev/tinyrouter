@@ -3,6 +3,7 @@
 var lastUsageSig = '';
 var lastUsageEntries = [];
 var modelColorMap = {};
+var expandedModels = new Set();
 
 var TREND_PALETTE = [
   '#4fc3f7', '#10a37f', '#d97706', '#4285f4', '#a855f7', '#ff6a00',
@@ -26,6 +27,10 @@ function getModelColor(provider, model) {
   return color;
 }
 
+function sanitizeId(s) {
+  return String(s || '').replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
 function renderUsageRow(e) {
   return '<tr>\
     <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
@@ -43,6 +48,7 @@ function buildTrendData(entries) {
   var windowStart = now - TREND_WINDOW_MS;
   var groups = {};
   (entries || []).forEach(function(e) {
+    if (e.status !== 'success') return;
     var ts = new Date(e.timestamp).getTime();
     if (ts < windowStart) return;
     var key = e.provider + '/' + e.model;
@@ -179,12 +185,15 @@ function attachTrendHover(entries) {
 
   wrap.onmousemove = function(ev) {
     var rect = svg.getBoundingClientRect();
-    var scaleX = 680 / rect.width;
-    var svgX = (ev.clientX - rect.left) * scaleX;
-    var scaleH = 260 / rect.height;
-    var svgY = (ev.clientY - rect.top) * scaleH;
+    var scale = Math.min(rect.width / 680, rect.height / 260);
+    var renderedW = 680 * scale;
+    var renderedH = 260 * scale;
+    var offsetX = (rect.width - renderedW) / 2;
+    var offsetY = (rect.height - renderedH) / 2;
+    var svgX = (ev.clientX - rect.left - offsetX) / scale;
+    var svgY = (ev.clientY - rect.top - offsetY) / scale;
 
-    if (svgX < chartX0 || svgX > chartX1) {
+    if (svgX < 0 || svgX > 680 || svgY < 0 || svgY > 260) {
       hoverLine.setAttribute('opacity', '0');
       hoverDot.setAttribute('opacity', '0');
       tooltip.style.display = 'none';
@@ -334,9 +343,12 @@ async function clearUsage() {
 
 function renderQuotaBars(bars) {
   if (!bars || bars.length === 0) return '';
+  var chevronDown = '<svg class="quota-bar-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
   var html = '<div class="quota-section"><h3>Quota Monitor</h3>';
   bars.forEach(function(bar) {
     var color = getModelColor(bar.provider, bar.model);
+    var itemId = 'qbi-' + sanitizeId(bar.provider) + '-' + sanitizeId(bar.model);
+    var toggleCall = "toggleModelDetail('" + escapeHtml(bar.provider).replace(/'/g, "\\'") + "','" + escapeHtml(bar.model).replace(/'/g, "\\'") + "')";
     var tokenInfo = ' <span class="quota-bar-tokens">' +
       '<span style="color:var(--accent2);font-weight:700">' + bar.successCount + '</span>' +
       '<span style="color:var(--text-muted);font-weight:400"> / </span>' +
@@ -345,20 +357,23 @@ function renderQuotaBars(bars) {
     if (bar.hasQuota) {
       var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
       var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
-      html += '<div class="quota-bar-item">' +
+      html += '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
         '<div class="quota-bar-header">' +
           '<span class="quota-bar-model"><span class="model-color-dot" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + tokenInfo + '</span>' +
-          '<span class="quota-bar-numbers">' + bar.totalUsed + '/' + bar.totalCapacity + '</span>' +
+          '<span class="quota-bar-right"><span class="quota-bar-numbers">' + bar.totalUsed + '/' + bar.totalCapacity + '</span>' + chevronDown + '</span>' +
         '</div>' +
         '<div class="quota-bar-track">' +
           '<div class="quota-bar-fill" style="width:' + pct + '%;background:' + fillColor + '"></div>' +
         '</div>' +
+        '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
       '</div>';
     } else {
-      html += '<div class="quota-bar-item">' +
+      html += '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
         '<div class="quota-bar-header">' +
           '<span class="quota-bar-model"><span class="model-color-dot" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + tokenInfo + '</span>' +
+          '<span class="quota-bar-right">' + chevronDown + '</span>' +
         '</div>' +
+        '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
       '</div>';
     }
   });
@@ -370,6 +385,129 @@ function updateQuotaBars(bars) {
   var container = document.querySelector('.quota-section');
   if (!container) return;
   container.outerHTML = renderQuotaBars(bars);
+  reexpandModelDetails();
+}
+
+function toggleModelDetail(provider, model) {
+  var itemId = 'qbi-' + sanitizeId(provider) + '-' + sanitizeId(model);
+  var detailId = 'detail-' + itemId;
+  var wrap = document.getElementById(detailId);
+  if (!wrap) return;
+  var key = provider + '/' + model;
+  var item = document.getElementById(itemId);
+  var chevron = item ? item.querySelector('.quota-bar-chevron') : null;
+
+  if (expandedModels.has(key)) {
+    expandedModels.delete(key);
+    wrap.classList.remove('expanded');
+    if (chevron) chevron.style.transform = '';
+    setTimeout(function() { if (!expandedModels.has(key)) wrap.innerHTML = ''; }, 300);
+  } else {
+    expandedModels.add(key);
+    wrap.classList.add('expanded');
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+    wrap.innerHTML = '<div class="model-key-detail-loading">' + t('loading') + '...</div>';
+    fetchModelKeyDetail(provider, model);
+  }
+}
+
+async function fetchModelKeyDetail(provider, model) {
+  try {
+    var data = await apiGet('/usage/model-keys?provider=' + encodeURIComponent(provider) + '&model=' + encodeURIComponent(model));
+    renderModelKeyDetail(provider, model, data);
+  } catch(e) {
+    var itemId = 'qbi-' + sanitizeId(provider) + '-' + sanitizeId(model);
+    var wrap = document.getElementById('detail-' + itemId);
+    if (wrap) wrap.innerHTML = '<div class="model-key-detail-error">' + escapeHtml(t('failed').replace('{0}', e.message || '')) + '</div>';
+  }
+}
+
+function renderModelKeyDetail(provider, model, data) {
+  var itemId = 'qbi-' + sanitizeId(provider) + '-' + sanitizeId(model);
+  var wrap = document.getElementById('detail-' + itemId);
+  if (!wrap) return;
+  if (!data.keys || data.keys.length === 0) {
+    wrap.innerHTML = '<div class="model-key-detail-empty">' + escapeHtml(t('noKeys')) + '</div>';
+    return;
+  }
+
+  var html = '<div class="model-key-detail">';
+  data.keys.forEach(function(k) {
+    var color = getModelColor(provider, model);
+    var statusBadge = '';
+    var quotaBar = '';
+
+    if (data.hasQuota) {
+      if (k.hasQuota) {
+        if (k.modelRemain === 0) {
+          statusBadge = '<span class="key-status-badge key-status-exhausted">' + t('exhausted') + '</span>';
+        } else {
+          statusBadge = '<span class="key-status-badge key-status-available">' + t('available') + '</span>';
+        }
+        var pct = k.modelLimit > 0 ? ((k.modelLimit - k.modelRemain) / k.modelLimit * 100) : 0;
+        var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
+        quotaBar = '<div class="model-key-quota-bar"><div class="model-key-quota-fill" style="width:' + pct + '%;background:' + fillColor + '"></div></div>';
+      } else {
+        statusBadge = '<span class="key-status-badge key-status-untested">' + t('untested') + '</span>';
+      }
+    } else {
+      if (k.modelLock) {
+        if (k.status === 'locked') {
+          statusBadge = '<span class="key-status-badge key-status-locked">' + t('dailyLocked') + '</span>';
+        } else {
+          statusBadge = '<span class="key-status-badge key-status-cooldown">' + t('cooldown') + '</span>';
+        }
+      } else if (!k.isActive) {
+        statusBadge = '<span class="key-status-badge key-status-inactive">' + t('inactive') + '</span>';
+      } else {
+        statusBadge = '<span class="key-status-badge key-status-available">' + t('available') + '</span>';
+      }
+    }
+
+    var lockInfo = '';
+    if (k.modelLock) {
+      var lockTime = new Date(k.modelLock);
+      lockInfo = '<span class="model-key-lock-info">' + t('unlockAt') + ' ' + lockTime.toLocaleTimeString() + '</span>';
+    }
+
+    var errorInfo = '';
+    if (k.lastError) {
+      errorInfo = '<div class="model-key-error">' + escapeHtml(k.lastError) + '</div>';
+    }
+
+    var quotaInfo = '';
+    if (data.hasQuota && k.hasQuota) {
+      quotaInfo = '<span class="model-key-quota-numbers">' + (k.modelLimit - k.modelRemain) + '/' + k.modelLimit + '</span>';
+    }
+
+    html += '<div class="model-key-row">' +
+      '<span class="model-color-dot" style="background:' + color + '"></span>' +
+      '<span class="model-key-name">' + escapeHtml(k.keyName) + '</span>' +
+      quotaInfo +
+      quotaBar +
+      statusBadge +
+      lockInfo +
+      errorInfo +
+    '</div>';
+  });
+  html += '</div>';
+  wrap.innerHTML = html;
+}
+
+function reexpandModelDetails() {
+  expandedModels.forEach(function(key) {
+    var parts = key.split('/');
+    var provider = parts.slice(0, -1).join('/');
+    var model = parts[parts.length - 1];
+    var itemId = 'qbi-' + sanitizeId(provider) + '-' + sanitizeId(model);
+    var wrap = document.getElementById('detail-' + itemId);
+    if (wrap) {
+      wrap.classList.add('expanded');
+      var chevron = document.querySelector('#' + itemId + ' .quota-bar-chevron');
+      if (chevron) chevron.style.transform = 'rotate(180deg)';
+      fetchModelKeyDetail(provider, model);
+    }
+  });
 }
 
 // --- Recent Requests Modal ---

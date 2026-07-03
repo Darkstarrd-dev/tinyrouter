@@ -111,6 +111,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 		r.Get("/usage", rt.getUsage)
 		r.Get("/usage/summary", rt.getUsageSummary)
 		r.Get("/usage/quotas", rt.getQuotas)
+		r.Get("/usage/model-keys", rt.getModelKeys)
 		r.Get("/usage/events", rt.streamUsageEvents)
 		r.Delete("/usage", rt.clearUsage)
 
