@@ -40,7 +40,7 @@ func (h *Handler) logRequest(sel *rotation.SelectedKey, logLabel, providerName, 
 // handleNetworkError processes upstream network errors. Always continues to the next key.
 func (h *Handler) handleNetworkError(sel *rotation.SelectedKey, providerID, model string, err error, state *retryState) {
 	h.logger.Error("upstream error: %v", err)
-	h.selector.MarkUnavailable(providerID, sel.Key.ID, model, 0, err.Error())
+	h.selector.OnKeyFailure(providerID, sel.Key.ID, model, 0, err.Error())
 	state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 	h.recordUsage(providerID, model, sel, "error", 0, 0, 0, err.Error())
 	state.temp429Retries = 0
@@ -98,6 +98,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		}
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 		state.temp429Retries = 0
+		h.selector.OnKeyFailure(providerID, sel.Key.ID, model, 429, bodyStr)
 		h.logger.Warn("429 retries exhausted for Key %s, switching", sel.Key.Name)
 		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
 		return
@@ -151,15 +152,17 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 
 	if state.temp429Retries < state.maxRetries {
 		state.temp429Retries++
+		delay := rotation.BackoffSequence(state.temp429Retries)
 		h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
-			truncStr(bodyStr, 200), h.selector.Settings().RetryDelaySec, state.temp429Retries, state.maxRetries, sel.Key.Name)
+			truncStr(bodyStr, 200), delay, state.temp429Retries, state.maxRetries, sel.Key.Name)
 		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
-		time.Sleep(time.Duration(h.selector.Settings().RetryDelaySec) * time.Second)
+		time.Sleep(time.Duration(delay) * time.Second)
 		return
 	}
 
 	state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 	state.temp429Retries = 0
+	h.selector.OnKeyFailure(providerID, sel.Key.ID, model, 429, bodyStr)
 	h.logger.Warn("429 retries exhausted for Key %s, switching", sel.Key.Name)
 	h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
 }
@@ -168,7 +171,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, state *retryState) {
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	h.selector.MarkUnavailable(providerID, sel.Key.ID, model, resp.StatusCode, string(body))
+	h.selector.OnKeyFailure(providerID, sel.Key.ID, model, resp.StatusCode, string(body))
 	state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 	h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, truncStr(string(body), 500))
 	state.temp429Retries = 0

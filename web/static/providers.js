@@ -306,6 +306,7 @@ function renderDetailRotation(p) {
           <option value=""' + (strategy === '' ? ' selected' : '') + '>' + t('inheritGlobal') + '</option>\
           <option value="fill-first"' + (strategy === 'fill-first' ? ' selected' : '') + '>' + t('fillFirst') + '</option>\
           <option value="round-robin"' + (strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobin') + '</option>\
+          <option value="failover"' + (strategy === 'failover' ? ' selected' : '') + '>' + t('failover') + '</option>\
         </select>\
       </div>\
       <div class="form-group">\

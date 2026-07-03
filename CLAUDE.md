@@ -78,6 +78,7 @@ web/
 ### 5. Key 轮询策略 (移植自 9router `src/sse/services/auth.js`)
 - **fill-first:** 按 priority ASC 排序，取第一个可用 key
 - **round-robin:** 粘性轮询，连续使用同一 key N 次 (stickyLimit) 后切换到最久未用的 key
+- **failover:** 使用当前 key 直到失败（重试耗尽），失败后该 key 排到队尾，切下一个 key；成功则继续用当前 key
 - **冷却:** 指数退避 (1s→2s→4s→...→240s max)，429 日配额锁定至次日 CST 00:05，per-model 独立锁
 
 ### 6. Combo 策略 (移植自 9router `open-sse/services/combo.js`)

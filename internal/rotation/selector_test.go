@@ -168,3 +168,69 @@ func TestSelectRoundRobin_SwitchesOnExhaustedSticky_ThreeKeys(t *testing.T) {
 		t.Fatalf("expected at least 2 different keys across 6 calls, got %d: %v", len(used), used)
 	}
 }
+
+func TestSelectFailover_PicksLowestPriorityOnFirstCall(t *testing.T) {
+	_, sel := setupTestProvider(t, []int{2, 1}, "failover", 3)
+
+	sk, err := sel.SelectKey("test", "gpt-4", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sk.Key.ID != "b" {
+		t.Fatalf("expected key 'b' (priority 1, never rotated), got %s (priority %d)", sk.Key.ID, sk.Key.Priority)
+	}
+}
+
+func TestSelectFailover_RotatesToBackOnFailure(t *testing.T) {
+	_, sel := setupTestProvider(t, []int{1, 2}, "failover", 3)
+
+	sk1, _ := sel.SelectKey("test", "gpt-4", nil)
+	if sk1.Key.ID != "a" {
+		t.Fatalf("expected key 'a', got %s", sk1.Key.ID)
+	}
+
+	sel.OnKeyFailure("test", sk1.Key.ID, "gpt-4", 500, "server error")
+
+	sk2, err := sel.SelectKey("test", "gpt-4", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sk2.Key.ID != "b" {
+		t.Fatalf("expected key 'b' after rotating 'a' to back, got %s", sk2.Key.ID)
+	}
+}
+
+func TestSelectFailover_QueueCycles(t *testing.T) {
+	_, sel := setupTestProvider(t, []int{1, 2}, "failover", 3)
+
+	sk1, _ := sel.SelectKey("test", "gpt-4", nil)
+	sk1ID := sk1.Key.ID
+
+	sel.OnKeyFailure("test", "a", "gpt-4", 500, "error")
+	sel.OnKeyFailure("test", "b", "gpt-4", 500, "error")
+
+	sk2, _ := sel.SelectKey("test", "gpt-4", nil)
+	if sk2.Key.ID != sk1ID {
+		t.Fatalf("expected key '%s' to come back to front after both rotated, got %s", sk1ID, sk2.Key.ID)
+	}
+}
+
+func TestSelectFailover_FillFirstStillUsesMarkUnavailable(t *testing.T) {
+	_, sel := setupTestProvider(t, []int{1, 2}, "fill-first", 3)
+
+	sel.OnKeyFailure("test", "a", "gpt-4", 500, "server error")
+
+	state := sel.reg.GetKeyState("test", "a")
+	if state == nil {
+		t.Fatal("expected state for key a")
+	}
+	state.Lock()
+	hasLock := false
+	if _, ok := state.ModelLocks["gpt-4"]; ok {
+		hasLock = true
+	}
+	state.Unlock()
+	if !hasLock {
+		t.Fatal("expected ModelLocks to be set for fill-first strategy (MarkUnavailable path), indicating cooldown")
+	}
+}

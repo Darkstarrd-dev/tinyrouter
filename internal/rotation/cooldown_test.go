@@ -246,3 +246,13 @@ func TestNextCSTMidnight05(t *testing.T) {
 		}
 	}
 }
+
+func TestBackoffSequence(t *testing.T) {
+	expected := []int{0, 1, 2, 4, 8, 10, 15, 15, 15, 15, 15}
+	for n, want := range expected {
+		got := BackoffSequence(n)
+		if got != want {
+			t.Errorf("BackoffSequence(%d) = %d, want %d", n, got, want)
+		}
+	}
+}

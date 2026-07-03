@@ -6,6 +6,39 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/config"
 )
 
+// selectRotation picks the key at the front of the rotation queue for the "failover"
+// strategy. Keys are ordered by RotatedAt ASC (zero value first = never failed = most
+// preferred), with ties broken by Priority ASC then config order. On success the chosen
+// key is not rotated, so it stays sticky at the front; on failure the caller rotates it
+// to the back via RotateToBack.
+func (s *Selector) selectRotation(provider *config.Provider, keys []config.Key) config.Key {
+	best := keys[0]
+	bestState := s.reg.GetKeyState(provider.ID, best.ID)
+	var bestRotated time.Time
+	var bestPriority int
+	if bestState != nil {
+		bestState.Lock()
+		bestRotated = bestState.RotatedAt
+		bestState.Unlock()
+	}
+	bestPriority = best.Priority
+	for _, k := range keys[1:] {
+		st := s.reg.GetKeyState(provider.ID, k.ID)
+		var kRotated time.Time
+		if st != nil {
+			st.Lock()
+			kRotated = st.RotatedAt
+			st.Unlock()
+		}
+		if kRotated.Before(bestRotated) || (kRotated.Equal(bestRotated) && k.Priority < bestPriority) {
+			best = k
+			bestRotated = kRotated
+			bestPriority = k.Priority
+		}
+	}
+	return best
+}
+
 func (s *Selector) selectFillFirst(keys []config.Key) config.Key {
 	best := keys[0]
 	for _, k := range keys[1:] {

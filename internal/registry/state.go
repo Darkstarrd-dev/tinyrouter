@@ -22,6 +22,7 @@ type KeyRuntimeState struct {
 	ModelLocks   map[string]time.Time
 	LastUsedAt   time.Time
 	ConsecCount  int
+	RotatedAt    time.Time
 	LastError    string
 	LastErrorAt  time.Time
 	ModelQuotas  map[string]*QuotaInfo

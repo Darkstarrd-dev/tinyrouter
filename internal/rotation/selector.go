@@ -14,6 +14,7 @@ import (
 type KeySelector interface {
 	CooldownManager
 	SelectKey(providerID, model string, excludeKeyIDs []string) (*SelectedKey, error)
+	OnKeyFailure(providerID, keyID, model string, statusCode int, body string)
 	Settings() config.RotationConfig
 }
 
@@ -67,9 +68,12 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 	}
 	var chosen config.Key
 	strategy := s.effectiveStrategy(provider)
-	if strategy == "round-robin" {
+	switch strategy {
+	case "round-robin":
 		chosen = s.selectRoundRobin(provider, candidates, model)
-	} else {
+	case "failover":
+		chosen = s.selectRotation(provider, candidates)
+	default:
 		chosen = s.selectFillFirst(candidates)
 	}
 	state := s.reg.GetKeyState(provider.ID, chosen.ID)
@@ -80,6 +84,38 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 		state.Unlock()
 	}
 	return &SelectedKey{Provider: *provider, Key: chosen, KeyName: chosen.Name}, nil
+}
+
+// OnKeyFailure handles a key failure in a strategy-aware manner. For the "failover"
+// strategy it rotates the key to the back of the queue (no cooldown lock). For other
+// strategies it applies exponential backoff cooldown via MarkUnavailable.
+func (s *Selector) OnKeyFailure(providerID, keyID, model string, statusCode int, body string) {
+	provider, ok := s.reg.GetProvider(providerID)
+	if !ok {
+		s.MarkUnavailable(providerID, keyID, model, statusCode, body)
+		return
+	}
+	if s.effectiveStrategy(provider) == "failover" {
+		s.RotateToBack(providerID, keyID, model, statusCode, body)
+		return
+	}
+	s.MarkUnavailable(providerID, keyID, model, statusCode, body)
+}
+
+// RotateToBack marks a key as rotated to the back of the failover queue by setting
+// RotatedAt to now. Does not set a ModelLock, so the key remains eligible and will be
+// retried once it naturally returns to the front of the queue.
+func (s *Selector) RotateToBack(providerID, keyID, model string, statusCode int, body string) {
+	state := s.reg.GetKeyState(providerID, keyID)
+	if state == nil {
+		return
+	}
+	state.Lock()
+	defer state.Unlock()
+	state.RotatedAt = time.Now()
+	state.Status = "active"
+	state.LastError = fmt.Sprintf("%d: %s", statusCode, truncate(body, 200))
+	state.LastErrorAt = time.Now()
 }
 
 func (s *Selector) Settings() config.RotationConfig {

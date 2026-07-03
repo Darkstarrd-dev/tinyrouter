@@ -65,7 +65,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		logger.Info("TinyRouter starting on http://%s", addr)
+		logger.Info("TinyRouter v%s starting on http://%s", Version, addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
 		}
