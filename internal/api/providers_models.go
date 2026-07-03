@@ -32,7 +32,7 @@ type keyTestResult struct {
 }
 
 // testAllKeysPrompt is sent to each key during the "test all keys" batch probe.
-const testAllKeysPrompt = "Write a ~500-word fantasy adventure short story with a beginning, climax, and resolution. The story should feature a reluctant heroine, a magical artifact, and a dragon who is not what it seems."
+const testAllKeysPrompt = "hi"
 
 // sseLineBuf is a minimal SSE line buffer, equivalent to proxy.sseLineBuffer.
 type sseLineBuf struct {
@@ -91,6 +91,35 @@ func tokenValFromMap(m map[string]any, keys ...string) float64 {
 		}
 	}
 	return 0
+}
+
+// extractContentFromSSE extracts the text content (both delta.content and
+// delta.reasoning_content) from a single SSE data chunk JSON payload.
+func extractContentFromSSE(body []byte) string {
+	var resp map[string]any
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return ""
+	}
+	choices, ok := resp["choices"].([]any)
+	if !ok || len(choices) == 0 {
+		return ""
+	}
+	choice, ok := choices[0].(map[string]any)
+	if !ok {
+		return ""
+	}
+	delta, ok := choice["delta"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	var sb strings.Builder
+	if c, ok := delta["content"].(string); ok {
+		sb.WriteString(c)
+	}
+	if rc, ok := delta["reasoning_content"].(string); ok {
+		sb.WriteString(rc)
+	}
+	return sb.String()
 }
 
 // --- Provider Model Fetching ---
@@ -325,7 +354,7 @@ func (rt *Router) testProviderModelAllKeys(w http.ResponseWriter, r *http.Reques
 		"messages": []map[string]string{
 			{"role": "user", "content": testAllKeysPrompt},
 		},
-		"max_tokens": 800,
+		"max_tokens": 100,
 		"stream":     true,
 	}
 	bodyBytes, _ := json.Marshal(bodyMap)
@@ -354,7 +383,7 @@ func (rt *Router) testProviderModelAllKeys(w http.ResponseWriter, r *http.Reques
 		httpReq.Header.Set("Accept", "text/event-stream")
 
 		t0 := time.Now()
-		resp, err := rt.client.Do(httpReq)
+resp, err := rt.testClient.Do(httpReq)
 		if err != nil {
 			result.Ok = false
 			result.Error = err.Error()
@@ -481,7 +510,7 @@ func (rt *Router) testProviderModelAllKeysSSE(w http.ResponseWriter, r *http.Req
 		"messages": []map[string]string{
 			{"role": "user", "content": testAllKeysPrompt},
 		},
-		"max_tokens": 800,
+		"max_tokens": 100,
 		"stream":     true,
 	}
 	bodyBytes, _ := json.Marshal(bodyMap)
@@ -502,8 +531,10 @@ func (rt *Router) testProviderModelAllKeysSSE(w http.ResponseWriter, r *http.Req
 
 		if result.Ok {
 			okCount++
+			rt.logger.Info("TEST-ALL %s/%s | Key=%s | OK (%dms)", provider.Name, model, k.Name, result.LatencyMs)
 		} else {
 			failCount++
+			rt.logger.Warn("TEST-ALL %s/%s | Key=%s | FAIL %d (%dms)", provider.Name, model, k.Name, result.Status, result.LatencyMs)
 		}
 		if b, err := json.Marshal(result); err == nil {
 			fmt.Fprintf(w, "event: key\ndata: %s\n\n", b)
@@ -531,9 +562,12 @@ func probeSingleKey(rt *Router, providerID string, provider *config.Provider, mo
 	httpReq.Header.Set("Authorization", "Bearer "+k.Key)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
+	rt.logger.Debug("PROBE SEND %s/%s | Key=%s | url=%s | body=%s", provider.Name, model, k.Name, chatURL, truncStr(string(bodyBytes), 200))
+
 	t0 := time.Now()
 	resp, err := rt.client.Do(httpReq)
 	if err != nil {
+		rt.logger.Error("PROBE ERR %s/%s | Key=%s | %v", provider.Name, model, k.Name, err)
 		result.Ok = false
 		result.Error = err.Error()
 		result.LatencyMs = time.Since(t0).Milliseconds()
@@ -547,6 +581,7 @@ func probeSingleKey(rt *Router, providerID string, provider *config.Provider, mo
 		if len(errMsg) > 500 {
 			errMsg = errMsg[:500]
 		}
+		rt.logger.Warn("PROBE %d %s/%s | Key=%s | body=%s", resp.StatusCode, provider.Name, model, k.Name, truncStr(errMsg, 200))
 		result.Ok = false
 		result.Status = resp.StatusCode
 		result.Error = errMsg
@@ -557,14 +592,20 @@ func probeSingleKey(rt *Router, providerID string, provider *config.Provider, mo
 	var ttftMs int64
 	inputTokens := 0
 	outputTokens := 0
+	var contentChunks int
+	var contentBuf strings.Builder
 	buf := make([]byte, 32*1024)
 	sb := &sseLineBuf{}
+
+	const minChunks = 10
+	const maxStreamSec = 8
 
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if ttftMs == 0 {
 				ttftMs = time.Since(t0).Milliseconds()
+				rt.logger.Debug("PROBE STREAM %s/%s | Key=%s | TTFT=%dms", provider.Name, model, k.Name, ttftMs)
 			}
 			for _, line := range sb.feed(buf[:n]) {
 				line = strings.TrimSpace(line)
@@ -577,7 +618,15 @@ func probeSingleKey(rt *Router, providerID string, provider *config.Provider, mo
 						inputTokens = in
 						outputTokens = out
 					}
+					if text := extractContentFromSSE([]byte(payload)); text != "" {
+						contentChunks++
+						contentBuf.WriteString(text)
+					}
 				}
+			}
+			// Early termination: enough content chunks or streamed long enough
+			if contentChunks >= minChunks || time.Since(t0).Seconds() > maxStreamSec {
+				break
 			}
 		}
 		if readErr != nil {
@@ -591,6 +640,10 @@ func probeSingleKey(rt *Router, providerID string, provider *config.Provider, mo
 							inputTokens = in
 							outputTokens = out
 						}
+						if text := extractContentFromSSE([]byte(payload)); text != "" {
+							contentChunks++
+							contentBuf.WriteString(text)
+						}
 					}
 				}
 			}
@@ -599,14 +652,26 @@ func probeSingleKey(rt *Router, providerID string, provider *config.Provider, mo
 	}
 	resp.Body.Close()
 
+	contentText := contentBuf.String()
+	rt.logger.Debug("PROBE CONTENT %s/%s | Key=%s | chunks=%d | text=%s", provider.Name, model, k.Name, contentChunks, truncStr(contentText, 200))
+
 	totalMs := time.Since(t0).Milliseconds()
 	outputPhaseSec := float64(totalMs-ttftMs) / 1000.0
 	var tokensPerSec float64
+	if outputTokens == 0 && len(contentText) > 0 {
+		// Estimate tokens from content text (rough: 4 chars ≈ 1 token)
+		outputTokens = len(contentText) / 4
+		if outputTokens == 0 {
+			outputTokens = 1
+		}
+	}
 	if outputPhaseSec > 0 {
 		tokensPerSec = float64(outputTokens) / outputPhaseSec
 	}
+	rt.logger.Info("PROBE OK %s/%s | Key=%s | ttft=%dms | total=%dms | in=%d out=%d | %.1f tok/s", provider.Name, model, k.Name, ttftMs, totalMs, inputTokens, outputTokens, tokensPerSec)
 
 	if snap := adapter.ParseHeaders(resp.Header); snap != nil {
+		rt.logger.Info("PROBE quota %s/%s | Key=%s | remain=%d/%d", provider.Name, model, k.Name, snap.ModelRemaining, snap.ModelLimit)
 		result.QuotaRemain = snap.ModelRemaining
 		result.QuotaTotal = snap.ModelLimit
 		if ks := rt.reg.GetKeyState(providerID, k.ID); ks != nil {
@@ -704,4 +769,11 @@ func (rt *Router) deleteProviderModel(w http.ResponseWriter, r *http.Request) {
 	} else {
 		writeAPIError(w, http.StatusNotFound, "model not found")
 	}
+}
+
+func truncStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }

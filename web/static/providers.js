@@ -374,6 +374,7 @@ function renderDetailModels(p) {
           '<option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>' +
         '</select>' +
         allBadge +
+        '<span class="model-quota-numbers"></span>' +
         '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midEsc + '\')">' + t('delete') + '</button>' +
         '<span class="model-id copyable" onclick="event.stopPropagation(); copyToClipboard(\'' + prefixEsc + '/' + midEsc + '\')" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + midEsc + '</span>' +
       '</div>' +
@@ -459,18 +460,18 @@ function renderModelKeyDetailRow(pid, mid, data) {
   data.keys.forEach(function(k) {
     var color = typeof getModelColor !== 'undefined' ? getModelColor(data.provider, data.model) : 'var(--accent2)';
     var statusBadge = '';
-    var quotaInfo = '';
-    var quotaBar = '';
+    var quotaPct = 0;
+    var quotaFillColor = 'var(--accent2)';
+    var quotaNumText = '';
     if (data.hasQuota && k.hasQuota) {
       if (k.modelRemaining === 0) {
         statusBadge = '<span class="key-status-badge key-status-exhausted">' + t('exhausted') + '</span>';
       } else {
         statusBadge = '<span class="key-status-badge key-status-available">' + t('available') + '</span>';
       }
-      var pct = k.modelLimit > 0 ? ((k.modelLimit - k.modelRemaining) / k.modelLimit * 100) : 0;
-      var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
-      quotaBar = '<div class="model-key-quota-bar"><div class="model-key-quota-fill" style="width:' + pct + '%;background:' + fillColor + '"></div></div>';
-      quotaInfo = '<span class="model-key-quota-numbers">' + (k.modelLimit - k.modelRemaining) + '/' + k.modelLimit + '</span>';
+      quotaPct = k.modelLimit > 0 ? ((k.modelLimit - k.modelRemaining) / k.modelLimit * 100) : 0;
+      quotaFillColor = quotaPct < 50 ? 'var(--accent2)' : (quotaPct < 80 ? 'var(--warn)' : 'var(--danger)');
+      quotaNumText = (k.modelLimit - k.modelRemaining) + '/' + k.modelLimit;
     } else if (k.modelLock) {
       if (k.status === 'locked') {
         statusBadge = '<span class="key-status-badge key-status-locked">' + t('dailyLocked') + '</span>';
@@ -482,6 +483,8 @@ function renderModelKeyDetailRow(pid, mid, data) {
     } else {
       statusBadge = '<span class="key-status-badge key-status-available">' + t('available') + '</span>';
     }
+    var quotaBar = '<div class="model-key-quota-bar"><div class="model-key-quota-fill" style="width:' + quotaPct + '%;background:' + quotaFillColor + '"></div></div>';
+    var quotaInfo = '<span class="model-key-quota-numbers">' + quotaNumText + '</span>';
     var lockInfo = '';
     if (k.modelLock) {
       try {
@@ -489,13 +492,8 @@ function renderModelKeyDetailRow(pid, mid, data) {
         lockInfo = '<span class="model-key-lock-info">' + t('unlockAt') + ' ' + lockTime.toLocaleTimeString() + '</span>';
       } catch (_) {}
     }
-    var inUseBadge = '';
     var rowClass = 'model-key-row';
-    var usable = k.isActive && k.status === 'active' && !k.modelLock;
-    if (usable && data.inUseKeyName && k.keyName === data.inUseKeyName) {
-      inUseBadge = '<span class="key-status-badge key-status-in-use">' + t('inUse') + '</span>';
-      rowClass = 'model-key-row model-key-row-in-use';
-    } else if (!usable) {
+    if (!k.isActive || k.modelLock) {
       rowClass = 'model-key-row model-key-row-disabled';
     }
     var errStr = '';
@@ -505,7 +503,7 @@ function renderModelKeyDetailRow(pid, mid, data) {
     html += '<div class="' + rowClass + '" data-keyname="' + escapeHtml(k.keyName) + '">' +
       '<span class="model-color-dot" style="background:' + color + '"></span>' +
       '<span class="model-key-name">' + escapeHtml(k.keyName) + '</span>' +
-      '<div class="model-key-badges">' + statusBadge + inUseBadge + '</div>' +
+      '<div class="model-key-badges">' + statusBadge + '</div>' +
       '<div class="model-key-quota">' + quotaBar + quotaInfo + '</div>' +
       (lockInfo || '<span></span>') +
       '<span class="model-key-ttft"></span>' +
@@ -516,6 +514,21 @@ function renderModelKeyDetailRow(pid, mid, data) {
   });
   html += '</div>';
   wrap.innerHTML = html;
+  // Aggregate quota totals and update parent model row
+  var totalRemain = 0, totalLimit = 0;
+  data.keys.forEach(function(k) {
+    if (k.hasQuota) { totalRemain += (k.modelRemaining || 0); totalLimit += (k.modelLimit || 0); }
+  });
+  var modelRow = document.getElementById('mrow-' + sanitizeId(pid) + '-' + sanitizeId(mid));
+  var quotaNumEl = modelRow ? modelRow.querySelector('.model-quota-numbers') : null;
+  if (quotaNumEl) {
+    if (totalLimit > 0) {
+      quotaNumEl.textContent = totalRemain + '/' + totalLimit;
+      quotaNumEl.style.display = '';
+    } else {
+      quotaNumEl.style.display = 'none';
+    }
+  }
   var prev = allKeysTestResults[pid + '/' + mid];
   if (prev && prev.results) {
     renderKeyTestResults(pid, mid, prev.results);
@@ -587,6 +600,16 @@ async function runAllKeysTest(pid, mid) {
               badge.classList.add('show');
               badge.innerHTML = '<span class="ok">' + okCnt + '</span>/<span class="fail">' + failCnt + '</span>';
             }
+            // Re-aggregate quota from test results and update model row quota numbers
+            var totalRemain = 0, totalLimit = 0;
+            results.forEach(function(r) {
+              if (r.quotaTotal > 0) { totalRemain += (r.quotaRemain || 0); totalLimit += (r.quotaTotal || 0); }
+            });
+            var quotaNumEl = row.querySelector('.model-quota-numbers');
+            if (quotaNumEl && totalLimit > 0) {
+              quotaNumEl.textContent = totalRemain + '/' + totalLimit;
+              quotaNumEl.style.display = '';
+            }
           }
         }
       }
@@ -617,6 +640,26 @@ function renderKeySingleResult(pid, mid, r) {
       if (ttftEl) ttftEl.innerHTML = '<span class="model-key-metric model-key-metric-err">FAIL' + (r.status ? ' ' + r.status : '') + '</span>';
       if (speedEl) speedEl.innerHTML = '';
       if (tokensEl) tokensEl.innerHTML = '<span class="model-key-metric model-key-metric-err">' + escapeHtml(r.error || '') + '</span>';
+    }
+    // Refresh quota bar if backend returned quota info
+    if (r.quotaTotal > 0) {
+      var remain = r.quotaRemain || 0;
+      var total = r.quotaTotal || 0;
+      var pct = total > 0 ? ((total - remain) / total * 100) : 0;
+      var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
+      var quotaFill = row.querySelector('.model-key-quota-fill');
+      var quotaNumbers = row.querySelector('.model-key-quota-numbers');
+      if (quotaFill) { quotaFill.style.width = pct + '%'; quotaFill.style.background = fillColor; }
+      if (quotaNumbers) quotaNumbers.textContent = (total - remain) + '/' + total;
+      var dot = row.querySelector('.model-color-dot');
+      if (dot) dot.style.background = remain === 0 && total > 0 ? 'var(--danger)' : (pct >= 80 ? 'var(--warn)' : 'var(--accent2)');
+      // Update status badge to reflect quota (skip if locked/cooldown/inactive)
+      var badge = row.querySelector('.model-key-badges');
+      if (badge && !badge.querySelector('.key-status-locked, .key-status-cooldown, .key-status-inactive')) {
+        badge.innerHTML = remain === 0
+          ? '<span class="key-status-badge key-status-exhausted">' + t('exhausted') + '</span>'
+          : '<span class="key-status-badge key-status-available">' + t('available') + '</span>';
+      }
     }
   });
 }

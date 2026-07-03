@@ -415,10 +415,13 @@ function renderQuotaBars(bars) {
       html += '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
         '<div class="quota-bar-header">' +
           '<span class="quota-bar-model"><span class="model-color-dot" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + currentKeyHtml + tokenInfo + '</span>' +
-          '<span class="quota-bar-right"><span class="quota-bar-numbers">' + bar.totalUsed + '/' + bar.totalCapacity + '</span>' + chevronDown + '</span>' +
+          '<span class="quota-bar-right">' + chevronDown + '</span>' +
         '</div>' +
-        '<div class="quota-bar-track" data-used="' + bar.totalUsed + '" data-total="' + bar.totalCapacity + '" data-remain="' + remain + '" data-perkey="' + bar.perKeyLimit + '">' +
-          '<div class="quota-bar-fill" style="width:' + pct + '%;background:' + fillColor + '"></div>' +
+        '<div class="quota-bar-row">' +
+          '<span class="quota-bar-numbers">' + bar.totalUsed + '/' + bar.totalCapacity + '</span>' +
+          '<div class="quota-bar-track" data-used="' + bar.totalUsed + '" data-total="' + bar.totalCapacity + '" data-remain="' + remain + '" data-perkey="' + bar.perKeyLimit + '">' +
+            '<div class="quota-bar-fill" style="width:' + pct + '%;background:' + fillColor + '"></div>' +
+          '</div>' +
         '</div>' +
         '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
       '</div>';

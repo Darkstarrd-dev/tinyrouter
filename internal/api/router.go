@@ -28,6 +28,7 @@ type Router struct {
 	selector     *rotation.Selector
 	comboRes     *combo.Resolver
 	client       *http.Client
+	testClient   *http.Client
 	shutdown     context.CancelFunc
 }
 
@@ -46,6 +47,9 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 		comboRes:     comboRes,
 		client: &http.Client{
 			Timeout: 15 * time.Second,
+		},
+		testClient: &http.Client{
+			Timeout: 30 * time.Second,
 		},
 	}
 }

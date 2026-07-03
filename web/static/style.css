@@ -222,6 +222,7 @@ tbody tr:last-child td{border-bottom:none}
 .model-row .model-quota-select{flex-shrink:0;width:auto;height:calc(var(--font-base) + 11px);box-sizing:border-box;max-width:120px;font-size:var(--font-badge);padding:3px 8px;border-radius:6px;background:var(--input-bg);border:1px solid var(--glass-border);color:var(--text)}
 .model-alltest-badge{font-size:var(--font-badge);padding:2px 8px;border-radius:100px;font-weight:600;display:none;font-variant-numeric:tabular-nums;background:var(--badge-inactive-bg);font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;flex-shrink:0}
 .model-alltest-badge.show{display:inline-flex;gap:3px;align-items:center}
+.model-quota-numbers{font-size:var(--font-badge);color:var(--text-muted);font-variant-numeric:tabular-nums;flex-shrink:0;padding:2px 8px}
 .model-alltest-badge .ok{color:var(--accent2)}
 .model-alltest-badge .fail{color:var(--danger)}
 .model-key-detail-actions{display:flex;align-items:center;gap:10px;padding:10px 4px 4px;border-bottom:1px dashed var(--glass-border);margin-bottom:4px}
@@ -347,8 +348,9 @@ tbody tr:last-child td{border-bottom:none}
 .quota-bar-item:hover{background:var(--input-bg);border-radius:8px}
 .quota-bar-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
 .quota-bar-model{font-size:var(--font-base);color:var(--text-secondary);font-weight:500}
-.quota-bar-numbers{font-size:var(--font-badge);color:var(--text-muted);font-variant-numeric:tabular-nums}
-.quota-bar-track{height:6px;background:var(--input-bg);border-radius:3px;overflow:hidden}
+.quota-bar-numbers{font-size:var(--font-badge);color:var(--text-muted);font-variant-numeric:tabular-nums;flex-shrink:0;min-width:80px;text-align:right}
+.quota-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.quota-bar-track{height:6px;background:var(--input-bg);border-radius:3px;overflow:hidden;flex:1;min-width:0}
 .quota-bar-fill{height:100%;border-radius:3px;transition:width .4s cubic-bezier(0.4,0,0.2,1)}
 .quota-bar-tokens{font-size:var(--font-badge);color:var(--text-muted);font-weight:400}
 
