@@ -13,6 +13,7 @@ import (
 type retryState struct {
 	excludeKeyIDs  []string
 	temp429Retries int
+	tpmWaitRetries int
 	maxRetries     int
 	requestLogged  bool
 }
@@ -43,6 +44,7 @@ func (h *Handler) handleNetworkError(sel *rotation.SelectedKey, providerID, mode
 	state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 	h.recordUsage(providerID, model, sel, "error", 0, 0, 0, err.Error())
 	state.temp429Retries = 0
+	state.tpmWaitRetries = 0
 }
 
 // handle429 processes HTTP 429 responses. Distinguishes daily quota locks from temporary rate limits.
@@ -102,19 +104,38 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 	}
 
 	// SenseNova-style 429: no rate-limit headers, but body is classifiable into rpm/tpm.
-	// Both rpm and tpm are per-account limits with ~60s sliding window.
-	// Action: cooldown key+model 60s, exclude all same-account keys, switch to different account.
+	// Both are per-account per-model with ~60s sliding window, but need different strategies:
+	//   - rpm (request count): switching to a fresh account always works (count resets)
+	//   - tpm (token count): if the request itself is large, any account will 429 immediately;
+	//     switching keys causes a cascade that locks all keys. So tpm waits and retries the
+	//     same key instead of switching.
 	if snType := classifySenseNova429(bodyStr); snType != sn429Unknown {
-		rpmCooldown := 60 * time.Second
-		h.selector.MarkRateLimited(providerID, sel.Key.ID, model, rpmCooldown)
-		h.excludeSameAccountKeys(sel, state)
-		state.temp429Retries = 0
-		label := "rpm"
-		if snType == sn429TPM {
-			label = "tpm"
+		switch snType {
+		case sn429RPM:
+			// rpm exhausted: per-account. Cool current key+model 60s, exclude same-account
+			// keys, switch to a different account immediately.
+			h.selector.MarkRateLimited(providerID, sel.Key.ID, model, 60*time.Second)
+			h.excludeSameAccountKeys(sel, state)
+			state.temp429Retries = 0
+			h.logger.Warn("429 rpm: %s | Key %s cooled 60s, switching account", truncStr(bodyStr, 200), sel.Key.Name)
+			h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
+		case sn429TPM:
+			// tpm exceeded: per-account. Do NOT switch keys (a large request will 429 on any
+			// account). Wait 15s and retry the same key once; if still 429, cool 60s and fail.
+			if state.tpmWaitRetries < 1 {
+				state.tpmWaitRetries++
+				h.logger.Warn("429 tpm: %s | Key %s waiting 15s, retrying same key (attempt %d/1)",
+					truncStr(bodyStr, 200), sel.Key.Name, state.tpmWaitRetries)
+				h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
+				time.Sleep(15 * time.Second)
+				return
+			}
+			h.selector.MarkRateLimited(providerID, sel.Key.ID, model, 60*time.Second)
+			state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
+			state.tpmWaitRetries = 0
+			h.logger.Warn("429 tpm: %s | Key %s cooled 60s after retry exhausted", truncStr(bodyStr, 200), sel.Key.Name)
+			h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
 		}
-		h.logger.Warn("429 %s: %s | Key %s cooled 60s, switching account", label, truncStr(bodyStr, 200), sel.Key.Name)
-		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
 		return
 	}
 
@@ -151,6 +172,7 @@ func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.Selecte
 	state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 	h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, truncStr(string(body), 500))
 	state.temp429Retries = 0
+	state.tpmWaitRetries = 0
 }
 
 // senseNova429Type classifies SenseNova 429 responses by body content.
