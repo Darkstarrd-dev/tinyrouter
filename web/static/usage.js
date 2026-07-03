@@ -498,12 +498,12 @@ function renderModelKeyDetail(provider, model, data) {
 
     if (data.hasQuota) {
       if (k.hasQuota) {
-        if (k.modelRemain === 0) {
+        if (k.modelRemaining === 0) {
           statusBadge = '<span class="key-status-badge key-status-exhausted">' + t('exhausted') + '</span>';
         } else {
           statusBadge = '<span class="key-status-badge key-status-available">' + t('available') + '</span>';
         }
-        var pct = k.modelLimit > 0 ? ((k.modelLimit - k.modelRemain) / k.modelLimit * 100) : 0;
+        var pct = k.modelLimit > 0 ? ((k.modelLimit - k.modelRemaining) / k.modelLimit * 100) : 0;
         var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
         quotaBar = '<div class="model-key-quota-bar"><div class="model-key-quota-fill" style="width:' + pct + '%;background:' + fillColor + '"></div></div>';
       } else {
@@ -536,7 +536,7 @@ function renderModelKeyDetail(provider, model, data) {
 
     var quotaInfo = '';
     if (data.hasQuota && k.hasQuota) {
-      quotaInfo = '<span class="model-key-quota-numbers">' + (k.modelLimit - k.modelRemain) + '/' + k.modelLimit + '</span>';
+      quotaInfo = '<span class="model-key-quota-numbers">' + (k.modelLimit - k.modelRemaining) + '/' + k.modelLimit + '</span>';
     }
 
     // "In Use" badge: backend already sorted keys by rotation strategy, so the

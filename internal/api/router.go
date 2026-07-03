@@ -32,7 +32,7 @@ type Router struct {
 }
 
 // New creates an API Router.
-func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, quotaTracker *usage.QuotaTracker, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc) *Router {
+func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, quotaTracker *usage.QuotaTracker, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc, selector *rotation.Selector, comboRes *combo.Resolver) *Router {
 	return &Router{
 		reg:          reg,
 		cfg:          cfg,
@@ -42,6 +42,8 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 		logger:       logger,
 		proxyHandler: proxyHandler,
 		shutdown:     shutdown,
+		selector:     selector,
+		comboRes:     comboRes,
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 		},

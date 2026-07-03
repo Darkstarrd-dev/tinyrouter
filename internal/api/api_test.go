@@ -40,7 +40,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *registry.Registry, string
 	comboRes := combo.New(reg)
 	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, usage.NewQuotaTracker(), logger)
 	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
-	apiRouter := New(reg, cfg, tmpFile, usageBuf, usage.NewQuotaTracker(), logger, proxyHandler, context.CancelFunc(func() {}))
+	apiRouter := New(reg, cfg, tmpFile, usageBuf, usage.NewQuotaTracker(), logger, proxyHandler, context.CancelFunc(func() {}), selector, comboRes)
 	handler := apiRouter.Routes(proxyHandler)
 	return httptest.NewServer(handler), reg, tmpFile
 }
@@ -292,6 +292,23 @@ func TestUsage_Endpoints(t *testing.T) {
 	json.Unmarshal([]byte(readBody(t, resp)), &clearResp)
 	if clearResp["ok"] != true {
 		t.Error("clearUsage did not return ok:true")
+	}
+
+	// Quotas — must not panic even with empty tracker (regression test for nil selector)
+	resp = requestJSON(t, "GET", srv.URL+"/api/usage/quotas", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var quotaBody map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &quotaBody)
+	if quotaBody["quotas"] == nil {
+		t.Error("quotas response missing 'quotas' field")
+	}
+
+	// Model keys — with provider/model from setupTestServer fixture
+	resp = requestJSON(t, "GET", srv.URL+"/api/usage/model-keys?provider=Test&model=model-a", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
 	}
 }
 
