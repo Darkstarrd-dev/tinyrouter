@@ -333,26 +333,28 @@ function renderDetailModels(p) {
     var ts = modelTestStatus[m.id];
     var statusClass = 'model-pending';
     var statusText = t('untested');
-    var quotaHtml = '';
+    var quotaStr = '';
     if (ts) {
       if (ts.ok) { statusClass = 'model-ok'; statusText = 'OK'; }
-      else { statusClass = 'model-err'; statusText = ts.error || 'FAIL'; }
+      else { statusClass = 'model-err'; statusText = 'FAIL'; }
       if (ts.quotaTotal > 0) {
-        quotaHtml = '<span class="model-quota" title="' + t('quotaTooltip') + '">' + ts.quotaRemain + '/' + ts.quotaTotal + '</span>';
+        quotaStr = ts.quotaRemain + '/' + ts.quotaTotal;
       }
     }
-    return '<div class="model-row">\
-        <button class="btn btn-sm" onclick="withLoading(this, () => testSingleModel(\'' + p.id + '\',\'' + escapeHtml(m.id) + '\'))">' + t('test') + '</button>\
-      <button class="btn btn-sm btn-danger" onclick="deleteModelDetail(\'' + p.id + '\',\'' + escapeHtml(m.id) + '\')">' + t('delete') + '</button>\
-      <span class="model-id copyable" onclick="copyToClipboard(\'' + escapeHtml(p.prefix) + '/' + escapeHtml(m.id) + '\')" title="' + t('clickToCopy') + '">' + escapeHtml(p.prefix) + '/' + escapeHtml(m.id) + '</span>\
-      ' + quotaHtml + '\
-      <span class="model-status ' + statusClass + '">' + escapeHtml(statusText) + '</span>\
-      <select class="model-quota-select" data-model="' + escapeHtml(m.id) + '" onchange="updateModelQuotaType(\'' + escapeHtml(p.id) + '\', this)" style="font-size:12px;padding:2px 6px;border-radius:4px">\
-        <option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>\
-        <option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>\
-        <option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>\
-      </select>\
-    </div>';
+    return '<div class="model-row">' +
+      (ts
+        ? (ts.ok
+            ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
+            : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
+        : '<button class="btn btn-sm" onclick="withLoading(this, () => testSingleModel(\'' + p.id + '\',\'' + escapeHtml(m.id) + '\'))">' + t('test') + '</button>') +
+      '<button class="btn btn-sm btn-danger" onclick="deleteModelDetail(\'' + p.id + '\',\'' + escapeHtml(m.id) + '\')">' + t('delete') + '</button>' +
+      '<span class="model-id copyable" onclick="copyToClipboard(\'' + escapeHtml(p.prefix) + '/' + escapeHtml(m.id) + '\')" title="' + t('clickToCopy') + '">' + escapeHtml(p.prefix) + '/' + escapeHtml(m.id) + '</span>' +
+      '<select class="model-quota-select" data-model="' + escapeHtml(m.id) + '" onchange="updateModelQuotaType(\'' + escapeHtml(p.id) + '\', this)">' +
+        '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
+        '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
+        '<option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>' +
+      '</select>' +
+    '</div>';
   }).join('');
   el.innerHTML = '\
     <div class="card">\

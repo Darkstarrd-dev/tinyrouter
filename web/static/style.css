@@ -204,7 +204,10 @@ tbody tr:last-child td{border-bottom:none}
 .stat-label{font-size:calc(var(--font-base) - 1.5px);color:var(--text-muted);margin-top:4px;font-weight:500;letter-spacing:0.2px}
 .model-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--glass-border);border-radius:10px;margin-bottom:6px;background:var(--model-row-bg);transition:all .2s cubic-bezier(0.4,0,0.2,1)}
 .model-row:hover{border-color:var(--glass-border-hover);background:var(--glass-hover)}
-.model-row .model-id{font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-base);flex:1;color:var(--text)}
+.model-row .model-id{font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-base);flex:1;min-width:0;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model-row .model-status{flex-shrink:0;min-width:56px;justify-content:center;text-align:center}
+.model-row .model-quota-inline{font-weight:400;opacity:.85;margin-left:4px}
+.model-row .model-quota-select{flex-shrink:0;width:auto;max-width:120px;font-size:var(--font-badge);padding:3px 8px;border-radius:6px;background:var(--input-bg);border:1px solid var(--glass-border);color:var(--text)}
 .copyable{cursor:pointer;transition:opacity .15s}
 .copyable:hover{opacity:.7}
 .model-status{font-size:var(--font-model-status);padding:2px 8px;border-radius:100px;font-weight:600}
