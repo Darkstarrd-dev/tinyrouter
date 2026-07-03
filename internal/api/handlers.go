@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
@@ -87,6 +88,9 @@ func (rt *Router) createProvider(w http.ResponseWriter, r *http.Request) {
 	if p.ID == "" {
 		p.ID = generateID("prov")
 	}
+	for rt.reg.HasProvider(p.ID) {
+		p.ID = generateID("prov")
+	}
 	if p.APIType == "" {
 		p.APIType = "openai-compatible"
 	}
@@ -153,6 +157,9 @@ func (rt *Router) createKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if k.ID == "" {
+		k.ID = generateID("key")
+	}
+	for rt.reg.HasKey(providerID, k.ID) {
 		k.ID = generateID("key")
 	}
 	k.IsActive = true
@@ -240,6 +247,9 @@ func (rt *Router) createCombo(w http.ResponseWriter, r *http.Request) {
 	if c.ID == "" {
 		c.ID = generateID("combo")
 	}
+	for rt.reg.HasCombo(c.ID) {
+		c.ID = generateID("combo")
+	}
 	rt.reg.AddCombo(c)
 	cfg := rt.reg.Config()
 	config.Save(rt.configPath, &cfg)
@@ -302,4 +312,34 @@ var idCounter int64
 func generateID(prefix string) string {
 	id := atomic.AddInt64(&idCounter, 1)
 	return prefix + "_" + strconv.FormatInt(id, 36)
+}
+
+// SyncIDCounter scans existing IDs in the config and advances idCounter past
+// the highest numeric suffix found for each prefix. This must be called once
+// at startup, after config is loaded, to prevent ID collisions after restart.
+func SyncIDCounter(cfg *config.Config) {
+	var maxVal int64
+	scan := func(id string) {
+		i := strings.LastIndexByte(id, '_')
+		if i < 0 {
+			return
+		}
+		n, err := strconv.ParseInt(id[i+1:], 36, 64)
+		if err != nil {
+			return
+		}
+		if n > maxVal {
+			maxVal = n
+		}
+	}
+	for _, p := range cfg.Providers {
+		scan(p.ID)
+		for _, k := range p.Keys {
+			scan(k.ID)
+		}
+	}
+	for _, c := range cfg.Combos {
+		scan(c.ID)
+	}
+	atomic.StoreInt64(&idCounter, maxVal)
 }

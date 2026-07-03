@@ -8,6 +8,23 @@ import (
 
 // --- Keys ---
 
+// HasKey reports whether a key with the given ID exists under the given provider.
+func (r *Registry) HasKey(providerID, keyID string) bool {
+	r.cfgMu.RLock()
+	defer r.cfgMu.RUnlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		for _, k := range r.config.Providers[i].Keys {
+			if k.ID == keyID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (r *Registry) AddKey(providerID string, k config.Key) bool {
 	r.cfgMu.Lock()
 	defer r.cfgMu.Unlock()

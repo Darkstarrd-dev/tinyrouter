@@ -16,6 +16,18 @@ func (r *Registry) ListProviders() []config.Provider {
 	return out
 }
 
+// HasProvider reports whether a provider with the given ID already exists.
+func (r *Registry) HasProvider(id string) bool {
+	r.cfgMu.RLock()
+	defer r.cfgMu.RUnlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Registry) GetProvider(id string) (*config.Provider, bool) {
 	r.cfgMu.RLock()
 	defer r.cfgMu.RUnlock()

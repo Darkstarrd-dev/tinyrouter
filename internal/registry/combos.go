@@ -24,6 +24,18 @@ func (r *Registry) GetComboByName(name string) (*config.Combo, bool) {
 	return nil, false
 }
 
+// HasCombo reports whether a combo with the given ID already exists.
+func (r *Registry) HasCombo(id string) bool {
+	r.cfgMu.RLock()
+	defer r.cfgMu.RUnlock()
+	for i := range r.config.Combos {
+		if r.config.Combos[i].ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Registry) AddCombo(c config.Combo) {
 	r.cfgMu.Lock()
 	defer r.cfgMu.Unlock()

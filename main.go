@@ -35,6 +35,9 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
+	// Sync ID counter with existing IDs to prevent collisions after restart.
+	api.SyncIDCounter(cfg)
+
 	// Initialize components
 	logger := console.New(cfg.ConsoleLogMaxLines)
 	usageBuf := usage.New(cfg.UsageRingSize)
