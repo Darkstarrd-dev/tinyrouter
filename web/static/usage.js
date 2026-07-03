@@ -397,13 +397,14 @@ function toggleModelDetail(provider, model) {
   var item = document.getElementById(itemId);
   var chevron = item ? item.querySelector('.quota-bar-chevron') : null;
 
-  if (expandedModels.has(key)) {
-    expandedModels.delete(key);
+  var setKey = JSON.stringify([provider, model]);
+  if (expandedModels.has(setKey)) {
+    expandedModels.delete(setKey);
     wrap.classList.remove('expanded');
     if (chevron) chevron.style.transform = '';
-    setTimeout(function() { if (!expandedModels.has(key)) wrap.innerHTML = ''; }, 300);
+    setTimeout(function() { if (!expandedModels.has(setKey)) wrap.innerHTML = ''; }, 300);
   } else {
-    expandedModels.add(key);
+    expandedModels.add(setKey);
     wrap.classList.add('expanded');
     if (chevron) chevron.style.transform = 'rotate(180deg)';
     wrap.innerHTML = '<div class="model-key-detail-loading">' + t('loading') + '...</div>';
@@ -427,7 +428,7 @@ function renderModelKeyDetail(provider, model, data) {
   var wrap = document.getElementById('detail-' + itemId);
   if (!wrap) return;
   if (!data.keys || data.keys.length === 0) {
-    wrap.innerHTML = '<div class="model-key-detail-empty">' + escapeHtml(t('noKeys')) + '</div>';
+    wrap.innerHTML = '<div class="model-key-detail-empty">' + escapeHtml(t('noKeysConfigured')) + '</div>';
     return;
   }
 
@@ -448,7 +449,7 @@ function renderModelKeyDetail(provider, model, data) {
         var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
         quotaBar = '<div class="model-key-quota-bar"><div class="model-key-quota-fill" style="width:' + pct + '%;background:' + fillColor + '"></div></div>';
       } else {
-        statusBadge = '<span class="key-status-badge key-status-untested">' + t('untested') + '</span>';
+        statusBadge = '<span class="key-status-badge key-status-untested">' + t('untestedKey') + '</span>';
       }
     } else {
       if (k.modelLock) {
@@ -495,10 +496,10 @@ function renderModelKeyDetail(provider, model, data) {
 }
 
 function reexpandModelDetails() {
-  expandedModels.forEach(function(key) {
-    var parts = key.split('/');
-    var provider = parts.slice(0, -1).join('/');
-    var model = parts[parts.length - 1];
+  expandedModels.forEach(function(setKey) {
+    var parts = JSON.parse(setKey);
+    var provider = parts[0];
+    var model = parts[1];
     var itemId = 'qbi-' + sanitizeId(provider) + '-' + sanitizeId(model);
     var wrap = document.getElementById('detail-' + itemId);
     if (wrap) {
