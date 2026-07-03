@@ -23,6 +23,7 @@ type QuotaBar struct {
 	TotalUsed     int        `json:"totalUsed"`
 	HasQuota      bool       `json:"hasQuota"`
 	SuccessCount  int        `json:"successCount"`
+	ErrorCount    int        `json:"errorCount"`
 	InputTokens   int        `json:"inputTokens"`
 	OutputTokens  int        `json:"outputTokens"`
 	Keys          []KeyQuota `json:"keys"`

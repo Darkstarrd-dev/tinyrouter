@@ -82,31 +82,122 @@ func TestRingBuffer_Summary(t *testing.T) {
 	if s.Error != 2 {
 		t.Errorf("expected error 2, got %d", s.Error)
 	}
-	if s.ByProvider["p1"] != 2 {
-		t.Errorf("expected p1 count 2, got %d", s.ByProvider["p1"])
-	}
-	if s.ByModel["m1"] != 2 {
-		t.Errorf("expected m1 count 2, got %d", s.ByModel["m1"])
-	}
-	if s.ByKey["test-key"] != 4 {
-		t.Errorf("expected test-key count 4, got %d", s.ByKey["test-key"])
-	}
 	if s.AvgLatencyMs != 250 {
 		t.Errorf("expected avg latency 250, got %d", s.AvgLatencyMs)
 	}
+	if s.TotalInputTokens != 400 {
+		t.Errorf("expected total input 400, got %d", s.TotalInputTokens)
+	}
+	if s.TotalOutputTokens != 200 {
+		t.Errorf("expected total output 200, got %d", s.TotalOutputTokens)
+	}
 }
 
-func TestRingBuffer_Clear(t *testing.T) {
+func TestRingBuffer_SummaryCumulativeAcrossOverflow(t *testing.T) {
+	rb := New(3)
+	for i := 0; i < 5; i++ {
+		rb.Add(entry("p", "m", "success", 100))
+	}
+	s := rb.Summary()
+	if s.Total != 5 {
+		t.Errorf("expected cumulative total 5 after overflow, got %d", s.Total)
+	}
+	if s.Success != 5 {
+		t.Errorf("expected cumulative success 5, got %d", s.Success)
+	}
+	if rb.Size() != 3 {
+		t.Errorf("expected ring size 3, got %d", rb.Size())
+	}
+}
+
+func TestRingBuffer_ClearPreservesAccumulator(t *testing.T) {
 	rb := New(10)
 	rb.Add(entry("p", "m", "success", 100))
+	rb.Add(entry("p", "m", "error", 200))
+
+	s1 := rb.Summary()
+	if s1.Total != 2 {
+		t.Fatalf("expected total 2 before clear, got %d", s1.Total)
+	}
+
 	rb.Clear()
 
 	all := rb.All()
 	if len(all) != 0 {
-		t.Errorf("expected 0 entries after clear, got %d", len(all))
+		t.Errorf("expected 0 ring entries after clear, got %d", len(all))
 	}
 	if rb.Size() != 0 {
 		t.Errorf("expected Size() 0 after clear, got %d", rb.Size())
+	}
+
+	s2 := rb.Summary()
+	if s2.Total != 2 {
+		t.Errorf("expected cumulative total 2 after clear, got %d", s2.Total)
+	}
+	if s2.Success != 1 {
+		t.Errorf("expected cumulative success 1 after clear, got %d", s2.Success)
+	}
+	if s2.Error != 1 {
+		t.Errorf("expected cumulative error 1 after clear, got %d", s2.Error)
+	}
+}
+
+func TestRingBuffer_ModelStats(t *testing.T) {
+	rb := New(10)
+	rb.Add(entry("p1", "m1", "success", 100))
+	rb.Add(entry("p1", "m1", "success", 200))
+	rb.Add(entry("p1", "m1", "error", 300))
+	rb.Add(entry("p2", "m2", "success", 400))
+
+	stats := rb.ModelStats()
+	if len(stats) != 2 {
+		t.Fatalf("expected 2 model stats, got %d", len(stats))
+	}
+
+	byKey := make(map[string]ModelStatEntry)
+	for _, s := range stats {
+		byKey[s.Provider+"/"+s.Model] = s
+	}
+
+	m1 := byKey["p1/m1"]
+	if m1.SuccessCount != 2 {
+		t.Errorf("expected m1 success 2, got %d", m1.SuccessCount)
+	}
+	if m1.ErrorCount != 1 {
+		t.Errorf("expected m1 error 1, got %d", m1.ErrorCount)
+	}
+	if m1.InputTokens != 300 {
+		t.Errorf("expected m1 input 300, got %d", m1.InputTokens)
+	}
+	if m1.OutputTokens != 150 {
+		t.Errorf("expected m1 output 150, got %d", m1.OutputTokens)
+	}
+
+	m2 := byKey["p2/m2"]
+	if m2.SuccessCount != 1 {
+		t.Errorf("expected m2 success 1, got %d", m2.SuccessCount)
+	}
+	if m2.ErrorCount != 0 {
+		t.Errorf("expected m2 error 0, got %d", m2.ErrorCount)
+	}
+}
+
+func TestRingBuffer_ModelStatsCumulativeAfterOverflow(t *testing.T) {
+	rb := New(2)
+	rb.Add(entry("p1", "m1", "success", 100))
+	rb.Add(entry("p1", "m1", "success", 200))
+	rb.Add(entry("p1", "m1", "error", 300))
+	rb.Add(entry("p1", "m1", "success", 400))
+
+	stats := rb.ModelStats()
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 model stat, got %d", len(stats))
+	}
+	if stats[0].SuccessCount != 3 {
+		t.Errorf("expected cumulative success 3, got %d", stats[0].SuccessCount)
+	}
+	if stats[0].ErrorCount != 1 {
+		t.Errorf("expected cumulative error 1, got %d", stats[0].ErrorCount)
 	}
 }
 
@@ -163,5 +254,37 @@ func TestRingBuffer_Size(t *testing.T) {
 	rb.Add(entry("p", "m", "success", 100))
 	if rb.Size() != 2 {
 		t.Errorf("expected size 2, got %d", rb.Size())
+	}
+}
+
+func TestAccumulator_Clear(t *testing.T) {
+	acc := NewAccumulator()
+	acc.Record(entry("p", "m", "success", 100))
+	acc.Record(entry("p", "m", "error", 200))
+
+	s := acc.Summary()
+	if s.Total != 2 {
+		t.Fatalf("expected total 2 before clear, got %d", s.Total)
+	}
+
+	acc.Clear()
+
+	s2 := acc.Summary()
+	if s2.Total != 0 {
+		t.Errorf("expected total 0 after clear, got %d", s2.Total)
+	}
+	if s2.Success != 0 {
+		t.Errorf("expected success 0 after clear, got %d", s2.Success)
+	}
+	if s2.Error != 0 {
+		t.Errorf("expected error 0 after clear, got %d", s2.Error)
+	}
+	if s2.TotalInputTokens != 0 {
+		t.Errorf("expected input tokens 0 after clear, got %d", s2.TotalInputTokens)
+	}
+
+	stats := acc.ModelStats()
+	if len(stats) != 0 {
+		t.Errorf("expected 0 model stats after clear, got %d", len(stats))
 	}
 }

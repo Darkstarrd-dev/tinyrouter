@@ -19,32 +19,22 @@ type Entry struct {
 	Error        string    `json:"error,omitempty"`
 }
 
-// Summary is an aggregate view of usage entries.
-type Summary struct {
-	Total             int            `json:"total"`
-	Success           int            `json:"success"`
-	Error             int            `json:"error"`
-	ByProvider        map[string]int `json:"byProvider"`
-	ByModel           map[string]int `json:"byModel"`
-	ByKey             map[string]int `json:"byKey"`
-	AvgLatencyMs      int64          `json:"avgLatencyMs"`
-	TotalInputTokens  int            `json:"totalInputTokens"`
-	TotalOutputTokens int            `json:"totalOutputTokens"`
-}
-
 // UsageStore provides write access to usage entries.
 // *RingBuffer implements this interface.
 type UsageStore interface {
 	Add(entry Entry)
 }
 
-// RingBuffer is a fixed-size circular buffer for usage entries.
+// RingBuffer is a fixed-size circular buffer for usage entries. It also
+// embeds an Accumulator that keeps process-level cumulative statistics which
+// are not affected by ring eviction.
 type RingBuffer struct {
 	mu      sync.RWMutex
 	entries []Entry
 	head    int
 	size    int
 	max     int
+	acc     *Accumulator
 }
 
 // New creates a RingBuffer with the given capacity.
@@ -55,11 +45,13 @@ func New(max int) *RingBuffer {
 	return &RingBuffer{
 		entries: make([]Entry, max),
 		max:     max,
+		acc:     NewAccumulator(),
 	}
 }
 
-// Add appends an entry to the buffer.
+// Add appends an entry to the buffer and feeds it to the accumulator.
 func (rb *RingBuffer) Add(entry Entry) {
+	rb.acc.Record(entry)
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 	rb.entries[rb.head] = entry
@@ -86,39 +78,19 @@ func (rb *RingBuffer) All() []Entry {
 	return rb.allLocked()
 }
 
-// Summary returns aggregate statistics.
-func (rb *RingBuffer) Summary() Summary {
-	rb.mu.RLock()
-	defer rb.mu.RUnlock()
-	s := Summary{
-		ByProvider: make(map[string]int),
-		ByModel:    make(map[string]int),
-		ByKey:      make(map[string]int),
-	}
-	var totalLatency int64
-	for i := 0; i < rb.size; i++ {
-		idx := (rb.head - 1 - i + rb.max) % rb.max
-		e := rb.entries[idx]
-		s.Total++
-		s.TotalInputTokens += e.InputTokens
-		s.TotalOutputTokens += e.OutputTokens
-		if e.Status == "success" {
-			s.Success++
-		} else {
-			s.Error++
-		}
-		s.ByProvider[e.Provider]++
-		s.ByModel[e.Model]++
-		s.ByKey[e.KeyName]++
-		totalLatency += e.LatencyMs
-	}
-	if s.Total > 0 {
-		s.AvgLatencyMs = totalLatency / int64(s.Total)
-	}
-	return s
+// Summary returns cumulative aggregate statistics since process start.
+// The numbers are independent of the ring buffer capacity.
+func (rb *RingBuffer) Summary() CumulativeSummary {
+	return rb.acc.Summary()
 }
 
-// Clear empties the buffer.
+// ModelStats returns per-model cumulative aggregate statistics.
+func (rb *RingBuffer) ModelStats() []ModelStatEntry {
+	return rb.acc.ModelStats()
+}
+
+// Clear empties the ring buffer but preserves the cumulative accumulator
+// (process-level totals are not reset by clearing the recent-requests view).
 func (rb *RingBuffer) Clear() {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
@@ -151,7 +123,7 @@ func (rb *RingBuffer) Resize(newMax int) {
 	}
 }
 
-// Size returns the current number of entries.
+// Size returns the current number of entries in the ring buffer.
 func (rb *RingBuffer) Size() int {
 	rb.mu.RLock()
 	defer rb.mu.RUnlock()
@@ -163,36 +135,9 @@ type ModelStatEntry struct {
 	Provider     string `json:"provider"`
 	Model        string `json:"model"`
 	SuccessCount int    `json:"successCount"`
+	ErrorCount   int    `json:"errorCount"`
 	InputTokens  int    `json:"inputTokens"`
 	OutputTokens int    `json:"outputTokens"`
-}
-
-// ModelStats returns per-model aggregate statistics from the ring buffer.
-func (rb *RingBuffer) ModelStats() []ModelStatEntry {
-	rb.mu.RLock()
-	defer rb.mu.RUnlock()
-	type pmKey struct{ provider, model string }
-	stats := make(map[pmKey]*ModelStatEntry)
-	for i := 0; i < rb.size; i++ {
-		idx := (rb.head - 1 - i + rb.max) % rb.max
-		e := rb.entries[idx]
-		k := pmKey{e.Provider, e.Model}
-		s, ok := stats[k]
-		if !ok {
-			s = &ModelStatEntry{Provider: e.Provider, Model: e.Model}
-			stats[k] = s
-		}
-		if e.Status == "success" {
-			s.SuccessCount++
-		}
-		s.InputTokens += e.InputTokens
-		s.OutputTokens += e.OutputTokens
-	}
-	result := make([]ModelStatEntry, 0, len(stats))
-	for _, s := range stats {
-		result = append(result, *s)
-	}
-	return result
 }
 
 // Compile-time interface check.

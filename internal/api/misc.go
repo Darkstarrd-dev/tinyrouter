@@ -61,6 +61,7 @@ func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 		key := ms.Provider + "/" + ms.Model
 		if idx, ok := barMap[key]; ok {
 			bars[idx].SuccessCount = ms.SuccessCount
+			bars[idx].ErrorCount = ms.ErrorCount
 			bars[idx].InputTokens = ms.InputTokens
 			bars[idx].OutputTokens = ms.OutputTokens
 		} else {
@@ -69,6 +70,7 @@ func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 				Model:        ms.Model,
 				HasQuota:     false,
 				SuccessCount: ms.SuccessCount,
+				ErrorCount:   ms.ErrorCount,
 				InputTokens:  ms.InputTokens,
 				OutputTokens: ms.OutputTokens,
 			}

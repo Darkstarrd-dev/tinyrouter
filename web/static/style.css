@@ -230,12 +230,7 @@ tbody tr:last-child td{border-bottom:none}
 .console-search{width:180px;padding:4px 10px;font-size:var(--font-badge);margin-left:4px}
 
 /* ===================== Usage Page ===================== */
-.usage-page{display:flex;flex-direction:column;height:100%}
 .usage-header{flex-shrink:0}
-.usage-scroll{flex:1;overflow-y:auto;scrollbar-width:none}
-.usage-scroll::-webkit-scrollbar{display:none}
-.usage-scroll thead{position:sticky;top:0;z-index:1}
-.usage-scroll thead th{background:var(--bg)}
 
 /* ===================== Utilities ===================== */
 .code{font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-code);padding:3px 8px;background:var(--code-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--accent)}
@@ -303,7 +298,29 @@ tbody tr:last-child td{border-bottom:none}
 .quota-bar-tokens{font-size:var(--font-badge);color:var(--text-muted);font-weight:400}
 
 /* ===================== Trend Chart ===================== */
-.trend-chart{width:100%;height:80px;display:block}
+.trend-chart{width:100%;height:240px;display:block}
+.trend-chart-wrap{position:relative;width:100%}
+.trend-tooltip{position:absolute;background:var(--modal-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border);border-radius:8px;padding:8px 12px;font-size:var(--font-badge);pointer-events:none;z-index:10;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.2)}
+.trend-tooltip-hour{font-weight:600;margin-bottom:4px;color:var(--text)}
+.trend-tooltip-row{display:flex;align-items:center;gap:6px;color:var(--text-secondary);line-height:1.6}
+.trend-tooltip-dot{display:inline-block;width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.trend-tooltip-count{margin-left:auto;font-weight:600;color:var(--text)}
+.trend-tooltip-total{margin-top:4px;padding-top:4px;border-top:1px solid var(--glass-border);font-weight:600;color:var(--text)}
+.trend-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px}
+.trend-legend-item{display:flex;align-items:center;gap:5px;font-size:var(--font-badge);color:var(--text-secondary)}
+.trend-legend-dot{display:inline-block;width:8px;height:8px;border-radius:2px;flex-shrink:0}
+
+/* ===================== Model Color Dot ===================== */
+.model-color-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle;flex-shrink:0}
+
+/* ===================== Usage Header ===================== */
+.usage-header-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.usage-header-top h2{margin:0}
+
+/* ===================== Recent Requests Modal ===================== */
+.recent-requests-scroll{max-height:50vh;overflow-y:auto}
+.recent-requests-scroll thead{position:sticky;top:0;z-index:1}
+.recent-requests-scroll thead th{background:var(--bg)}
 
 /* ===================== Reduced Motion ===================== */
 @media (prefers-reduced-motion: reduce){

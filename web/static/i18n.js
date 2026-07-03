@@ -45,6 +45,8 @@ const L = {
     totalInput: 'Total Input', totalOutput: 'Total Output',
     recentRequests: 'Recent Requests', clear: 'Clear', noUsage: 'No usage data yet.',
     time: 'Time', provider: 'Provider', model: 'Model', latency: 'Latency', tokens: 'Tokens (in/out)',
+    requests: 'Requests', total: 'Total',
+    recentRequestsBtn: 'Recent Requests',
     connecting: 'Connecting...', connected: 'Connected', disconnected: 'Disconnected. Reconnecting...',
     consoleCleared: 'Console cleared', usageCleared: 'Usage data cleared',
     portSaved: 'Port saved. Restart TinyRouter to apply.',
@@ -74,7 +76,7 @@ const L = {
     selectAll: 'Select All', deselectAll: 'Deselect All', close: 'Close',
     pause: 'Paused',
     all: 'All', searchLogs: 'Search logs...',
-    trendChart: '24h Request Trend',
+    trendChart: '6h Request Trend',
   },
   cn: {
     endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台',
@@ -121,6 +123,8 @@ const L = {
     totalInput: '总输入', totalOutput: '总输出',
     recentRequests: '最近请求', clear: '清空', noUsage: '暂无用量数据。',
     time: '时间', provider: '服务商', model: '模型', latency: '延迟', tokens: 'Token (入/出)',
+    requests: '请求数', total: '总计',
+    recentRequestsBtn: '最近请求',
     connecting: '连接中...', connected: '已连接', disconnected: '已断开，重连中...',
     consoleCleared: '控制台已清空', usageCleared: '用量数据已清空',
     portSaved: '端口已保存。重启 TinyRouter 生效。',
@@ -150,7 +154,7 @@ const L = {
     selectAll: '全选', deselectAll: '取消全选', close: '关闭',
     pause: '已暂停',
     all: '全部', searchLogs: '搜索日志...',
-    trendChart: '24小时请求趋势',
+    trendChart: '6小时请求趋势',
   }
 };
 
