@@ -98,6 +98,9 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 	}
 	providerID = provider.ID
 
+	// NIM providers must not participate in Combo routing: the model name
+	// carries a nv/* prefix and never matches a combo name, so no combo
+	// resolution is attempted for them — fall through to the forward path.
 	if !h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount, "", provider.Name) {
 		writeError(w, http.StatusBadGateway, "all keys exhausted")
 	}
@@ -157,6 +160,14 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			h.logRequest(sel, logLabel, providerName, upstreamModel, msgCount, state)
 		}
 
+		// NIM min_interval: wait if too soon since last send on this key.
+		if cfgProvider != nil && cfgProvider.APIType == "nim" {
+			if wait := h.selector.WaitNIMInterval(providerID, sel.Key.ID); wait > 0 {
+				h.logger.Debug("NIM min_interval wait %v for key %s", wait, sel.Key.Name)
+				time.Sleep(wait)
+			}
+		}
+
 		parsed["model"] = upstreamModel
 		upstreamBody, _ := json.Marshal(parsed)
 		h.logger.Debug("SEND %s | %s | body=%dB | %s", sel.Provider.Name, upstreamModel, len(upstreamBody), truncStr(string(upstreamBody), 500))
@@ -184,6 +195,11 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 
 		// Parse rate-limit headers and update key quota state
 		h.parseAndUpdateQuota(sel, providerID, upstreamModel, resp.Header)
+
+		// NIM: track request count and rotate if limit reached.
+		if cfgProvider != nil && cfgProvider.APIType == "nim" {
+			h.selector.OnNIMRequestSuccess(providerID, sel.Key.ID, upstreamModel)
+		}
 
 		maskedURL := maskURL(sel.Provider.BaseURL)
 		h.logger.Info("PROXY %s | %s | conn=%s | url=%s", sel.Provider.Name, upstreamModel, sel.KeyName, maskedURL)

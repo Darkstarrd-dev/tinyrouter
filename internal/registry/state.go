@@ -26,6 +26,12 @@ type KeyRuntimeState struct {
 	LastError    string
 	LastErrorAt  time.Time
 	ModelQuotas  map[string]*QuotaInfo
+
+	// NIM-specific fields (only used when provider.APIType == "nim").
+	NIMRequestCount  int       // Requests sent this rotation cycle
+	NIMLastSendTime  time.Time // Last successful send time, for min_interval
+	NIMCooldownLevel int       // 429 cooldown level (0=no cooldown)
+	NIMLast429Time   time.Time // Last 429 time, for 24h level reset
 }
 
 // Lock acquires the state's mutex.

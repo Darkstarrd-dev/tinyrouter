@@ -16,6 +16,9 @@ type KeySelector interface {
 	SelectKey(providerID, model string, excludeKeyIDs []string) (*SelectedKey, error)
 	OnKeyFailure(providerID, keyID, model string, statusCode int, body string)
 	Settings() config.RotationConfig
+	WaitNIMInterval(providerID, keyID string) time.Duration
+	OnNIMRequestSuccess(providerID, keyID, model string)
+	MarkNIM429(providerID, keyID, model string) time.Time
 }
 
 type Selector struct {
@@ -66,6 +69,10 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("no available keys for provider %s (model %s)", providerID, model)
 	}
+	// Apply NIM per-key request-count filter.
+	if provider.APIType == "nim" {
+		candidates = s.filterNIMCandidates(provider.ID, candidates)
+	}
 	var chosen config.Key
 	strategy := s.effectiveStrategy(provider)
 	switch strategy {
@@ -93,6 +100,11 @@ func (s *Selector) OnKeyFailure(providerID, keyID, model string, statusCode int,
 	provider, ok := s.reg.GetProvider(providerID)
 	if !ok {
 		s.MarkUnavailable(providerID, keyID, model, statusCode, body)
+		return
+	}
+	// NIM 429 uses NIM-specific cooldown ladder, not exponential backoff.
+	if provider.APIType == "nim" && statusCode == 429 {
+		s.MarkNIM429(providerID, keyID, model)
 		return
 	}
 	if s.effectiveStrategy(provider) == "failover" {

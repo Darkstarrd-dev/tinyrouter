@@ -54,6 +54,17 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 	bodyStr := string(body)
 	latencyMs := time.Since(startTime).Milliseconds()
 
+	// NIM 429: use NIM-specific cooldown ladder.
+	if sel.Provider.APIType == "nim" {
+		h.selector.MarkNIM429(providerID, sel.Key.ID, model)
+		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
+		state.temp429Retries = 0
+		state.tpmWaitRetries = 0
+		h.logger.Warn("429 NIM: key %s cooled ladder, rotating", sel.Key.Name)
+		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr)
+		return
+	}
+
 	// Parse rate-limit headers from the 429 response (ModelScope returns them even on 429)
 	adapter := rotation.GetAdapter(sel.Provider)
 	snap := adapter.ParseHeaders(resp.Header)

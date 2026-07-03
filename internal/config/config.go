@@ -72,17 +72,27 @@ func (m *ModelDef) UnmarshalJSON(data []byte) error {
 
 // Provider represents one upstream OpenAI-compatible endpoint.
 type Provider struct {
-	ID               string     `yaml:"id" json:"id"`
-	Name             string     `yaml:"name" json:"name"`
-	Prefix           string     `yaml:"prefix" json:"prefix"`
-	BaseURL          string     `yaml:"baseUrl" json:"baseUrl"`
-	APIType          string     `yaml:"apiType" json:"apiType"`
-	IsActive         bool       `yaml:"isActive" json:"isActive"`
-	Keys             []Key      `yaml:"keys" json:"keys"`
-	Models           []ModelDef `yaml:"models,omitempty" json:"models,omitempty"`
-	RotationStrategy string     `yaml:"rotationStrategy,omitempty" json:"rotationStrategy,omitempty"`
-	StickyLimit      int        `yaml:"stickyLimit,omitempty" json:"stickyLimit,omitempty"`
-	InjectStreamOpts bool       `yaml:"injectStreamOptions,omitempty" json:"injectStreamOptions,omitempty"`
+	ID               string       `yaml:"id" json:"id"`
+	Name             string       `yaml:"name" json:"name"`
+	Prefix           string       `yaml:"prefix" json:"prefix"`
+	BaseURL          string       `yaml:"baseUrl" json:"baseUrl"`
+	APIType          string       `yaml:"apiType" json:"apiType"`
+	IsActive         bool         `yaml:"isActive" json:"isActive"`
+	Keys             []Key        `yaml:"keys" json:"keys"`
+	Models           []ModelDef   `yaml:"models,omitempty" json:"models,omitempty"`
+	RotationStrategy string       `yaml:"rotationStrategy,omitempty" json:"rotationStrategy,omitempty"`
+	StickyLimit      int          `yaml:"stickyLimit,omitempty" json:"stickyLimit,omitempty"`
+	InjectStreamOpts bool         `yaml:"injectStreamOptions,omitempty" json:"injectStreamOptions,omitempty"`
+	NIMConfig        *NIMSettings `yaml:"nim,omitempty" json:"nim,omitempty"`
+}
+
+// NIMSettings holds NVIDIA NIM-specific key rotation and throttling config.
+// Only effective when Provider.APIType == "nim".
+type NIMSettings struct {
+	RequestCountPerKey int   `yaml:"request_count_per_key" json:"request_count_per_key"`
+	MinIntervalMs      int   `yaml:"min_interval_ms" json:"min_interval_ms"`
+	CooldownLadderMin  []int `yaml:"cooldown_ladder" json:"cooldown_ladder"`
+	MaxConcurrent      int   `yaml:"max_concurrent" json:"max_concurrent"`
 }
 
 // Combo represents a model combination with a routing strategy.
