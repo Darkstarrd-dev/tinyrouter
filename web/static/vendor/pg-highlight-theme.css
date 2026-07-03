@@ -1,0 +1,23 @@
+/*! TinyRouter Playground highlight.js theme — deep-purple / glass variant.
+ *  Adapted from github-dark; tokens retuned to match the glass accent palette.
+ */
+.hljs{display:block;overflow-x:auto;padding:0;background:transparent;color:#e6def0;font-family:ui-monospace,Consolas,"Courier New",monospace}
+.hljs-comment,.hljs-quote{color:#7d6a99;font-style:italic}
+.hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-doctag,.hljs-name{color:#c4a6ff;font-weight:600}
+.hljs-code,.hljs-string,.hljs-meta .hljs-string,.hljs-number,.hljs-regexp,.hljs-link,.hljs-template-variable,.hljs-addition{color:#b5e8a8}
+.hljs-built_in,.hljs-builtin-name,.hljs-type,.hljs-class .hljs-title,.hljs-title,.hljs-section,.hljs-selector-id{color:#8ad6ff;font-weight:600}
+.hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-tag,.hljs-tag .hljs-attr{color:#ffb86b}
+.hljs-meta,.hljs-tag{color:#a89bd6}
+.hljs-symbol,.hljs-bullet,.hljs-number{color:#ff9b6b}
+.hljs-emphasis{font-style:italic}
+.hljs-strong{font-weight:bold}
+.hljs-deletion{color:#ff8d8d;background:rgba(255,99,99,.15)}
+.hljs-addition{background:rgba(120,200,120,.15)}
+.hljs-subst{color:#e6def0;font-weight:normal}
+.hljs-params{color:#ffd1a0}
+.hljs-property,.hljs-attr,.hljs-attribute{color:#ffd1a0}
+.hljs-function .hljs-title,.hljs-title.function_{color:#8ad6ff}
+.hljs-boolean{color:#c4a6ff}
+.hljs-comment.hljs-doctag{color:#9cb3ff}
+.hljs-operator{color:#d4c5f9}
+.hljs-punctuation{color:#b9a8d6}

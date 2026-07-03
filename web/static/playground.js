@@ -1,12 +1,19 @@
 // =====================================================================
 // Playground — interactive chat testing UI.
-// Talks directly to the existing /v1/chat/completions proxy endpoint
-// (which already does OpenAI-compatible SSE passthrough).
-// Config + messages persist to localStorage. No backend changes needed.
+// Talks directly to /v1/chat/completions (OpenAI-compatible SSE passthrough).
+// Config + parameterEnabled + messages persist to localStorage (v2 schema).
+// Features: parameterEnabled toggles, seed, image_url multimodal, role
+// toggle (user/assistant/system), system prompt, reasoning duration,
+// sources rendering, show-source/preview, HTML iframe preview, mermaid,
+// message timing, error retry/edit-prompt actions, v2 localStorage.
 // =====================================================================
 
 // ----- Module 1: State management -----------------------------------
-var PG_LS_KEY = 'tinyrouter.playground.v1';
+// localStorage v2 schema (hard cut from v1; v1 data is ignored entirely).
+var PG_CFG_KEY = 'tinyrouter.playground.cfg.v2';
+var PG_MSG_KEY = 'tinyrouter.playground.msg.v2';
+var PG_PARAM_KEY = 'tinyrouter.playground.params.v2';
+
 var PG_DEFAULT_CFG = {
   model: '',
   temperature: 0.8,
@@ -14,36 +21,118 @@ var PG_DEFAULT_CFG = {
   maxTokens: 0,          // 0 = inherit/unset
   frequencyPenalty: 0,
   presencePenalty: 0,
+  seed: '',              // empty string = null (not sent)
   stream: true,
   useCustomBody: false,
   customBody: '',
+  // Multimodal
+  imageEnabled: false,
+  imageUrls: [],
+  // System prompt (sent as first message when non-empty)
+  systemPrompt: '',
 };
+
+// parameterEnabled mirrors new-api defaults: max_tokens + seed off.
+var PG_DEFAULT_PARAMS = {
+  temperature: true,
+  topP: true,
+  maxTokens: false,
+  frequencyPenalty: true,
+  presencePenalty: true,
+  seed: false,
+};
+
+// Storage limits (mirrors new-api storage.ts constraints)
+var PG_MAX_MSGS = 100;
+var PG_MAX_MSGS_BYTES = 1024 * 1024;       // 1MB raw string cap
+var PG_MAX_MSG_CHARS = 40000;              // single message content cap
+var PG_MAX_MSGS_CHARS = 120000;            // total loaded content cap
+
 var pgState = {
   config: JSON.parse(JSON.stringify(PG_DEFAULT_CFG)),
-  messages: [],          // {role, content, reasoning, error, status}
-  models: [],            // cached /api/models list
+  parameterEnabled: JSON.parse(JSON.stringify(PG_DEFAULT_PARAMS)),
+  messages: [],          // {role, content(string|ContentPart[]), reasoning, status, ...timing, sources}
+  models: [],
   streaming: false,
   abortCtrl: null,
-  sseEvents: [],         // raw SSE lines for debug panel
+  sseEvents: [],
   lastProvider: '',
   lastKey: '',
+  // Debug panel state
+  debugTab: 'preview',
+  debugRequest: '',
+  debugPreview: '',
+  debugResponse: '',
+  debugTimestamp: null,
+  debugPreviewTimestamp: null,
   renderTimer: null,
-  pendingContent: '',    // buffered streaming chunks
+  pendingContent: '',
   pendingReasoning: '',
+  pendingSources: [],
+  // timing accumulators (per active request)
+  reasoningStartedAt: null,
+  reasoningCompletedAt: null,
 };
 
 function pgLoad() {
   try {
-    var raw = localStorage.getItem(PG_LS_KEY);
-    if (!raw) return;
-    var saved = JSON.parse(raw);
-    if (saved.config) {
-      Object.keys(PG_DEFAULT_CFG).forEach(function(k) {
-        if (saved.config[k] !== undefined) pgState.config[k] = saved.config[k];
-      });
+    var rawCfg = localStorage.getItem(PG_CFG_KEY);
+    if (rawCfg) {
+      var savedCfg = JSON.parse(rawCfg);
+      if (savedCfg) {
+        Object.keys(PG_DEFAULT_CFG).forEach(function(k) {
+          if (savedCfg[k] !== undefined) pgState.config[k] = savedCfg[k];
+        });
+      }
     }
-    if (Array.isArray(saved.messages)) pgState.messages = saved.messages;
-  } catch (e) { /* ignore corrupt storage */ }
+  } catch (e) { /* corrupt storage */ }
+  try {
+    var rawParams = localStorage.getItem(PG_PARAM_KEY);
+    if (rawParams) {
+      var savedParams = JSON.parse(rawParams);
+      if (savedParams) {
+        Object.keys(PG_DEFAULT_PARAMS).forEach(function(k) {
+          if (savedParams[k] !== undefined) pgState.parameterEnabled[k] = savedParams[k];
+        });
+      }
+    }
+  } catch (e) { /* corrupt storage */ }
+  try {
+    var rawMsgs = localStorage.getItem(PG_MSG_KEY);
+    if (rawMsgs) {
+      if (rawMsgs.length > PG_MAX_MSGS_BYTES) {
+        localStorage.removeItem(PG_MSG_KEY);
+      } else {
+        var msgs = JSON.parse(rawMsgs);
+        if (Array.isArray(msgs)) {
+          // Trim by count.
+          if (msgs.length > PG_MAX_MSGS) msgs = msgs.slice(-PG_MAX_MSGS);
+          // Trim by total content size (from the end backwards).
+          var totalSize = 0;
+          var trimmedBySize = [];
+          for (var mi = msgs.length - 1; mi >= 0; mi--) {
+            var mc = pgTextContent(msgs[mi].content || '').length
+                   + ((msgs[mi].reasoning || '').length);
+            if (trimmedBySize.length > 0 && totalSize + mc > PG_MAX_MSGS_CHARS) break;
+            totalSize += mc;
+            trimmedBySize.unshift(msgs[mi]);
+          }
+          // Truncate individual message content.
+          trimmedBySize = trimmedBySize.map(function(m) {
+            var copy = Object.assign({}, m);
+            if (typeof copy.content === 'string' && copy.content.length > PG_MAX_MSG_CHARS) {
+              copy.content = copy.content.slice(0, PG_MAX_MSG_CHARS) + '\n\n[...]';
+            }
+            if (copy.reasoning && copy.reasoning.length > PG_MAX_MSG_CHARS) {
+              copy.reasoning = copy.reasoning.slice(0, PG_MAX_MSG_CHARS) + '\n\n[...]';
+            }
+            return pgNormalizeLoadedMessage(copy);
+          });
+          pgState.messages = trimmedBySize;
+        }
+      }
+    }
+  } catch (e) { /* corrupt storage */ }
 }
 
 var pgSaveTimer = null;
@@ -51,15 +140,23 @@ function pgSave() {
   if (pgSaveTimer) clearTimeout(pgSaveTimer);
   pgSaveTimer = setTimeout(function() {
     try {
-      localStorage.setItem(PG_LS_KEY, JSON.stringify({
-        config: pgState.config,
-        messages: pgState.messages,
-      }));
-    } catch (e) { /* storage full / disabled */ }
+      localStorage.setItem(PG_CFG_KEY, JSON.stringify(pgState.config));
+    } catch (e) {}
+    try {
+      localStorage.setItem(PG_PARAM_KEY, JSON.stringify(pgState.parameterEnabled));
+    } catch (e) {}
+    try {
+      // Trim to max message count.
+      var trimmed = pgState.messages;
+      if (trimmed.length > PG_MAX_MSGS) {
+        trimmed = trimmed.slice(-PG_MAX_MSGS);
+      }
+      localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
+    } catch (e) {}
   }, 500);
 }
 
-// ----- Module 2: Model list ----------------------------------------
+// ----- Module 2: Model list ---------------------------------------
 function pgLoadModels() {
   return apiGet('/models').then(function(res) {
     pgState.models = (res && res.models) ? res.models : [];
@@ -68,28 +165,103 @@ function pgLoadModels() {
   });
 }
 
-// ----- Module 4+5: Markdown rendering -------------------------------
-// Configure marked once with the katex extension. Guard against re-init.
+// ----- Module 3: Markdown rendering pipeline ----------------------
 var pgMarkerReady = false;
 function pgInitMarker() {
   if (pgMarkerReady) return;
   if (typeof marked === 'undefined') return;
   if (typeof markedKatex !== 'undefined') {
-    try { marked.use(markedKatex({ throwOnError: false, nonStandard: true })); } catch (e) { /* duplicate use is fine */ }
+    try { marked.use(markedKatex({ throwOnError: false, nonStandard: true })); } catch (e) {}
   }
   pgMarkerReady = true;
 }
 
-// Render markdown text -> sanitized HTML. Falls back to escaped plain text
-// when vendor libs are unavailable so the UI never breaks.
-function pgRenderMarkdown(text) {
+// DOMPurify config that allows KaTeX output (SVG/MathML + presentation attrs).
+var PG_PURIFY_CONFIG = (function() {
+  var mathTags = ['math','semantics','annotation','annotation-xml','mrow','mi','mo','mn',
+    'msup','msub','msubsup','mfrac','mtable','mtr','mtd','mtext','mspace','menclose',
+    'mstyle','merror','msqrt','mroot','mfenced','mover','munder','munderover','mpadded',
+    'mphantom','maligngroup','malignmark','maction','mfrac','mlongdiv','mscarries','mscarry',
+    'msgroup','mstack','msline','msrow'];
+  var mathAttrs = ['aria-hidden','class','style','encoding','stretchy','fence','separator',
+    'movablelimits','symmetric','maxsize','minsize','largeop','scriptlevel','displaystyle',
+    'columnalign','rowalign','columnspacing','rowspacing','columnlines','rowlines','frame',
+    'framespacing','mathbackground','mathcolor','notation','lspace','rspace','depth','height',
+    'width','voffset','role','crossout','location','form','linethickness','accent',
+    'accentunder','align','stackalign','link','href','stretchy','symmetric','lquote',
+    'rquote','xlink:href','xref','columnspan','rowspan','bevelled','close','open','separators',
+    'selection','side','decimalpoint','shift','position','href','target','d','viewBox',
+    'preserveAspectRatio','fill','stroke','stroke-width','stroke-linecap','stroke-linejoin',
+    'transform','cx','cy','r','rx','ry','x','y','x1','x2','y1','y2','xlink:title','xmlns',
+    'xmlns:xlink','textContent','mathvariant'];
+  return {
+    ADD_TAGS: mathTags.concat(['svg','g','path','line','rect','circle','ellipse','polygon',
+      'polyline','defs','use','clippath','clipPath','text','tspan','title','desc','symbol','marker','foreignobject','use']),
+    ADD_ATTR: mathAttrs,
+  };
+})();
+
+// Escape \[...\] -> $$...$$ and \(...\) -> $...$ while protecting fenced code spans.
+// Ported from new-api MarkdownRenderer escapeBrackets.
+function pgEscapeBrackets(text) {
+  var pattern = /(```[\s\S]*?```|`[^`]*`)|\\\[([\s\S]*?[^\\])\\\]|\\\((.*?)\\\)/g;
+  return text.replace(pattern, function(m, code, sq, rd) {
+    if (code) return code;
+    if (sq !== undefined) return '$$' + sq + '$$';
+    if (rd !== undefined) return '$' + rd + '$';
+    return m;
+  });
+}
+
+// Normalize inline $$...$$ (single-line) so marked-katex blockKatex fires.
+// Wrap escaped braces on their own line: \n$$\n<inner>\n$$\n
+function pgNormalizeDisplayMath(text) {
+  // Skip fenced code blocks entirely; operate outside of them.
+  var parts = [];
+  var last = 0;
+  var fence = /```[\s\S]*?```/g;
+  var m;
+  while ((m = fence.exec(text)) !== null) {
+    var chunk = text.slice(last, m.index);
+    parts.push(pgNormalizeInChunk(chunk));
+    parts.push(m[0]);
+    last = m.index + m[0].length;
+  }
+  parts.push(pgNormalizeInChunk(text.slice(last)));
+  return parts.join('');
+}
+function pgNormalizeInChunk(chunk) {
+  return chunk.replace(/\$\$([^\n$]+?)\$\$/g, function(_, inner) {
+    return '\n$$\n' + inner.trim() + '\n$$\n';
+  });
+}
+
+// Wrap raw <DOCTYPE html>, <svg...>, <?xml ...?> into ```html fenced blocks so
+// the renderer can find them as language-html code blocks for iframe preview.
+// Ported from new-api tryWrapHtmlCode.
+function pgTryWrapHtmlCode(text) {
+  if (text.indexOf('```') >= 0) return text;
+  text = text.replace(/([`]*?)(\w*?)([\n\r]*?)(<!DOCTYPE html>)/g, function(m, qs, lang, nl, dt) {
+    return qs ? m : '\n```html\n' + dt;
+  });
+  text = text.replace(/(<\/body>)([\r\n\s]*?)(<\/html>)([\n\r]*)([`]*)([\n\r]*?)/g, function(m, b, sp, h, nl, qe, nl2) {
+    return qe ? m : b + sp + h + '\n```\n';
+  });
+  return text;
+}
+
+// Render markdown -> sanitized HTML. Falls back to escaped plain text.
+function pgRenderMarkdown(text, isUser) {
   if (!text) return '';
   if (typeof marked !== 'undefined') {
     pgInitMarker();
     try {
-      var html = marked.parse(text, { breaks: true, gfm: true });
+      var pre = pgTryWrapHtmlCode(text);
+      pre = pgEscapeBrackets(pre);
+      pre = pgNormalizeDisplayMath(pre);
+      var html = marked.parse(pre, { breaks: true, gfm: true });
       if (typeof DOMPurify !== 'undefined') {
-        html = DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+        html = DOMPurify.sanitize(html, PG_PURIFY_CONFIG);
       }
       return html;
     } catch (e) { /* fall through to escaping */ }
@@ -97,38 +269,72 @@ function pgRenderMarkdown(text) {
   return '<p>' + escapeHtml(text).replace(/\n/g, '<br>') + '</p>';
 }
 
-// Highlight code blocks after the bubble is in the DOM.
+// Highlight code blocks after they hit the DOM.
 function pgHighlight(container) {
   if (typeof hljs === 'undefined') return;
   container.querySelectorAll('pre code').forEach(function(block) {
-    try { hljs.highlightElement(block); } catch (e) { /* unknown language */ }
+    if (block.dataset.pgHl === '1') return;
+    block.dataset.pgHl = '1';
+    try { hljs.highlightElement(block); } catch (e) {}
   });
 }
 
-// Reasoning tag tokens. Built from char codes so literal mentions never
-// collide with tooling that may interpret them as live markup.
+// Reasoning tag tokens built from char codes so they never collide with markup.
 var PG_THINK_OPEN = String.fromCharCode(60) + 'think' + String.fromCharCode(62);
 var PG_THINK_CLOSE = String.fromCharCode(60) + '/think' + String.fromCharCode(62);
-var PG_THINK_RE = new RegExp('^\\s*' + PG_THINK_OPEN.replace(/([< \/])/g, '\\$1') + '([\\s\\S]*?)' + PG_THINK_CLOSE.replace(/([< \/])/g, '\\$1'));
+var PG_THINK_RE = new RegExp('^\\s*' + PG_THINK_OPEN.replace(/([<\/ ])/g, '\\$1') + '([\\s\\S]*?)' + PG_THINK_CLOSE.replace(/([<\/ ])/g, '\\$1'));
+var PG_THINK_ALL_RE = new RegExp(PG_THINK_OPEN.replace(/([<\/ ])/g, '\\$1') + '([\\s\\S]*?)' + PG_THINK_CLOSE.replace(/([<\/ ])/g, '\\$1'), 'g');
 
-// Split leading reasoning block from visible content.
+// Split leading reasoning block from visible content (handles unclosed / streaming).
 function pgSplitReasoning(text) {
   var reasoning = '';
   var m = text.match(PG_THINK_RE);
   if (m) {
     reasoning = m[1];
     text = text.slice(m[0].length);
-  }
-  // Also handle an unclosed leading reasoning block (stream interrupted).
-  if (text.indexOf(PG_THINK_OPEN) === 0) {
-    reasoning += text.slice(PG_THINK_OPEN.length);
+  } else if (text.indexOf(PG_THINK_OPEN) === 0) {
+    // Streaming unclosed: everything after is reasoning.
+    reasoning = text.slice(PG_THINK_OPEN.length);
     text = '';
   }
   return { content: text, reasoning: reasoning };
 }
 
-// ----- Module 6: SSE streaming request -----------------------------
-// Parse a single SSE "data: ..." line, return JSON object or null.
+// Pull ALL think blocks out of content (handles multiple blocks intermixed).
+function pgExtractAllReasoning(text) {
+  if (text.indexOf(PG_THINK_OPEN) < 0) return { content: text, reasoning: '' };
+  // Easiest correct approach: strip closed blocks first, then handle trailing unclosed.
+  var reasoningParts = [];
+  text = text.replace(PG_THINK_ALL_RE, function(_, inner) {
+    reasoningParts.push(inner);
+    return '';
+  });
+  // Trailing unclosed think block during streaming.
+  var openIdx = text.indexOf(PG_THINK_OPEN);
+  if (openIdx >= 0) {
+    reasoningParts.push(text.slice(openIdx + PG_THINK_OPEN.length));
+    text = text.slice(0, openIdx);
+  }
+  return { content: text.trim(), reasoning: reasoningParts.join('\n').trim() };
+}
+
+// ----- Module 4: Content helpers (text / images) ------------------
+// message.content may be string OR [{type:'text'|'image_url', text?, image_url?}].
+function pgTextContent(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.filter(function(p) { return p.type === 'text'; })
+      .map(function(p) { return p.text || ''; }).join('');
+  }
+  return '';
+}
+
+function pgImageParts(content) {
+  if (!Array.isArray(content)) return [];
+  return content.filter(function(p) { return p.type === 'image_url' && p.image_url && p.image_url.url; });
+}
+
+// ----- Module 5: SSE streaming request -----------------------------
 function pgParseSSELine(line) {
   if (!line || line.indexOf('data:') !== 0) return null;
   var payload = line.slice(5).trim();
@@ -136,29 +342,103 @@ function pgParseSSELine(line) {
   try { return JSON.parse(payload); } catch (e) { return null; }
 }
 
-// Build the OpenAI-compatible request body from current UI state.
+// Merge a streaming chunk into accumulated content, deduplicating the repeated
+// prefix that some upstreams resend in every chunk (mirrors new-api mergePendingStreamChunk).
+function pgMergeChunk(current, next) {
+  if (!current || !next || next.indexOf(current) !== 0) {
+    return (current || '') + (next || '');
+  }
+  return next;
+}
+
+// Parse an HTTP error response body for structured error.code / error.message
+// (mirrors new-api parseStreamErrorDetails / parseRequestErrorDetails).
+function pgParseErrorDetails(text) {
+  if (!text) return { errorMessage: 'Request error occurred', errorCode: null };
+  try {
+    var parsed = JSON.parse(text);
+    if (parsed && parsed.error) {
+      return {
+        errorMessage: parsed.error.message || text,
+        errorCode: parsed.error.code || null,
+      };
+    }
+    if (parsed && parsed.message) {
+      return { errorMessage: parsed.message, errorCode: parsed.error_code || null };
+    }
+  } catch (e) { /* not JSON */ }
+  return { errorMessage: text, errorCode: null };
+}
+
+// Build the OpenAI-compatible request body honoring parameterEnabled toggles.
 function pgBuildBody() {
   if (pgState.config.useCustomBody && pgState.config.customBody) {
     try { return JSON.parse(pgState.config.customBody); } catch (e) {
       throw new Error('Invalid custom body JSON');
     }
   }
+  var en = pgState.parameterEnabled;
+  var cfg = pgState.config;
+  var messages = pgState.messages
+    .filter(function(m) {
+      if (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'system') return false;
+      if (m.role === 'assistant' && m.error) return false;
+      // Skip empty loading assistant placeholders.
+      if (m.role === 'assistant' && m.status === 'loading') return false;
+      return true;
+    })
+    .map(function(m) {
+      // Drop images for non-final user messages (OpenAI only accepts final user images
+      // cleanly; we still pass arrays because some upstreams accept multiple — mirror
+      // new-api buildMessageContent behaviour of attaching images to the last user).
+      return { role: m.role, content: m.content };
+    });
+
   var body = {
-    model: pgState.config.model,
-    messages: pgState.messages
-      .filter(function(m) { return m.role === 'user' || (m.role === 'assistant' && !m.error); })
-      .map(function(m) { return { role: m.role, content: m.content }; }),
-    stream: pgState.config.stream,
+    model: cfg.model,
+    messages: messages,
+    stream: cfg.stream,
   };
-  body.temperature = pgState.config.temperature;
-  body.top_p = pgState.config.topP;
-  if (pgState.config.maxTokens > 0) body.max_tokens = pgState.config.maxTokens;
-  if (pgState.config.frequencyPenalty) body.frequency_penalty = pgState.config.frequencyPenalty;
-  if (pgState.config.presencePenalty) body.presence_penalty = pgState.config.presencePenalty;
+  if (en.temperature) body.temperature = cfg.temperature;
+  if (en.topP) body.top_p = cfg.topP;
+  if (en.maxTokens && cfg.maxTokens > 0) body.max_tokens = cfg.maxTokens;
+  if (en.frequencyPenalty) body.frequency_penalty = cfg.frequencyPenalty;
+  if (en.presencePenalty) body.presence_penalty = cfg.presencePenalty;
+  if (en.seed && cfg.seed !== '' && cfg.seed !== null) {
+    // seed may be numeric or string; pass through as-is if numeric, else string.
+    var seedNum = Number(cfg.seed);
+    body.seed = isNaN(seedNum) ? cfg.seed : seedNum;
+  }
   return body;
 }
 
-// Send a chat completion request (stream or non-stream) and wire up debug info.
+// Attach system prompt + multimodal content as a final pre-send transform.
+function pgFinalizeBodyForSend(body, lastUserMessage) {
+  // System prompt injection at top.
+  if (pgState.config.systemPrompt && pgState.config.systemPrompt.trim()) {
+    var hasSystem = (body.messages || []).some(function(m) { return m.role === 'system'; });
+    if (!hasSystem) {
+      body.messages = [{ role: 'system', content: pgState.config.systemPrompt }].concat(body.messages);
+    }
+  }
+  // Multimodal: rewrite last user message content as ContentPart[] if images present.
+  if (pgState.config.imageEnabled && Array.isArray(pgState.config.imageUrls)) {
+    var urls = pgState.config.imageUrls.filter(function(u) { return u && u.trim(); });
+    if (urls.length > 0 && lastUserMessage) {
+      var text = (typeof lastUserMessage.content === 'string')
+        ? lastUserMessage.content
+        : pgTextContent(lastUserMessage.content);
+      var parts = [];
+      if (text) parts.push({ type: 'text', text: text });
+      urls.forEach(function(u) {
+        parts.push({ type: 'image_url', image_url: { url: u } });
+      });
+      lastUserMessage.content = parts;
+    }
+  }
+  return body;
+}
+
 function pgSend(assistantIdx) {
   var body;
   try { body = pgBuildBody(); } catch (e) {
@@ -169,6 +449,19 @@ function pgSend(assistantIdx) {
   pgState.lastKey = '';
   pgState.pendingContent = '';
   pgState.pendingReasoning = '';
+  pgState.pendingSources = [];
+  pgState.reasoningStartedAt = null;
+  pgState.reasoningCompletedAt = null;
+
+  // Find last user message in body for multimodal rewrite.
+  var lastUser = null;
+  for (var i = body.messages.length - 1; i >= 0; i--) {
+    if (body.messages[i].role === 'user') { lastUser = body.messages[i]; break; }
+  }
+  body = pgFinalizeBodyForSend(body, lastUser);
+  pgState.debugRequest = JSON.stringify(body, null, 2);
+  pgState.debugResponse = '';
+  pgState.debugTimestamp = new Date().toISOString();
 
   if (pgState.config.stream) {
     pgStream(body, assistantIdx);
@@ -177,8 +470,6 @@ function pgSend(assistantIdx) {
   }
 }
 
-// Streaming path: fetch + ReadableStream parsing (same pattern as
-// providers.js test-all). AbortController for stop.
 function pgStream(body, assistantIdx) {
   pgState.streaming = true;
   pgState.abortCtrl = new AbortController();
@@ -190,13 +481,16 @@ function pgStream(body, assistantIdx) {
     body: JSON.stringify(body),
     signal: pgState.abortCtrl.signal,
   }).then(function(resp) {
-    // Capture provider/key from injected debug headers.
     pgState.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
     pgState.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
     if (!resp.ok || !resp.body) {
-      var err = 'HTTP ' + resp.status;
-      pgFail(assistantIdx, err);
-      return Promise.reject(new Error(err));
+      resp.text().then(function(text) {
+        var details = pgParseErrorDetails(text);
+        pgFail(assistantIdx, details.errorMessage || ('HTTP ' + resp.status), details.errorCode);
+      }).catch(function() {
+        pgFail(assistantIdx, 'HTTP ' + resp.status);
+      });
+      return Promise.reject(new Error('HTTP ' + resp.status));
     }
     var reader = resp.body.getReader();
     var decoder = new TextDecoder();
@@ -206,7 +500,7 @@ function pgStream(body, assistantIdx) {
         if (chunk.done) { pgFinish(assistantIdx); return; }
         buffer += decoder.decode(chunk.value, { stream: true });
         var events = buffer.split('\n');
-        buffer = events.pop();          // keep partial line
+        buffer = events.pop();
         for (var i = 0; i < events.length; i++) {
           var line = events[i].trim();
           if (!line) continue;
@@ -230,18 +524,50 @@ function pgStream(body, assistantIdx) {
   });
 }
 
-// Apply one SSE chunk's delta to the assistant message buffer.
 function pgApplyChunk(data, assistantIdx) {
   var choices = data.choices;
-  if (!choices || !choices.length) return;
+  if (!choices || !choices.length) {
+    // Non-choice chunks (e.g., usage/citations wrapper).
+    pgApplySourcesFromObject(data, /*target*/ null);
+    return;
+  }
   var delta = choices[0].delta || {};
-  if (delta.content) pgState.pendingContent += delta.content;
-  if (delta.reasoning_content) pgState.pendingReasoning += delta.reasoning_content;
-  // Some upstreams embed reasoning in reasoning_content only.
+  if (delta.content) pgState.pendingContent = pgMergeChunk(pgState.pendingContent, delta.content);
+  if (delta.reasoning_content) {
+    if (!pgState.reasoningStartedAt) pgState.reasoningStartedAt = Date.now();
+    pgState.pendingReasoning = pgMergeChunk(pgState.pendingReasoning, delta.reasoning_content);
+  }
+  // Some upstreams deliver sources/citations at delta level.
+  pgApplySourcesFromObject(delta, null);
+  // Others nest under message.citations / web_search.
+  if (choices[0].message) {
+    pgApplySourcesFromObject(choices[0].message, null);
+  }
 }
 
-// Flush buffered content into the message state + DOM periodically (~60ms
-// throttle) to avoid re-rendering markdown on every single token chunk.
+// Extract sources-like arrays from an arbitrary object. Tolerates many shapes.
+function pgApplySourcesFromObject(obj, _target) {
+  if (!obj || typeof obj !== 'object') return;
+  var candidates = ['sources', 'citations', 'web_search_citation', 'web_search'];
+  for (var i = 0; i < candidates.length; i++) {
+    var key = candidates[i];
+    var val = obj[key];
+    if (!val) continue;
+    if (Array.isArray(val)) {
+      val.forEach(function(item) {
+        if (!item) return;
+        var href = item.url || item.href || item.link || (typeof item === 'string' ? item : '');
+        if (!href) return;
+        var title = item.title || item.name || item.snippet || (typeof item === 'string' ? '' : '');
+        // Dedup by href.
+        if (!pgState.pendingSources.some(function(s) { return s.href === href; })) {
+          pgState.pendingSources.push({ href: href, title: title || href });
+        }
+      });
+    }
+  }
+}
+
 function pgFlushRender(assistantIdx) {
   if (pgState.renderTimer) return;
   pgState.renderTimer = setTimeout(function() {
@@ -250,14 +576,30 @@ function pgFlushRender(assistantIdx) {
     if (!msg) return;
     msg.content = pgState.pendingContent;
     msg.reasoning = pgState.pendingReasoning;
+    msg.sources = pgState.pendingSources.slice();
+    if (pgState.reasoningStartedAt) {
+      msg.reasoningStartedAt = pgState.reasoningStartedAt;
+      if (pgState.reasoningCompletedAt) {
+        msg.reasoningCompletedAt = pgState.reasoningCompletedAt;
+        msg.reasoningDurationMs = pgState.reasoningCompletedAt - pgState.reasoningStartedAt;
+      } else {
+        // Still streaming reasoning — live duration so far.
+        msg.reasoningDurationMs = Date.now() - pgState.reasoningStartedAt;
+      }
+    }
     msg.status = 'streaming';
+    // When content delta starts arriving after reasoning, seal reasoning timing.
+    if (pgState.reasoningStartedAt && !pgState.reasoningCompletedAt && pgState.pendingContent) {
+      pgState.reasoningCompletedAt = Date.now();
+      msg.reasoningCompletedAt = pgState.reasoningCompletedAt;
+      msg.reasoningDurationMs = pgState.reasoningCompletedAt - pgState.reasoningStartedAt;
+    }
     pgRenderBubble(assistantIdx);
     pgRenderDebug();
     pgScrollBottom();
-  }, 60);
+  }, 50);
 }
 
-// Non-streaming path.
 function pgSendNonStream(body, assistantIdx) {
   pgState.streaming = true;
   pgState.abortCtrl = new AbortController();
@@ -271,31 +613,52 @@ function pgSendNonStream(body, assistantIdx) {
     pgState.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
     pgState.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
     return resp.json().then(function(j) {
-      if (!resp.ok) throw new Error(j.error && j.error.message ? j.error.message : ('HTTP ' + resp.status));
+      if (!resp.ok) {
+        var details = pgParseErrorDetails(JSON.stringify(j));
+        var err2 = new Error(details.errorMessage || ('HTTP ' + resp.status));
+        if (details.errorCode) {
+          var msg2 = pgState.messages[assistantIdx];
+          if (msg2) msg2.errorCode = details.errorCode;
+        }
+        throw err2;
+      }
       var msg = pgState.messages[assistantIdx];
       var choice = j.choices && j.choices[0];
+      msg.startedAt = msg.startedAt || Date.now();
+      msg.completedAt = Date.now();
+      msg.durationMs = msg.completedAt - msg.startedAt;
       if (choice && choice.message) {
         msg.content = choice.message.content || '';
         msg.reasoning = choice.message.reasoning_content || '';
         msg.status = 'complete';
+        pgApplySourcesFromObject(choice.message, null);
+        msg.sources = pgState.pendingSources.slice();
+        if (msg.reasoning) {
+          msg.reasoningStartedAt = msg.startedAt;
+          msg.reasoningCompletedAt = msg.completedAt;
+          msg.reasoningDurationMs = msg.reasoningCompletedAt - msg.reasoningStartedAt;
+        }
       } else {
         msg.content = '';
         msg.status = 'complete';
       }
       pgState.sseEvents.push(JSON.stringify(j, null, 2));
+      pgState.debugResponse = JSON.stringify(j, null, 2);
       pgRenderBubble(assistantIdx);
       pgRenderDebug();
+      pgSave();
+      pgUpdateInputBar();
     });
   }).catch(function(err) {
     if (err && err.name === 'AbortError') {
       pgFinish(assistantIdx);
     } else {
-      pgFail(assistantIdx, err && err.message ? err.message : String(err));
+      var ec = (pgState.messages[assistantIdx] && pgState.messages[assistantIdx].errorCode) || null;
+      pgFail(assistantIdx, err && err.message ? err.message : String(err), ec);
     }
   });
 }
 
-// Mark the assistant message done (after [DONE] or stop).
 function pgFinish(assistantIdx) {
   if (!pgState.streaming) return;
   pgState.streaming = false;
@@ -304,29 +667,52 @@ function pgFinish(assistantIdx) {
   if (msg) {
     msg.content = pgState.pendingContent;
     msg.reasoning = pgState.pendingReasoning;
-    if (msg.status !== 'error') msg.status = 'complete';
-    var split = pgSplitReasoning(msg.content);
-    if (split.reasoning) msg.reasoning += split.reasoning;
+    msg.sources = pgState.pendingSources.slice();
+    // Pull out any stray think block from final content.
+    var split = pgExtractAllReasoning(msg.content);
+    if (split.reasoning) msg.reasoning = (msg.reasoning ? msg.reasoning + '\n\n---\n\n' : '') + split.reasoning;
     msg.content = split.content;
+    if (msg.status !== 'error') msg.status = 'complete';
+    // Seal timings.
+    if (pgState.reasoningStartedAt && !pgState.reasoningCompletedAt) {
+      pgState.reasoningCompletedAt = Date.now();
+    }
+    if (msg.reasoningStartedAt && !msg.reasoningCompletedAt && pgState.reasoningCompletedAt) {
+      msg.reasoningCompletedAt = pgState.reasoningCompletedAt;
+    }
+    if (msg.reasoningStartedAt && msg.reasoningCompletedAt) {
+      msg.reasoningDurationMs = msg.reasoningCompletedAt - msg.reasoningStartedAt;
+    }
+    if (!msg.completedAt) {
+      msg.completedAt = Date.now();
+      if (msg.startedAt) msg.durationMs = msg.completedAt - msg.startedAt;
+    }
   }
   pgState.pendingContent = '';
   pgState.pendingReasoning = '';
+  pgState.pendingSources = [];
+  pgState.reasoningStartedAt = null;
+  pgState.reasoningCompletedAt = null;
   pgSave();
   pgRenderBubble(assistantIdx);
   pgRenderDebug();
   pgUpdateInputBar();
 }
 
-// Mark the assistant message failed.
-function pgFail(assistantIdx, errMsg) {
+function pgFail(assistantIdx, errMsg, errorCode) {
   pgState.streaming = false;
   pgState.abortCtrl = null;
   var msg = pgState.messages[assistantIdx];
   if (msg) {
     msg.error = errMsg;
-    msg.content = pgState.pendingContent;
+    if (errorCode) msg.errorCode = errorCode;
+    msg.content = pgTextContent(pgState.pendingContent) ? pgState.pendingContent : '';
     msg.reasoning = pgState.pendingReasoning;
     msg.status = 'error';
+    if (!msg.completedAt) {
+      msg.completedAt = Date.now();
+      if (msg.startedAt) msg.durationMs = msg.completedAt - msg.startedAt;
+    }
   }
   pgState.sseEvents.push('[ERROR] ' + errMsg);
   pgSave();
@@ -335,7 +721,7 @@ function pgFail(assistantIdx, errMsg) {
   pgUpdateInputBar();
 }
 
-// ----- Module 7: Stop / Clear --------------------------------------
+// ----- Module 6: Stop / Clear --------------------------------------
 function pgStop() {
   if (pgState.abortCtrl) { try { pgState.abortCtrl.abort(); } catch (e) {} }
 }
@@ -349,19 +735,36 @@ function pgClear() {
   pgRenderDebug();
 }
 
+// ----- Module 7: Stop-all generation guard ------------------------
+function pgIsGenerating() { return pgState.streaming; }
+
 // ----- Module 8/9: Edit / Regenerate --------------------------------
-// Edit a user message; on save, truncate everything after it and resend.
 function pgBeginEdit(idx) {
   var msg = pgState.messages[idx];
   if (!msg) return;
   var wrap = document.getElementById('pg-bubble-' + idx);
   if (!wrap) return;
+  var txt = pgTextContent(msg.content);
   wrap.innerHTML =
-    '<textarea class="pg-editor" id="pg-edit-ta-' + idx + '">' + escapeHtml(msg.content) + '</textarea>' +
+    '<div class="pg-editor-title"><span>' + escapeHtml(t('pgEdit')) +
+      '<span class="' + (txt !== pgTextContent(msg.content) ? 'unsaved' : 'saved') + '"></span></span></div>' +
+    '<textarea class="pg-editor" id="pg-edit-ta-' + idx + '">' + escapeHtml(txt) + '</textarea>' +
     '<div class="pg-editor-row">' +
-      '<button class="pg-btn" onclick="pgCancelEdit(' + idx + ')">' + t('cancel') + '</button>' +
-      '<button class="pg-btn active" onclick="pgApplyEdit(' + idx + ',true)">' + t('pgSave') + '</button>' +
+      '<button class="pg-btn" onclick="pgCancelEdit(' + idx + ')">' + escapeHtml(t('cancel')) + '</button>' +
+      '<button class="pg-btn" onclick="pgApplyEdit(' + idx + ',false)">' + escapeHtml(t('pgSave')) + '</button>' +
+      '<button class="pg-btn active" onclick="pgApplyEdit(' + idx + ',true)">' + escapeHtml(t('pgSendMessage')) + '</button>' +
     '</div>';
+  var ta = document.getElementById('pg-edit-ta-' + idx);
+  if (ta) {
+    ta.focus();
+    ta.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { e.preventDefault(); pgCancelEdit(idx); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        pgApplyEdit(idx, true);
+      }
+    });
+  }
 }
 
 function pgCancelEdit(idx) {
@@ -373,10 +776,22 @@ function pgApplyEdit(idx, submit) {
   if (!ta) return;
   var msg = pgState.messages[idx];
   if (!msg) return;
-  msg.content = ta.value;
+  // Keep multimodal parts intact unless content was string (text-only messages).
+  if (typeof msg.content === 'string') {
+    msg.content = ta.value;
+  } else {
+    // Replace only the text part.
+    var replaced = false;
+    msg.content = (msg.content || []).map(function(p) {
+      if (p.type === 'text') { replaced = true; return { type: 'text', text: ta.value }; }
+      return p;
+    });
+    if (!replaced) msg.content.unshift({ type: 'text', text: ta.value });
+  }
   if (submit) {
+    if (pgIsGenerating()) { toast(t('pgStreaming'), 'warning'); return; }
     pgState.messages = pgState.messages.slice(0, idx + 1);
-    pgState.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading' });
+    pgState.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: Date.now() });
     pgSave();
     pgRenderMessages();
     pgSend(pgState.messages.length - 1);
@@ -386,12 +801,10 @@ function pgApplyEdit(idx, submit) {
   }
 }
 
-// Regenerate the assistant message at idx: drop it and anything after,
-// then resend starting from the preceding user message.
 function pgRegenerate(idx) {
-  if (pgState.streaming) return;
+  if (pgIsGenerating()) return;
   pgState.messages = pgState.messages.slice(0, idx);
-  pgState.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading' });
+  pgState.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: Date.now() });
   pgSave();
   pgRenderMessages();
   pgSend(pgState.messages.length - 1);
@@ -403,6 +816,37 @@ function pgDeleteMessage(idx) {
   pgRenderMessages();
 }
 
+// Role toggle: user -> assistant -> system -> user.
+function pgToggleRole(idx) {
+  if (pgIsGenerating()) return;
+  var msg = pgState.messages[idx];
+  if (!msg) return;
+  var order = { user: 'assistant', assistant: 'system', system: 'user' };
+  msg.role = order[msg.role] || 'user';
+  pgSave();
+  pgRenderMessages();
+}
+
+// Find the most recent user message strictly before idx (for edit-prompt on errors).
+function pgPrevUserBefore(idx) {
+  for (var i = idx - 1; i >= 0; i--) {
+    if (pgState.messages[i].role === 'user') return i;
+  }
+  return -1;
+}
+
+function pgRetryError(idx) {
+  if (pgIsGenerating()) return;
+  pgRegenerate(idx);
+}
+
+function pgEditPromptForError(idx) {
+  if (pgIsGenerating()) return;
+  var prevUser = pgPrevUserBefore(idx);
+  if (prevUser < 0) { toast(t('pgNoPrevUser'), 'warning'); return; }
+  pgBeginEdit(prevUser);
+}
+
 // ----- Module: New message send -------------------------------------
 function pgUserSend() {
   var ta = document.getElementById('pg-input');
@@ -412,12 +856,40 @@ function pgUserSend() {
   if (!pgState.config.model) {
     toast(t('pgSelectModel'), 'warning'); return;
   }
-  pgState.messages.push({ role: 'user', content: text });
-  pgState.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading' });
+  var now = Date.now();
+  pgState.messages.push({ role: 'user', content: text, createdAt: now });
+  pgState.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: now });
   ta.value = '';
   pgSave();
   pgRenderMessages();
   pgSend(pgState.messages.length - 1);
+  // After send, auto-disable image attach (mirrors new-api behavior).
+  if (pgState.config.imageEnabled) {
+    setTimeout(function() { pgState.config.imageEnabled = false; pgSave(); pgRenderSidebar(); }, 100);
+  }
+}
+
+// ----- Module 12: Paste image from clipboard ------------------------
+function pgPasteImage(e) {
+  if (!pgState.config.imageEnabled) return;
+  var items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].type && items[i].type.indexOf('image/') === 0) {
+      var blob = items[i].getAsFile();
+      if (!blob) continue;
+      var reader = new FileReader();
+      reader.onload = function(ev) {
+        var dataUrl = ev.target.result;
+        pgState.config.imageUrls.push(dataUrl);
+        pgSave();
+        pgRenderSidebar();
+        toast(t('pgImagePasteAdded'), 'success');
+      };
+      reader.readAsDataURL(blob);
+      e.preventDefault();
+    }
+  }
 }
 
 // ----- Renderers ----------------------------------------------------
@@ -426,41 +898,186 @@ function pgScrollBottom() {
   if (box) box.scrollTop = box.scrollHeight;
 }
 
+function pgFormatTime(ts) {
+  if (!ts || typeof ts !== 'number') return '';
+  var d = new Date(ts);
+  var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+function pgFormatDuration(ms) {
+  if (typeof ms !== 'number' || !isFinite(ms)) return '';
+  if (ms < 1000) return t('pgDurationMs', [Math.max(1, Math.round(ms))]);
+  return t('pgDurationSec', [(ms / 1000).toFixed(2)]);
+}
+
 // Re-render a single bubble without rebuilding the list (preserves scroll).
 function pgRenderBubble(idx) {
   var wrap = document.getElementById('pg-bubble-' + idx);
   if (!wrap) return;
   var msg = pgState.messages[idx];
   if (!msg) return;
-  var html = pgMsgInnerHTML(idx, msg);
+  var isSourceVisible = !!msg.sourceVisible;
+  var html = pgMsgInnerHTML(idx, msg, isSourceVisible);
   wrap.innerHTML = html;
-  // Highlight any code that just appeared.
-  pgHighlight(wrap);
+  // Source/preview re-render won't touch <pre>; only highlight if showing source.
+  if (isSourceVisible) {
+    pgHighlight(wrap);
+  }
+  pgPostProcessCode(wrap);
   // Wire copy buttons inside this bubble.
   wrap.querySelectorAll('.pg-code-copy').forEach(function(btn) {
     btn.addEventListener('click', function() {
-      var codeEl = btn.parentElement.querySelector('code');
-      copyToClipboard(codeEl ? codeEl.textContent : '', 'code');
+      var codeEl = btn.parentElement && btn.parentElement.querySelector('code');
+      copyToClipboard(codeEl ? codeEl.textContent : '', t('pgCodeCopied'));
     });
+  });
+  // Wire mermaid click to open svg in new window.
+  wrap.querySelectorAll('.pg-mermaid').forEach(function(el) {
+    el.addEventListener('click', function() { pgOpenMermaidSvg(el); });
   });
 }
 
-function pgMsgInnerHTML(idx, msg) {
+// Post-process <pre> blocks: attach Mermaid/HTML preview rendering.
+function pgPostProcessCode(container) {
+  var pres = container.querySelectorAll('pre');
+  pres.forEach(function(pre) {
+    if (pre.dataset.pgPost === '1') return;
+    pre.dataset.pgPost = '1';
+    var codeEl = pre.querySelector('code');
+    if (!codeEl) return;
+    var cls = codeEl.className || '';
+    var langMatch = cls.match(/language-(\w+)/);
+    var lang = langMatch ? langMatch[1] : '';
+    var raw = codeEl.textContent || '';
+    if (lang === 'mermaid') {
+      pgRenderMermaid(pre, raw);
+    } else if (lang === 'html' || /^<!DOCTYPE/i.test(raw) || /^<svg/i.test(raw) || /^<\?xml/i.test(raw)) {
+      pgRenderHtmlPreview(pre, raw);
+    }
+  });
+}
+
+function pgRenderMermaid(pre, code) {
+  if (typeof window.mermaid === 'undefined') return;
+  var placeholder = document.createElement('div');
+  placeholder.className = 'pg-mermaid';
+  placeholder.textContent = code; // mermaid parses textContent
+  pre.parentNode.insertBefore(placeholder, pre.nextSibling);
+  try {
+    window.mermaid.run({ nodes: [placeholder], suppressErrors: true }).catch(function(e) {
+      placeholder.classList.add('mermaid-error');
+      placeholder.textContent = '[mermaid] ' + (e && e.message ? e.message : String(e));
+    });
+  } catch (e) {
+    placeholder.classList.add('mermaid-error');
+    placeholder.textContent = '[mermaid] ' + (e && e.message ? e.message : String(e));
+  }
+}
+
+function pgOpenMermaidSvg(el) {
+  var svg = el.querySelector('svg');
+  if (!svg) return;
+  var text = new XMLSerializer().serializeToString(svg);
+  var blob = new Blob([text], { type: 'image/svg+xml' });
+  var url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+}
+
+function pgRenderHtmlPreview(pre, html) {
+  // Avoid duplicate iframes when re-rendering the same bubble.
+  if (pre.dataset.pgHtml === '1') return;
+  pre.dataset.pgHtml = '1';
+  var wrap = document.createElement('div');
+  wrap.className = 'pg-html-preview';
+  var title = document.createElement('div');
+  title.className = 'pg-html-preview-title';
+  title.textContent = t('pgHtmlPreview');
+  var iframe = document.createElement('iframe');
+  iframe.setAttribute('sandbox', 'allow-same-origin');
+  iframe.setAttribute('srcDoc', html);
+  iframe.style.height = '150px';
+  iframe.addEventListener('load', function() {
+    try {
+      var doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+      if (doc) {
+        var h = Math.max(doc.documentElement.scrollHeight || 0, doc.body.scrollHeight || 0);
+        iframe.style.height = Math.min(Math.max(h + 16, 60), 600) + 'px';
+      }
+    } catch (e) {}
+  });
+  wrap.appendChild(title);
+  wrap.appendChild(iframe);
+  pre.parentNode.insertBefore(wrap, pre.nextSibling);
+}
+
+function pgMsgInnerHTML(idx, msg, isSourceVisible) {
   if (msg.status === 'loading') {
     return '<div class="pg-bubble"><span class="pg-toast-inline">⏳ ' + escapeHtml(t('pgWaiting')) + '</span></div>';
   }
   var inner = '';
-  // Reasoning panel (collapsible).
+  var isUser = msg.role === 'user';
+  // Sources panel above assistant text.
+  if (msg.role === 'assistant' && msg.sources && msg.sources.length) {
+    inner += '<div class="pg-sources collapsed" onclick="this.classList.toggle(\'collapsed\')">' +
+      '<div class="pg-sources-head">' + escapeHtml(t('pgSourcesCount', [msg.sources.length])) + ' ▾</div>' +
+      '<div class="pg-sources-list">' +
+        msg.sources.map(function(s, si) {
+          return '<a class="pg-source-item" href="' + escapeHtml(s.href) + '" target="_blank" rel="noreferrer">' +
+            '<span class="pg-source-idx">[' + (si + 1) + ']</span>' +
+            '<span>' + escapeHtml(s.title || s.href) + '</span></a>';
+        }).join('') +
+      '</div></div>';
+  }
+  // Reasoning panel (collapsible) with streaming/duration status.
   if (msg.reasoning) {
+    var lbl;
+    if (msg.status === 'streaming' && msg.reasoningStartedAt && !msg.reasoningCompletedAt) {
+      lbl = '<span class="pg-thinking-spinner"></span> ' + escapeHtml(t('pgThinkingTitle')) + '...';
+    } else if (msg.reasoningDurationMs != null) {
+      var dstr = pgFormatDuration(msg.reasoningDurationMs);
+      lbl = '💭 ' + (dstr ? escapeHtml(t('pgThinkingSec', [dstr])) : escapeHtml(t('pgThinkingDone')));
+    } else {
+      lbl = '💭 ' + escapeHtml(t('pgThinkingDone'));
+    }
     inner += '<div class="pg-thinking collapsed" onclick="this.classList.toggle(\'collapsed\')">' +
-      '<div class="pg-thinking-head">💭 ' + escapeHtml(t('pgThinking')) + ' ▾</div>' +
+      '<div class="pg-thinking-head"><span class="pg-think-label">' + lbl + '</span>' +
+      '<span class="pg-think-chev">▾</span></div>' +
       '<div class="pg-thinking-body">' + escapeHtml(msg.reasoning) + '</div>' +
     '</div>';
   }
+  // System badge banner.
+  if (msg.role === 'system') {
+    inner += '<div class="pg-bubble" data-system-badge="' + escapeHtml(t('pgSystemBadge')) + '">'
+      + pgRenderMarkdown(pgTextContent(msg.content), false) + '</div>';
+    return inner;
+  }
   var isError = msg.status === 'error';
   var cls = 'pg-bubble' + (isError ? ' pg-bubble-error' : '');
-  var bodyMd = msg.content || (isError ? ('[' + t('pgError') + '] ' + escapeHtml(msg.error || '')) : '');
-  inner += '<div class="' + cls + '">' + pgRenderMarkdown(bodyMd) + '</div>';
+  // Image thumbnails FIRST for multimodal user messages (above text bubble for visibility).
+  var imgs = pgImageParts(msg.content);
+  if (imgs.length) {
+    inner += '<div class="pg-image-row">' + imgs.map(function(p) {
+      return '<img class="pg-image-thumb" src="' + escapeHtml(p.image_url.url) + '" alt="image">';
+    }).join('') + '</div>';
+  }
+  var bodyMd;
+  if (isError) {
+    bodyMd = msg.content ? pgRenderMarkdown(pgTextContent(msg.content), false) : '';
+    if (msg.error) {
+      bodyMd += (bodyMd ? '<br>' : '') + '<span style="color:#ffcdd2">[' + escapeHtml(t('pgError')) + '] ' + escapeHtml(msg.error) + '</span>';
+    }
+    if (msg.errorCode) {
+      bodyMd += '<div class="pg-error-code">[' + escapeHtml(t('pgErrorCode', [msg.errorCode])) + ']</div>';
+    }
+  } else if (isSourceVisible) {
+    // Show raw markdown source (as code) instead of rendered preview.
+    var rawSrc = pgTextContent(msg.content);
+    bodyMd = '<pre><code class="language-markdown">' + escapeHtml(rawSrc) + '</code></pre>';
+  } else {
+    bodyMd = pgRenderMarkdown(pgTextContent(msg.content), isUser);
+  }
+  inner += '<div class="' + cls + '">' + bodyMd + '</div>';
   return inner;
 }
 
@@ -473,99 +1090,449 @@ function pgRenderMessages() {
   }
   var html = '';
   pgState.messages.forEach(function(msg, idx) {
-    var side = msg.role === 'user' ? 'user' : 'assistant';
+    var side = msg.role === 'user' ? 'user' : (msg.role === 'system' ? 'system' : 'assistant');
     var errCls = msg.status === 'error' ? ' error' : '';
     html += '<div class="pg-msg ' + side + errCls + '" id="pg-msg-' + idx + '">';
-    html += '<div id="pg-bubble-' + idx + '">' + pgMsgInnerHTML(idx, msg) + '</div>';
-    if (side === 'assistant' && msg.status !== 'loading') {
-      html += '<div class="pg-msg-meta"><div class="pg-msg-actions">' +
-          '<button class="pg-action" onclick="pgActionCopy(' + idx + ')">' + escapeHtml(t('pgCopy')) + '</button>' +
-          '<button class="pg-action" onclick="pgRegenerate(' + idx + ')">' + escapeHtml(t('pgRegenerate')) + '</button>' +
-          '<button class="pg-action" onclick="pgActionDelete(' + idx + ')">✕</button>' +
-        '</div></div>';
+    html += '<div id="pg-bubble-' + idx + '">' + pgMsgInnerHTML(idx, msg, !!msg.sourceVisible) + '</div>';
+    // Metadata: time + response duration.
+    var metaTime = pgFormatTime(msg.createdAt || msg.completedAt || msg.startedAt);
+    var metaLines = '';
+    if (msg.role === 'assistant' && msg.durationMs != null) {
+      var dur = pgFormatDuration(msg.durationMs);
+      if (metaTime && dur) {
+        metaLines = escapeHtml(metaTime) + ' · ' + escapeHtml(t('pgMetaResponse', [dur]));
+      } else if (dur) {
+        metaLines = escapeHtml(t('pgMetaResponse', [dur]));
+      } else {
+        metaLines = escapeHtml(metaTime);
+      }
+    } else if (metaTime) {
+      metaLines = escapeHtml(metaTime);
     }
-    if (side === 'user') {
-      html += '<div class="pg-msg-meta"><div class="pg-msg-actions">' +
-          '<button class="pg-action" onclick="pgBeginEdit(' + idx + ')">' + escapeHtml(t('pgEdit')) + '</button>' +
-          '<button class="pg-action" onclick="pgActionDelete(' + idx + ')">✕</button>' +
-        '</div></div>';
+    if (msg.role !== 'loading') {
+      html += '<div class="pg-msg-meta' + (msg.role === 'assistant' && idx === pgState.messages.length - 1 ? ' always-show' : '') + '"><span>' + metaLines + '</span>';
+      html += '<div class="pg-msg-actions">';
+      if (msg.role === 'assistant' && msg.status !== 'loading') {
+        html += '<button class="pg-action" onclick="pgActionCopy(' + idx + ')">' + escapeHtml(t('pgCopy')) + '</button>';
+        html += '<button class="pg-action" onclick="pgToggleSource(' + idx + ')">' + escapeHtml(msg.sourceVisible ? t('pgShowPreview') : t('pgShowSource')) + '</button>';
+        html += '<button class="pg-action" onclick="pgRegenerate(' + idx + ')">' + escapeHtml(t('pgRegenerate')) + '</button>';
+        if (msg.status === 'error') {
+          html += '<button class="pg-action" onclick="pgRetryError(' + idx + ')">' + escapeHtml(t('pgRetry')) + '</button>';
+          html += '<button class="pg-action" onclick="pgEditPromptForError(' + idx + ')">' + escapeHtml(t('pgEditPrompt')) + '</button>';
+        }
+        html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')">✕</button>';
+      } else if (msg.role === 'user') {
+        html += '<button class="pg-action" onclick="pgActionCopy(' + idx + ')">' + escapeHtml(t('pgCopy')) + '</button>';
+        html += '<button class="pg-action" onclick="pgToggleRole(' + idx + ')">' + escapeHtml(t('pgToggleRole')) + '</button>';
+        html += '<button class="pg-action" onclick="pgBeginEdit(' + idx + ')">' + escapeHtml(t('pgEdit')) + '</button>';
+        html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')">✕</button>';
+      } else if (msg.role === 'system') {
+        html += '<button class="pg-action" onclick="pgToggleRole(' + idx + ')">' + escapeHtml(t('pgToggleRole')) + '</button>';
+        html += '<button class="pg-action" onclick="pgBeginEdit(' + idx + ')">' + escapeHtml(t('pgEdit')) + '</button>';
+        html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')">✕</button>';
+      }
+      html += '</div></div>';
     }
     html += '</div>';
   });
   box.innerHTML = html;
-  pgHighlight(box);
+  pgState.messages.forEach(function(_, idx) { pgRenderBubble(idx); });
   pgScrollBottom();
 }
 
 function pgActionCopy(idx) {
   var msg = pgState.messages[idx];
   if (!msg) return;
-  copyToClipboard(msg.content || '', t('pgCopiedMsg'));
+  var txt = pgTextContent(msg.content);
+  if (!txt) { toast(t('pgCopy'), 'warning'); return; } // reuse: no-content -> reuse warning
+  copyToClipboard(txt, t('pgCopiedMsg'));
 }
 function pgActionDelete(idx) {
   if (!confirm(t('pgClearConfirm'))) return;
   pgDeleteMessage(idx);
 }
 
-// ----- Sidebar: model select + params + debug + custom body --------
+// Toggle source/preview view for a bubble (session-only attribute).
+function pgToggleSource(idx) {
+  var msg = pgState.messages[idx];
+  if (!msg) return;
+  msg.sourceVisible = !msg.sourceVisible;
+  pgRenderBubble(idx);
+}
+
+// CodeViewer: render JSON content with hljs highlight, copy button, and large-content truncation.
+function pgCodeViewer(content, title) {
+  var formatted = '';
+  if (content) {
+    if (typeof content === 'object') {
+      try { formatted = JSON.stringify(content, null, 2); } catch (e) { formatted = String(content); }
+    } else if (typeof content === 'string') {
+      try { var p = JSON.parse(content); formatted = JSON.stringify(p, null, 2); } catch (e) { formatted = content; }
+    } else {
+      formatted = String(content);
+    }
+  }
+  if (!formatted) {
+    var ph = title === 'preview' ? t('pgDebugNoPreview') : (title === 'request' ? t('pgDebugNoRequest') : t('pgDebugNoResponse'));
+    return '<div class="pg-code-empty">' + escapeHtml(ph) + '</div>';
+  }
+  var MAX_DISPLAY = 50000;
+  var PREVIEW_LEN = 5000;
+  var isLarge = formatted.length > MAX_DISPLAY;
+  var display = isLarge ? formatted.substring(0, PREVIEW_LEN) + '\n\n' + t('pgCodeTruncated') : formatted;
+  var warning = isLarge ? '<div class="pg-code-warning">⚡ ' + escapeHtml(t('pgCodeLargeContent')) + '</div>' : '';
+  // Use hljs for JSON highlight if available; fallback to escaped text.
+  var highlighted = escapeHtml(display);
+  if (typeof hljs !== 'undefined') {
+    try {
+      var tmp = document.createElement('code');
+      tmp.className = 'language-json';
+      tmp.textContent = display;
+      hljs.highlightElement(tmp);
+      highlighted = tmp.innerHTML;
+    } catch (e) { highlighted = escapeHtml(display); }
+  }
+  var expandBtn = isLarge ? '<button class="pg-code-expand-btn" onclick="pgCodeToggleExpand(this)">' + escapeHtml(t('pgCodeShowFull')) + '</button>' : '';
+  return '<div class="pg-code-viewer" data-full="' + escapeHtml(formatted) + '" data-large="' + (isLarge ? '1' : '0') + '">' + warning +
+    '<button class="pg-code-copy-btn" onclick="pgCodeCopy(this)">' + escapeHtml(t('pgCopy')) + '</button>' +
+    '<pre>' + highlighted + '</pre>' + expandBtn + '</div>';
+}
+
+function pgCodeCopy(btn) {
+  var viewer = btn.closest('.pg-code-viewer');
+  var pre = viewer ? viewer.querySelector('pre') : null;
+  var text = pre ? pre.textContent : '';
+  copyToClipboard(text, t('pgCodeCopiedClipboard'));
+}
+
+function pgCodeToggleExpand(btn) {
+  var viewer = btn.closest('.pg-code-viewer');
+  if (!viewer) return;
+  var isExpanded = btn.dataset.expanded === '1';
+  var full = viewer.getAttribute('data-full') || '';
+  var pre = viewer.querySelector('pre');
+  if (!pre) return;
+  if (isExpanded) {
+    // Collapse back to truncated.
+    var truncated = full.substring(0, 5000) + '\n\n' + t('pgCodeTruncated');
+    pre.textContent = truncated;
+    if (typeof hljs !== 'undefined') { try { hljs.highlightElement(pre); } catch(e){} }
+    btn.textContent = t('pgCodeShowFull');
+    btn.dataset.expanded = '0';
+  } else {
+    pre.textContent = full;
+    if (typeof hljs !== 'undefined') { try { hljs.highlightElement(pre); } catch(e){} }
+    btn.textContent = t('pgCodeCollapse');
+    btn.dataset.expanded = '1';
+  }
+}
+
+// SSEViewer: render SSE events as interactive collapsible list with stats.
+function pgSSEViewer(events) {
+  if (!events || !events.length) {
+    return '<div class="pg-sse-empty">' + escapeHtml(t('pgSSEEmpty')) + '</div>';
+  }
+  // Parse each event.
+  var parsed = events.map(function(item, index) {
+    var isDone = false, parsedObj = null, error = null;
+    if (item === '[DONE]') { isDone = true; }
+    else if (item.indexOf('[ERROR]') === 0) { error = item.slice(7).trim(); }
+    else {
+      try { parsedObj = JSON.parse(item); } catch (e) { error = e.message; }
+    }
+    return { index: index, raw: item, parsed: parsedObj, error: error, isDone: isDone };
+  });
+  var total = parsed.length;
+  var errors = parsed.filter(function(p) { return p.error; }).length;
+  var done = parsed.filter(function(p) { return p.isDone; }).length;
+  var valid = total - errors - done;
+
+  var items = parsed.map(function(p) {
+    var header = '';
+    var body = '';
+    if (p.isDone) {
+      header = '<span class="pg-sse-badge idx">#' + (p.index + 1) + '</span> <span style="color:#4ade80">[DONE]</span>';
+      body = '<div class="pg-sse-item-done">✓ ' + escapeHtml(t('pgSSEComplete')) + '</div>';
+    } else if (p.error) {
+      header = '<span class="pg-sse-badge idx">#' + (p.index + 1) + '</span> <span style="color:var(--danger)">' + escapeHtml(t('pgSSEParseError')) + '</span>';
+      body = '<div class="pg-sse-item-error">✕ ' + escapeHtml(p.error) + '<pre>' + escapeHtml(p.raw) + '</pre></div>';
+    } else {
+      var id = p.parsed.id || p.parsed.object || t('pgSSEEvent');
+      var deltaKeys = '';
+      if (p.parsed.choices && p.parsed.choices[0] && p.parsed.choices[0].delta) {
+        var d = p.parsed.choices[0].delta;
+        deltaKeys = Object.keys(d).filter(function(k) { return d[k]; }).join(', ');
+      }
+      header = '<span class="pg-sse-badge idx">#' + (p.index + 1) + '</span> ' + escapeHtml(id);
+      if (deltaKeys) header += ' <span style="color:var(--text-muted);font-size:10px">• ' + escapeHtml(deltaKeys) + '</span>';
+      // Build summary badges.
+      var summary = '';
+      if (p.parsed.choices && p.parsed.choices[0]) {
+        var ch = p.parsed.choices[0];
+        if (ch.delta && ch.delta.content) summary += '<span class="pg-sse-badge content">' + escapeHtml(t('pgSSEContent')) + ': "' + escapeHtml(String(ch.delta.content).substring(0, 20)) + '..."</span>';
+        if (ch.delta && ch.delta.reasoning_content) summary += '<span class="pg-sse-badge reasoning">' + escapeHtml(t('pgSSEReasoning')) + '</span>';
+        if (ch.finish_reason) summary += '<span class="pg-sse-badge finish">' + escapeHtml(t('pgSSEFinish')) + ': ' + escapeHtml(ch.finish_reason) + '</span>';
+      }
+      if (p.parsed.usage) summary += '<span class="pg-sse-badge usage">' + escapeHtml(t('pgSSETokens')) + ': ' + (p.parsed.usage.prompt_tokens || 0) + '/' + (p.parsed.usage.completion_tokens || 0) + '</span>';
+      var jsonStr = JSON.stringify(p.parsed, null, 2);
+      body = '<div class="pg-sse-item-body"><pre>' + escapeHtml(jsonStr) + '</pre>' +
+        (summary ? '<div class="pg-sse-item-summary">' + summary + '</div>' : '') + '</div>';
+    }
+    return '<div class="pg-sse-item">' +
+      '<div class="pg-sse-item-header" onclick="pgSSEToggle(this)">' + header + '</div>' +
+      body + '</div>';
+  }).join('');
+
+  return '<div class="pg-sse-viewer">' +
+    '<div class="pg-sse-header">' +
+      '<div class="pg-sse-header-left">⚡ ' + escapeHtml(t('pgSSEDataFlow')) + ' <span class="pg-sse-badge idx">' + total + '</span>' +
+        (errors > 0 ? ' <span class="pg-sse-badge content" style="background:rgba(239,68,68,.2);color:var(--danger)">' + errors + ' ' + escapeHtml(t('pgSSEErrors')) + '</span>' : '') +
+      '</div>' +
+      '<div class="pg-sse-header-actions">' +
+        '<button class="pg-sse-action" onclick="pgSSECopyAll()">' + escapeHtml(t('pgSSECopyAll')) + '</button>' +
+        '<button class="pg-sse-action" onclick="pgSSEToggleAll()">' + escapeHtml(t('pgSSEExpandAll')) + '</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="pg-sse-list" id="pg-sse-list">' + items + '</div>' +
+  '</div>';
+}
+
+function pgSSEToggle(header) {
+  var body = header.nextElementSibling;
+  if (body) body.style.display = (body.style.display === 'none' ? '' : 'none');
+}
+
+function pgSSEToggleAll() {
+  var list = document.getElementById('pg-sse-list');
+  if (!list) return;
+  var bodies = list.querySelectorAll('.pg-sse-item-body');
+  var allHidden = Array.prototype.every.call(bodies, function(b) { return b.style.display === 'none'; });
+  bodies.forEach(function(b) { b.style.display = allHidden ? '' : 'none'; });
+}
+
+function pgSSECopyAll() {
+  var text = pgState.sseEvents.join('\n\n');
+  copyToClipboard(text, t('pgSSECopiedAll'));
+}
+
+// Build a preview payload for the debug panel (debounced).
+var pgPreviewTimer = null;
+function pgSchedulePreview() {
+  if (pgPreviewTimer) clearTimeout(pgPreviewTimer);
+  pgPreviewTimer = setTimeout(function() {
+    pgPreviewTimer = null;
+    var preview = null;
+    try {
+      if (pgState.config.useCustomBody && pgState.config.customBody) {
+        preview = JSON.parse(pgState.config.customBody);
+      } else {
+        preview = pgBuildBody();
+      }
+    } catch (e) { preview = null; }
+    pgState.debugPreview = preview ? JSON.stringify(preview, null, 2) : '';
+    pgState.debugPreviewTimestamp = new Date().toISOString();
+    // Only re-render debug content if currently on preview tab.
+    if (pgState.debugTab === 'preview') pgRenderDebugContent();
+  }, 300);
+}
+
+// Render the active debug tab content (without rebuilding the whole sidebar).
+function pgRenderDebugContent() {
+  var container = document.getElementById('pg-debug-content');
+  if (!container) return;
+  var html = '';
+  var tab = pgState.debugTab;
+  if (tab === 'preview') {
+    html = pgCodeViewer(pgState.debugPreview, 'preview');
+  } else if (tab === 'request') {
+    html = pgCodeViewer(pgState.debugRequest, 'request');
+  } else if (tab === 'response') {
+    // Use SSEViewer if we have SSE events; otherwise CodeViewer for non-stream response.
+    if (pgState.sseEvents && pgState.sseEvents.length) {
+      html = pgSSEViewer(pgState.sseEvents);
+    } else {
+      html = pgCodeViewer(pgState.debugResponse, 'response');
+    }
+  }
+  container.innerHTML = html;
+  // Update footer timestamp.
+  var footer = document.getElementById('pg-debug-footer');
+  if (footer) {
+    var ts = (tab === 'preview') ? pgState.debugPreviewTimestamp : pgState.debugTimestamp;
+    if (ts) {
+      var label = (tab === 'preview') ? t('pgDebugPreviewUpdated') : t('pgDebugLastRequest');
+      footer.textContent = label + ': ' + new Date(ts).toLocaleString();
+    } else {
+      footer.textContent = '';
+    }
+  }
+}
+
+function pgSetDebugTab(tab) {
+  pgState.debugTab = tab;
+  // Update tab button active states.
+  var tabs = document.querySelectorAll('.pg-tab');
+  tabs.forEach(function(el) { el.classList.toggle('active', el.dataset.tab === tab); });
+  pgRenderDebugContent();
+}
+
+// ----- Sidebar: model select + params + image + system + debug -----
 function pgRenderSidebar() {
   var side = document.getElementById('pg-side');
   if (!side) return;
+  var en = pgState.parameterEnabled;
+  var cfg = pgState.config;
+  var customMode = cfg.useCustomBody;
+  var dimCls = customMode ? ' disabled' : '';
 
   var optGroups = '<option value="">' + escapeHtml(t('pgSelectModel')) + '</option>';
   var byType = { provider: [], combo: [] };
   pgState.models.forEach(function(m) { if (byType[m.type]) byType[m.type].push(m); });
   if (byType.combo.length) {
     optGroups += '<optgroup label="Combos">';
-    byType.combo.forEach(function(m) { optGroups += '<option value="' + escapeHtml(m.id) + '"' + (pgState.config.model === m.id ? ' selected' : '') + '>' + escapeHtml(m.id) + '</option>'; });
+    byType.combo.forEach(function(m) { optGroups += '<option value="' + escapeHtml(m.id) + '"' + (cfg.model === m.id ? ' selected' : '') + '>' + escapeHtml(m.id) + '</option>'; });
     optGroups += '</optgroup>';
   }
   if (byType.provider.length) {
     optGroups += '<optgroup label="Providers">';
-    byType.provider.forEach(function(m) { optGroups += '<option value="' + escapeHtml(m.id) + '"' + (pgState.config.model === m.id ? ' selected' : '') + '>' + escapeHtml(m.id) + ' (' + escapeHtml(m.provider) + ')</option>'; });
+    byType.provider.forEach(function(m) { optGroups += '<option value="' + escapeHtml(m.id) + '"' + (cfg.model === m.id ? ' selected' : '') + '>' + escapeHtml(m.id) + ' (' + escapeHtml(m.provider) + ')</option>'; });
     optGroups += '</optgroup>';
   }
-  var modelSel = '<select id="pg-model" onchange="pgOnModelChange(this.value)">' + optGroups + '</select>';
+  var modelSel = '<select id="pg-model" onchange="pgOnModelChange(this.value)"' + (customMode ? ' disabled' : '') + '>' + optGroups + '</select>';
 
+  // Parameter rows.
+  function paramRow(key, label, min, max, step, isNum) {
+    var on = en[key];
+    var val = cfg[key];
+    var disabled = !on || customMode;
+    var valAttr = isNum ? 'value="' + (val || 0) + '"' : 'value="' + (val != null ? val : 0) + '"';
+    var input = isNum
+      ? '<input type="number" min="' + min + '" step="' + step + '" ' + valAttr + ' onchange="pgOnParam(\'' + key + '\', this.value==\'\'?0:'+ (min < 0 ? 'parseFloat(this.value)' : 'parseInt(this.value,10)||0') + ')">'
+      : '<input type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" oninput="pgOnParam(\'' + key + '\', parseFloat(this.value))"><span class="pg-val" id="pg-val-' + key + '">' + val + '</span>';
+    return '<div class="pg-param' + (disabled ? ' disabled' : '') + '">' +
+      '<button class="pg-toggle' + (on ? ' on' : '') + '" onclick="pgToggleParam(\'' + key + '\')" title="' + escapeHtml(t('pgParamToggle')) + '">' + (on ? '✓' : '✕') + '</button>' +
+      '<label>' + escapeHtml(t(label)) + '</label>' +
+      input +
+    '</div>';
+  }
   var params =
-    '<div class="pg-param"><label>' + t('pgTemperature') + '</label>' +
-      '<input type="range" min="0" max="2" step="0.1" value="' + pgState.config.temperature + '" oninput="pgOnParam(\'temperature\', parseFloat(this.value))">' +
-      '<span class="pg-val" id="pg-val-temperature">' + pgState.config.temperature + '</span></div>' +
-    '<div class="pg-param"><label>' + t('pgTopP') + '</label>' +
-      '<input type="range" min="0" max="1" step="0.05" value="' + pgState.config.topP + '" oninput="pgOnParam(\'topP\', parseFloat(this.value))">' +
-      '<span class="pg-val" id="pg-val-topP">' + pgState.config.topP + '</span></div>' +
-    '<div class="pg-param"><label>' + t('pgMaxTokens') + '</label>' +
-      '<input type="number" min="0" step="100" value="' + pgState.config.maxTokens + '" onchange="pgOnParam(\'maxTokens\', parseInt(this.value)||0)"></div>' +
-    '<div class="pg-param"><label>' + t('pgFreqPenalty') + '</label>' +
-      '<input type="range" min="-2" max="2" step="0.1" value="' + pgState.config.frequencyPenalty + '" oninput="pgOnParam(\'frequencyPenalty\', parseFloat(this.value))">' +
-      '<span class="pg-val" id="pg-val-frequencyPenalty">' + pgState.config.frequencyPenalty + '</span></div>' +
-    '<div class="pg-param"><label>' + t('pgPresPenalty') + '</label>' +
-      '<input type="range" min="-2" max="2" step="0.1" value="' + pgState.config.presencePenalty + '" oninput="pgOnParam(\'presencePenalty\', parseFloat(this.value))">' +
-      '<span class="pg-val" id="pg-val-presencePenalty">' + pgState.config.presencePenalty + '</span></div>' +
-    '<div class="pg-switch"><input type="checkbox" id="pg-stream" ' + (pgState.config.stream ? 'checked' : '') + ' onchange="pgOnParam(\'stream\', this.checked)"><label for="pg-stream">' + t('pgStream') + '</label></div>';
+    paramRow('temperature', 'pgTemperature', 0, 2, 0.1, false) +
+    paramRow('topP', 'pgTopP', 0, 1, 0.05, false) +
+    paramRow('frequencyPenalty', 'pgFreqPenalty', -2, 2, 0.1, false) +
+    paramRow('presencePenalty', 'pgPresPenalty', -2, 2, 0.1, false) +
+    paramRow('maxTokens', 'pgMaxTokens', 0, 1, 1, true) +
+    '<div class="pg-param' + (!en.seed || customMode ? ' disabled' : '') + '">' +
+      '<button class="pg-toggle' + (en.seed ? ' on' : '') + '" onclick="pgToggleParam(\'seed\')" title="' + escapeHtml(t('pgParamToggle')) + '">' + (en.seed ? '✓' : '✕') + '</button>' +
+      '<label>' + escapeHtml(t('pgSeed')) + '</label>' +
+      '<input type="text" placeholder="' + escapeHtml(t('pgSeedPlaceholder')) + '" value="' + escapeHtml(cfg.seed || '') + '" oninput="pgOnParam(\'seed\', this.value)"' + (!en.seed || customMode ? ' disabled' : '') + '>' +
+    '</div>' +
+    '<div class="pg-switch"><input type="checkbox" id="pg-stream" ' + (cfg.stream ? 'checked' : '') + ' onchange="pgOnParam(\'stream\', this.checked)"' + (customMode ? ' disabled' : '') + '><label for="pg-stream">' + escapeHtml(t('pgStream')) + '</label></div>';
 
+  // System prompt textarea.
+  var sysPrompt =
+    '<textarea class="pg-system-prompt" id="pg-sysprompt" placeholder="' + escapeHtml(t('pgSystemPromptPlaceholder')) + '" oninput="pgOnSystemPrompt(this.value)"' + (customMode ? ' disabled' : '') + '>' + escapeHtml(cfg.systemPrompt || '') + '</textarea>';
+
+  // Image URL input block.
+  var imgBlock = pgRenderImageBlock(customMode);
+
+  // Custom body with JSON validation + auto-fill + format.
+  var customValid = true;
+  var customErr = '';
+  if (cfg.useCustomBody && cfg.customBody && cfg.customBody.trim()) {
+    try { JSON.parse(cfg.customBody); } catch (e) { customValid = false; customErr = e.message; }
+  }
+  var customStatus = cfg.useCustomBody
+    ? (customValid
+      ? '<div class="pg-custom-status valid">✓ ' + escapeHtml(t('pgCustomJsonValid')) + '</div>'
+      : '<div class="pg-custom-status invalid">✕ ' + escapeHtml(t('pgCustomJsonInvalid')) + '</div>')
+    : '';
+  var customWarning = cfg.useCustomBody ? '<div class="pg-custom-warning">⚠ ' + escapeHtml(t('pgCustomWarning')) + '</div>' : '';
+  var formatBtn = cfg.useCustomBody && customValid
+    ? '<button class="pg-sse-action" onclick="pgCustomFormat()">' + escapeHtml(t('pgCustomFormat')) + '</button>'
+    : '';
+  var customErrLine = (!customValid && customErr) ? '<div class="pg-custom-error-msg">' + escapeHtml(t('pgCustomJsonError', [customErr])) + '</div>' : '';
   var custom =
-    '<div class="pg-switch"><input type="checkbox" id="pg-customtoggle" ' + (pgState.config.useCustomBody ? 'checked' : '') + ' onchange="pgOnParam(\'useCustomBody\', this.checked); pgRenderSidebar()"><label for="pg-customtoggle">' + t('pgUseCustomBody') + '</label></div>' +
-    '<div class="pg-custom-hint">' + escapeHtml(t('pgCustomBodyHint')) + '</div>' +
-    '<textarea class="pg-custom-body" id="pg-custombody" oninput="pgOnParam(\'customBody\', this.value)" placeholder=\'{"model":"...","messages":[...]}\'> ' + escapeHtml(pgState.config.customBody || '') + '</textarea>';
+    '<div class="pg-custom-toolbar">' +
+      '<div class="pg-switch" style="margin-bottom:0"><input type="checkbox" id="pg-customtoggle" ' + (cfg.useCustomBody ? 'checked' : '') + ' onchange="pgOnCustomToggle(this.checked)"><label for="pg-customtoggle">' + escapeHtml(t('pgUseCustomBody')) + '</label></div>' +
+      '<div style="display:flex;gap:4px;align-items:center">' + customStatus + formatBtn + '</div>' +
+    '</div>' +
+    customWarning +
+    '<div class="pg-custom-editor">' +
+      '<textarea class="pg-custom-body' + (!customValid ? ' invalid' : '') + '" id="pg-custombody" oninput="pgOnParam(\'customBody\', this.value); pgRenderSidebar()" placeholder=\'{"model":"...","messages":[...]}\'>' + escapeHtml(cfg.customBody || '') + '</textarea>' +
+    '</div>' +
+    customErrLine;
 
+  // Debug panel with tabs.
+  var sseCount = pgState.sseEvents.length;
+  var customBadge = pgState.config.useCustomBody ? ' <span class="pg-tab-badge custom">' + escapeHtml(t('pgDebugCustomBadge')) + '</span>' : '';
+  var responseBadge = sseCount > 0 ? ' <span class="pg-tab-badge">SSE ' + sseCount + '</span>' : '';
+  var debugTabs = '<div class="pg-tabs">' +
+    '<button class="pg-tab' + (pgState.debugTab === 'preview' ? ' active' : '') + '" data-tab="preview" onclick="pgSetDebugTab(\'preview\')">👁 ' + escapeHtml(t('pgDebugTabPreview')) + customBadge + '</button>' +
+    '<button class="pg-tab' + (pgState.debugTab === 'request' ? ' active' : '') + '" data-tab="request" onclick="pgSetDebugTab(\'request\')">📤 ' + escapeHtml(t('pgDebugTabRequest')) + '</button>' +
+    '<button class="pg-tab' + (pgState.debugTab === 'response' ? ' active' : '') + '" data-tab="response" onclick="pgSetDebugTab(\'response\')">⚡ ' + escapeHtml(t('pgDebugTabResponse')) + responseBadge + '</button>' +
+  '</div>';
   var debugMeta = '<div class="pg-debug-meta">' +
     '<span>' + escapeHtml(t('pgRespProvider').replace('{0}', pgState.lastProvider || t('pgNoProvider'))) + '</span>' +
     '<span>' + escapeHtml(t('pgRespKey').replace('{0}', pgState.lastKey || t('pgNoProvider'))) + '</span>' +
     '<span>' + (pgState.streaming ? '🔴 ' + t('pgStreaming') : '🟢 idle') + '</span></div>';
-  var debug = debugMeta + '<pre class="pg-debug-pre" id="pg-rawsse">' + escapeHtml(pgState.sseEvents.join('\n') || '') + '</pre>';
+  var debug = debugMeta + debugTabs + '<div class="pg-tab-content" id="pg-debug-content"></div><div class="pg-debug-footer" id="pg-debug-footer"></div>';
 
   side.innerHTML =
     '<div class="pg-panel"><div class="pg-panel-title">' + escapeHtml(t('pgSelectModel')) + '</div>' + modelSel + '</div>' +
-    '<div class="pg-panel"><div class="pg-panel-title">' + escapeHtml(t('pgParams')) + '</div>' + params + '</div>' +
+    '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + escapeHtml(t('pgParams')) + '</div>' + params + '</div>' +
+    '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + escapeHtml(t('pgSystemPrompt')) + '</div>' + sysPrompt + '</div>' +
+    '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + escapeHtml(t('pgImage')) + '</div>' + imgBlock + '</div>' +
     '<div class="pg-panel"><div class="pg-panel-title">' + escapeHtml(t('pgCustomBody')) + '</div>' + custom + '</div>' +
     '<div class="pg-panel"><div class="pg-panel-title">' + escapeHtml(t('pgDebug')) + '</div>' + debug + '</div>';
+  pgSchedulePreview();
+  pgRenderDebugContent();
 }
 
-// Update only the debug raw-SSE pre element (avoids full sidebar rebuild).
+function pgRenderImageBlock(customMode) {
+  var cfg = pgState.config;
+  var en = cfg.imageEnabled && !customMode;
+  var urls = cfg.imageUrls || [];
+  var hintKey;
+  if (customMode) hintKey = 'pgImageCustomDisabled';
+  else if (!en) hintKey = 'pgImageHint';
+  else if (urls.length === 0) hintKey = 'pgImageHintEmpty';
+  else hintKey = 'pgImageCount';
+  var hintText = t(hintKey, [urls.length]);
+  var rows = '';
+  if (en) {
+    urls.forEach(function(u, i) {
+      rows += '<div class="pg-image-row-input">' +
+        '<input type="text" value="' + escapeHtml(u || '') + '" oninput="pgOnImageUrl(' + i + ', this.value)" placeholder="https://example.com/image' + (i + 1) + '.jpg">' +
+        '<button class="pg-image-rem" onclick="pgRemoveImageUrl(' + i + ')" title="×">✕</button>' +
+      '</div>';
+    });
+  }
+  return '<div class="pg-image-block' + (en ? '' : ' disabled') + '">' +
+    '<div class="pg-switch"><input type="checkbox" id="pg-imgenable" ' + (cfg.imageEnabled ? 'checked' : '') + ' onchange="pgOnParam(\'imageEnabled\', this.checked); pgRenderSidebar()"' + (customMode ? ' disabled' : '') + '><label for="pg-imgenable">' + escapeHtml(t('pgImageEnable')) + '</label>' +
+      '<button class="pg-image-add" onclick="pgAddImageUrl()" ' + (en ? '' : 'disabled') + ' title="' + escapeHtml(t('pgImageAdd')) + '">+</button>' +
+    '</div>' +
+    (rows || '') +
+    '<div class="pg-image-hint">' + escapeHtml(hintText) + '</div>' +
+  '</div>';
+}
+
+function pgAddImageUrl() {
+  if (!pgState.config.imageEnabled) return;
+  pgState.config.imageUrls.push('');
+  pgSave();
+  pgRenderSidebar();
+}
+function pgRemoveImageUrl(i) {
+  pgState.config.imageUrls.splice(i, 1);
+  pgSave();
+  pgRenderSidebar();
+}
+function pgOnImageUrl(i, v) {
+  pgState.config.imageUrls[i] = v;
+  pgSave();
+}
+
 function pgRenderDebug() {
-  var pre = document.getElementById('pg-rawsse');
-  if (pre) pre.textContent = pgState.sseEvents.join('\n');
   var side = document.getElementById('pg-side');
   if (side) {
     var meta = side.querySelector('.pg-debug-meta');
@@ -574,6 +1541,20 @@ function pgRenderDebug() {
         '<span>' + escapeHtml(t('pgRespProvider').replace('{0}', pgState.lastProvider || t('pgNoProvider'))) + '</span>' +
         '<span>' + escapeHtml(t('pgRespKey').replace('{0}', pgState.lastKey || t('pgNoProvider'))) + '</span>' +
         '<span>' + (pgState.streaming ? '🔴 ' + t('pgStreaming') : '🟢 idle') + '</span>';
+    }
+  }
+  // Update response tab content + SSE badge on tab.
+  pgRenderDebugContent();
+  // Update response tab badge.
+  var respTab = document.querySelector('.pg-tab[data-tab="response"]');
+  if (respTab) {
+    var badge = respTab.querySelector('.pg-tab-badge');
+    var count = pgState.sseEvents.length;
+    if (count > 0) {
+      if (badge) { badge.textContent = 'SSE ' + count; }
+      else { var span = document.createElement('span'); span.className = 'pg-tab-badge'; span.textContent = 'SSE ' + count; respTab.appendChild(span); }
+    } else {
+      if (badge) badge.remove();
     }
   }
 }
@@ -594,8 +1575,9 @@ function pgRenderInputBar() {
     '<div class="pg-btn-row" style="flex-direction:column;gap:4px">' +
       '<button class="pg-btn danger" onclick="pgClear()">' + escapeHtml(t('pgClear')) + '</button>' +
     '</div>';
+  var ta = document.getElementById('pg-input');
+  if (ta) ta.addEventListener('paste', pgPasteImage);
 }
-
 function pgUpdateInputBar() { pgRenderInputBar(); }
 
 // ----- Event handlers ----------------------------------------------
@@ -606,8 +1588,63 @@ function pgOnParam(name, v) {
   if (valEl) valEl.textContent = v;
   pgSave();
 }
+function pgOnSystemPrompt(v) { pgState.config.systemPrompt = v; pgSave(); }
+function pgToggleParam(name) {
+  pgState.parameterEnabled[name] = !pgState.parameterEnabled[name];
+  pgSave();
+  pgRenderSidebar();
+}
+
+function pgOnCustomToggle(enabled) {
+  pgState.config.useCustomBody = enabled;
+  // Auto-fill with preview payload when enabling and body is empty.
+  if (enabled && (!pgState.config.customBody || !pgState.config.customBody.trim())) {
+    try {
+      var preview = pgBuildBody();
+      pgState.config.customBody = JSON.stringify(preview, null, 2);
+    } catch (e) { /* ignore */ }
+  }
+  pgSave();
+  pgRenderSidebar();
+}
+
+function pgCustomFormat() {
+  var ta = document.getElementById('pg-custombody');
+  if (!ta) return;
+  try {
+    var parsed = JSON.parse(ta.value);
+    var formatted = JSON.stringify(parsed, null, 2);
+    ta.value = formatted;
+    pgState.config.customBody = formatted;
+    pgSave();
+    pgRenderSidebar();
+  } catch (e) { /* ignore - format button only shown when valid */ }
+}
 function pgOnInputKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); pgUserSend(); }
+}
+
+// ----- Load fixup: finalize orphaned streaming assistants. ----------
+function pgNormalizeLoadedMessage(msg) {
+  if (!msg) return msg;
+  // schema sanitize
+  if (typeof msg.role !== 'string') msg.role = 'assistant';
+  if (msg.content === undefined) msg.content = '';
+  if (msg.status === undefined) msg.status = 'complete';
+  // Repair any assistant stuck in streaming/loading.
+  if (msg.role === 'assistant' && (msg.status === 'streaming' || msg.status === 'loading')) {
+    var hasContent = pgTextContent(msg.content).trim() || (msg.reasoning && msg.reasoning.trim());
+    if (hasContent) {
+      msg.status = 'complete';
+      if (!msg.completedAt) {
+        msg.completedAt = msg.reasoningCompletedAt || msg.startedAt || Date.now();
+      }
+      if (msg.startedAt && !msg.durationMs) {
+        msg.durationMs = msg.completedAt - msg.startedAt;
+      }
+    }
+  }
+  return msg;
 }
 
 // ----- Entry: render the page --------------------------------------
@@ -628,7 +1665,6 @@ function renderPlayground(container) {
   pgLoadModels().then(function() { pgRenderSidebar(); });
 }
 
-// Cleanup when leaving the playground page (stops any active stream).
 function cleanupPlayground() {
   if (pgState.streaming) pgStop();
 }
