@@ -80,6 +80,13 @@ func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Fill currentKeyName for each bar (the key the effective rotation strategy
+	// would pick next), so the UI can show "in-use" next to the quota progress
+	// without requiring an expand.
+	for i := range bars {
+		bars[i].CurrentKeyName = rt.currentKeyName(bars[i].Provider, bars[i].Model)
+	}
+
 	// Sort by provider + model for stable ordering
 	sort.Slice(bars, func(i, j int) bool {
 		ki := bars[i].Provider + "/" + bars[i].Model
@@ -124,16 +131,22 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 		ModelRemain int     `json:"modelRemaining"`
 		ModelLock   *string `json:"modelLock"`
 		LastError   string  `json:"lastError"`
+		LastUsedAt  string  `json:"lastUsedAt"`
+		RotatedAt   string  `json:"rotatedAt"`
+		Priority    int     `json:"priority"`
+		ConfigIdx   int     `json:"configIdx"`
 	}
 
 	hasQuota := false
 	details := make([]keyDetail, 0, len(provider.Keys))
-	for _, k := range provider.Keys {
+	for idx, k := range provider.Keys {
 		kd := keyDetail{
 			KeyID:    k.ID,
 			KeyName:  k.Name,
 			IsActive: k.IsActive,
 			Status:   "active",
+			Priority: k.Priority,
+			ConfigIdx: idx,
 		}
 		state := rt.reg.GetKeyState(provider.ID, k.ID)
 		if state != nil {
@@ -146,6 +159,12 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			kd.LastError = state.LastError
+			if !state.LastUsedAt.IsZero() {
+				kd.LastUsedAt = state.LastUsedAt.Format("2006-01-02T15:04:05Z07:00")
+			}
+			if !state.RotatedAt.IsZero() {
+				kd.RotatedAt = state.RotatedAt.Format("2006-01-02T15:04:05Z07:00")
+			}
 			if q := state.ModelQuotas[model]; q != nil {
 				kd.HasQuota = true
 				kd.ModelLimit = q.ModelLimit
@@ -157,12 +176,93 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 		details = append(details, kd)
 	}
 
+	// Sort details by the provider's effective rotation strategy so the "currently
+	// in-use" key lands at the top. Unavailable keys (inactive / cooldown / locked
+	// for this model) always sink to the bottom.
+	strategy := provider.RotationStrategy
+	if strategy == "" {
+		strategy = rt.selector.Settings().Strategy
+	}
+
+	type sortKey struct {
+		usable    bool
+		t1        time.Time // primary compare, interpretation depends on strategy
+		priority  int
+		configIdx int
+		lastUsed  time.Time
+		idx       int // position in details, for stable reassembly
+	}
+	keys := make([]sortKey, len(details))
+	for i, d := range details {
+		var lu, rot time.Time
+		if d.LastUsedAt != "" {
+			lu, _ = time.Parse(time.RFC3339, d.LastUsedAt)
+		}
+		if d.RotatedAt != "" {
+			rot, _ = time.Parse(time.RFC3339, d.RotatedAt)
+		}
+		usable := d.IsActive && d.Status == "active" && d.ModelLock == nil
+		keys[i] = sortKey{
+			usable:    usable,
+			t1:        rot, // failover: RotatedAt asc; never-rotated = zero = front
+			priority:  d.Priority,
+			configIdx: d.ConfigIdx,
+			lastUsed:  lu,
+			idx:       i,
+		}
+	}
+
+	sort.SliceStable(keys, func(i, j int) bool {
+		a, b := keys[i], keys[j]
+		if a.usable != b.usable {
+			return a.usable
+		}
+		switch strategy {
+		case "round-robin":
+			// Most-recently-used usable key first; never-used sinks to bottom.
+			if !a.lastUsed.Equal(b.lastUsed) {
+				return a.lastUsed.After(b.lastUsed)
+			}
+			return a.configIdx < b.configIdx
+		case "failover":
+			// Never-rotated (zero RotatedAt) first, then RotatedAt asc.
+			if !a.t1.Equal(b.t1) {
+				return a.t1.Before(b.t1)
+			}
+			if a.priority != b.priority {
+				return a.priority < b.priority
+			}
+			return a.configIdx < b.configIdx
+		default: // fill-first
+			if a.priority != b.priority {
+				return a.priority < b.priority
+			}
+			return a.configIdx < b.configIdx
+		}
+	})
+
+	sorted := make([]keyDetail, len(details))
+	for i, k := range keys {
+		sorted[i] = details[k.idx]
+	}
+
+	// Identify the in-use key (top usable entry) so the frontend can badge it.
+	inUseKeyName := ""
+	for _, d := range sorted {
+		if d.IsActive && d.Status == "active" && d.ModelLock == nil {
+			inUseKeyName = d.KeyName
+			break
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"provider": providerName,
-		"model":    model,
-		"hasQuota": hasQuota,
-		"keys":     details,
+		"provider":       providerName,
+		"model":          model,
+		"hasQuota":       hasQuota,
+		"keys":           sorted,
+		"inUseKeyName":   inUseKeyName,
+		"rotationStrategy": strategy,
 	})
 }
 
@@ -312,6 +412,77 @@ func (rt *Router) handleShutdown(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- UI ---
+
+// currentKeyName returns the name of the key that the provider's effective
+// rotation strategy would pick right now for the given model. Mirrors the
+// ordering logic of getModelKeys so the value shown on the unexpanded quota
+// bar matches the top row after expand. Returns "" when no usable key exists.
+func (rt *Router) currentKeyName(providerName, model string) string {
+	var provider *config.Provider
+	for _, p := range rt.reg.ListProviders() {
+		if p.Name == providerName {
+			pp := p
+			provider = &pp
+			break
+		}
+	}
+	if provider == nil {
+		return ""
+	}
+	strategy := provider.RotationStrategy
+	if strategy == "" {
+		strategy = rt.selector.Settings().Strategy
+	}
+	type sk struct {
+		name      string
+		usable    bool
+		priority  int
+		configIdx int
+		rotatedAt time.Time
+		lastUsed  time.Time
+	}
+	cands := make([]sk, 0, len(provider.Keys))
+	for idx, k := range provider.Keys {
+		entry := sk{name: k.Name, priority: k.Priority, configIdx: idx}
+		state := rt.reg.GetKeyState(provider.ID, k.ID)
+		if state != nil {
+			state.Lock()
+			entry.usable = k.IsActive && state.Status == "active"
+			if unlock, ok := state.ModelLocks[model]; ok && time.Now().Before(unlock) {
+				entry.usable = false
+			}
+			entry.rotatedAt = state.RotatedAt
+			entry.lastUsed = state.LastUsedAt
+			state.Unlock()
+		} else {
+			entry.usable = k.IsActive
+		}
+		if entry.usable {
+			cands = append(cands, entry)
+		}
+	}
+	if len(cands) == 0 {
+		return ""
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		switch strategy {
+		case "round-robin":
+			if !cands[i].lastUsed.Equal(cands[j].lastUsed) {
+				return cands[i].lastUsed.After(cands[j].lastUsed)
+			}
+		case "failover":
+			if !cands[i].rotatedAt.Equal(cands[j].rotatedAt) {
+				return cands[i].rotatedAt.Before(cands[j].rotatedAt)
+			}
+		}
+		if cands[i].priority != cands[j].priority {
+			return cands[i].priority < cands[j].priority
+		}
+		return cands[i].configIdx < cands[j].configIdx
+	})
+	return cands[0].name
+}
+
 
 func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {
 	staticFS, err := fs.Sub(web.Static, "static")

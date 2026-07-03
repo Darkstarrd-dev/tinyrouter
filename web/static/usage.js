@@ -284,11 +284,14 @@ async function renderUsage(c) {
         <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalInputTokens) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
         <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalOutputTokens) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
       </div>\
-      ' + renderTrendChart(lastUsageEntries) + '\
-      ' + renderQuotaBars(quotaBars) + '\
+      <div class="charts-row">\
+        <div class="trend-card">' + renderTrendChart(lastUsageEntries) + '</div>\
+        <div class="quota-monitor-card">' + renderQuotaBars(quotaBars) + '</div>\
+      </div>\
     </div>';
   c.classList.remove('usage-page');
   attachTrendHover(lastUsageEntries);
+  attachQuotaBarHover();
   startUsageRefresh();
 }
 
@@ -349,6 +352,16 @@ function renderQuotaBars(bars) {
     var color = getModelColor(bar.provider, bar.model);
     var itemId = 'qbi-' + sanitizeId(bar.provider) + '-' + sanitizeId(bar.model);
     var toggleCall = "toggleModelDetail('" + escapeHtml(bar.provider).replace(/'/g, "\\'") + "','" + escapeHtml(bar.model).replace(/'/g, "\\'") + "')";
+
+    // (A) Current in-use key label shown next to model name so the user can see
+    // which key is being routed to without expanding.
+    var currentKeyHtml = '';
+    if (bar.currentKeyName) {
+      currentKeyHtml = '<span class="current-key-tag" title="' + escapeHtml(t('currentKey')) + '"><span class="current-key-dot"></span>' + escapeHtml(bar.currentKeyName) + '</span>';
+    } else {
+      currentKeyHtml = '<span class="current-key-tag current-key-tag-none">' + escapeHtml(t('noCurrentKey')) + '</span>';
+    }
+
     var tokenInfo = ' <span class="quota-bar-tokens">' +
       '<span style="color:var(--accent2);font-weight:700">' + bar.successCount + '</span>' +
       '<span style="color:var(--text-muted);font-weight:400"> / </span>' +
@@ -357,12 +370,14 @@ function renderQuotaBars(bars) {
     if (bar.hasQuota) {
       var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
       var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
+      var remain = bar.totalCapacity - bar.totalUsed;
+      // (C) data attributes feed the hover tooltip with exact numbers.
       html += '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
         '<div class="quota-bar-header">' +
-          '<span class="quota-bar-model"><span class="model-color-dot" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + tokenInfo + '</span>' +
+          '<span class="quota-bar-model"><span class="model-color-dot" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + currentKeyHtml + tokenInfo + '</span>' +
           '<span class="quota-bar-right"><span class="quota-bar-numbers">' + bar.totalUsed + '/' + bar.totalCapacity + '</span>' + chevronDown + '</span>' +
         '</div>' +
-        '<div class="quota-bar-track">' +
+        '<div class="quota-bar-track" data-used="' + bar.totalUsed + '" data-total="' + bar.totalCapacity + '" data-remain="' + remain + '" data-perkey="' + bar.perKeyLimit + '">' +
           '<div class="quota-bar-fill" style="width:' + pct + '%;background:' + fillColor + '"></div>' +
         '</div>' +
         '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
@@ -370,7 +385,7 @@ function renderQuotaBars(bars) {
     } else {
       html += '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
         '<div class="quota-bar-header">' +
-          '<span class="quota-bar-model"><span class="model-color-dot" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + tokenInfo + '</span>' +
+          '<span class="quota-bar-model"><span class="model-color-dot" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + currentKeyHtml + tokenInfo + '</span>' +
           '<span class="quota-bar-right">' + chevronDown + '</span>' +
         '</div>' +
         '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
@@ -386,6 +401,49 @@ function updateQuotaBars(bars) {
   if (!container) return;
   container.outerHTML = renderQuotaBars(bars);
   reexpandModelDetails();
+  attachQuotaBarHover();
+}
+
+// (C) Hover a quota-bar track to see exact used/remain/total/per-key numbers.
+function attachQuotaBarHover() {
+  var tracks = document.querySelectorAll('.quota-bar-track');
+  tracks.forEach(function(track) {
+    if (track._ttBound) return;
+    track._ttBound = true;
+    track.addEventListener('mouseenter', function() {
+      var used = track.getAttribute('data-used');
+      var total = track.getAttribute('data-total');
+      var remain = track.getAttribute('data-remain');
+      var perkey = track.getAttribute('data-perkey');
+      showQuotaTooltip(track, used, total, remain, perkey);
+    });
+    track.addEventListener('mouseleave', hideQuotaTooltip);
+  });
+}
+
+function showQuotaTooltip(track, used, total, remain, perkey) {
+  hideQuotaTooltip();
+  var tip = document.createElement('div');
+  tip.className = 'quota-tip';
+  tip.id = 'quota-tip';
+  tip.innerHTML =
+    '<div><span class="quota-tip-k">' + escapeHtml(t('quotaUsed')) + '</span><span class="quota-tip-v">' + used + '</span></div>' +
+    '<div><span class="quota-tip-k">' + escapeHtml(t('quotaRemain')) + '</span><span class="quota-tip-v">' + remain + '</span></div>' +
+    '<div><span class="quota-tip-k">' + escapeHtml(t('quotaTotal')) + '</span><span class="quota-tip-v">' + total + '</span></div>' +
+    '<div class="quota-tip-perkey">' + escapeHtml(t('perKeyLabel')) + ': ' + perkey + '</div>';
+  document.body.appendChild(tip);
+  var rect = track.getBoundingClientRect();
+  tip.style.left = rect.left + 'px';
+  tip.style.top = (rect.top - tip.offsetHeight - 6) + 'px';
+  // Flip below if not enough space above.
+  if (rect.top - tip.offsetHeight - 6 < 4) {
+    tip.style.top = (rect.bottom + 6) + 'px';
+  }
+}
+
+function hideQuotaTooltip() {
+  var existing = document.getElementById('quota-tip');
+  if (existing) existing.remove();
 }
 
 function toggleModelDetail(provider, model) {
@@ -481,12 +539,25 @@ function renderModelKeyDetail(provider, model, data) {
       quotaInfo = '<span class="model-key-quota-numbers">' + (k.modelLimit - k.modelRemain) + '/' + k.modelLimit + '</span>';
     }
 
-    html += '<div class="model-key-row">' +
+    // "In Use" badge: backend already sorted keys by rotation strategy, so the
+    // first usable key matches inUseKeyName returned by the API.
+    var inUseBadge = '';
+    var rowClass = 'model-key-row';
+    var usable = k.isActive && k.status === 'active' && !k.modelLock;
+    if (usable && data.inUseKeyName && k.keyName === data.inUseKeyName) {
+      inUseBadge = '<span class="key-status-badge key-status-in-use">' + t('inUse') + '</span>';
+      rowClass = 'model-key-row model-key-row-in-use';
+    } else if (!usable) {
+      rowClass = 'model-key-row model-key-row-disabled';
+    }
+
+    html += '<div class="' + rowClass + '">' +
       '<span class="model-color-dot" style="background:' + color + '"></span>' +
       '<span class="model-key-name">' + escapeHtml(k.keyName) + '</span>' +
       quotaInfo +
       quotaBar +
       statusBadge +
+      inUseBadge +
       lockInfo +
       errorInfo +
     '</div>';

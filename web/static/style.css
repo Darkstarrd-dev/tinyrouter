@@ -236,6 +236,14 @@ tbody tr:last-child td{border-bottom:none}
 /* ===================== Usage Page ===================== */
 .usage-header{flex-shrink:0}
 
+/* ===================== Charts Row (Trend + Quota) ===================== */
+.charts-row{display:grid;gap:16px;grid-template-columns:1fr;align-items:start}
+@media (min-width:1024px){
+  .charts-row{grid-template-columns:minmax(340px,38%) 1fr}
+  .charts-row .quota-monitor-card{order:1}
+  .charts-row .trend-card{order:2}
+}
+
 /* ===================== Utilities ===================== */
 .code{font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-code);padding:3px 8px;background:var(--code-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--accent)}
 .muted{color:var(--text-muted)}
@@ -340,6 +348,21 @@ tbody tr:last-child td{border-bottom:none}
 .key-status-locked{background:rgba(239,68,68,0.15);color:var(--danger)}
 .key-status-untested{background:var(--input-bg);color:var(--text-muted)}
 .key-status-inactive{background:var(--input-bg);color:var(--text-muted)}
+.key-status-in-use{background:rgba(79,195,247,0.18);color:var(--accent);box-shadow:0 0 0 1px rgba(79,195,247,0.3) inset}
+.model-key-row-in-use{background:rgba(79,195,247,0.06);border-radius:6px;padding-left:6px;padding-right:6px}
+.model-key-row-disabled{opacity:.55}
+
+/* ===================== Current Key Tag (A) ===================== */
+.current-key-tag{display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:var(--font-badge);padding:2px 7px;border-radius:4px;background:rgba(79,195,247,0.10);color:var(--accent);font-weight:600;white-space:nowrap;vertical-align:middle}
+.current-key-tag-none{background:var(--input-bg);color:var(--text-muted);font-weight:400}
+.current-key-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 4px var(--accent);flex-shrink:0;animation:pulse 2s ease-in-out infinite}
+
+/* ===================== Quota Hover Tooltip (C) ===================== */
+.quota-tip{position:fixed;z-index:var(--z-tooltip,900);background:var(--modal-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:8px;padding:8px 12px;font-size:var(--font-badge);pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.25);white-space:nowrap;line-height:1.7}
+.quota-tip div{display:flex;justify-content:space-between;gap:14px}
+.quota-tip-k{color:var(--text-muted)}
+.quota-tip-v{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.quota-tip-perkey{margin-top:4px;padding-top:4px;border-top:1px solid var(--glass-border);color:var(--text-muted)!important;font-weight:400!important}
 
 /* ===================== Usage Header ===================== */
 .usage-header-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
