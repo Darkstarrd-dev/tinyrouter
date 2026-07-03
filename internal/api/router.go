@@ -93,6 +93,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 		r.Get("/providers/{id}/models", rt.fetchProviderModels)
 		r.Post("/providers/{id}/models", rt.addProviderModel)
 		r.Post("/providers/{id}/models/test", rt.testProviderModel)
+		r.Post("/providers/{id}/models/test-all", rt.testProviderModelAllKeys)
 		r.Patch("/providers/{id}/models/quota", rt.updateModelQuota)
 		r.Delete("/providers/{id}/models", rt.deleteProviderModel)
 

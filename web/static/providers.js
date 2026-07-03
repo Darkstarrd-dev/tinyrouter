@@ -1,5 +1,8 @@
 // ===================== Providers Page =====================
 
+var expandedModelDetails = new Set();
+var allKeysTestResults = {};
+
 async function renderProviders(c) {
   if (currentProviderId) {
     showSkeleton(c, 1);
@@ -60,6 +63,8 @@ function backToProviderList() {
   currentProviderId = null;
   providerDetailCache = null;
   modelTestStatus = {};
+  expandedModelDetails = new Set();
+  allKeysTestResults = {};
   renderProviders(document.getElementById('page-content'));
 }
 
@@ -338,23 +343,41 @@ function renderDetailModels(p) {
     if (ts) {
       if (ts.ok) { statusClass = 'model-ok'; statusText = 'OK'; }
       else { statusClass = 'model-err'; statusText = 'FAIL'; }
-      if (ts.quotaTotal > 0) {
-        quotaStr = ts.quotaRemain + '/' + ts.quotaTotal;
-      }
+      if (ts.quotaTotal > 0) quotaStr = ts.quotaRemain + '/' + ts.quotaTotal;
     }
-    return '<div class="model-row">' +
-      (ts
-        ? (ts.ok
-            ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
-            : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
-        : '<button class="btn btn-sm" onclick="withLoading(this, () => testSingleModel(\'' + p.id + '\',\'' + escapeHtml(m.id) + '\'))">' + t('test') + '</button>') +
-      '<button class="btn btn-sm btn-danger" onclick="deleteModelDetail(\'' + p.id + '\',\'' + escapeHtml(m.id) + '\')">' + t('delete') + '</button>' +
-      '<span class="model-id copyable" onclick="copyToClipboard(\'' + escapeHtml(p.prefix) + '/' + escapeHtml(m.id) + '\')" title="' + t('clickToCopy') + '">' + escapeHtml(p.prefix) + '/' + escapeHtml(m.id) + '</span>' +
-      '<select class="model-quota-select" data-model="' + escapeHtml(m.id) + '" onchange="updateModelQuotaType(\'' + escapeHtml(p.id) + '\', this)">' +
-        '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
-        '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
-        '<option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>' +
-      '</select>' +
+    var midEsc = escapeHtml(m.id);
+    var pidEsc = escapeHtml(p.id);
+    var prefixEsc = escapeHtml(p.prefix);
+    var rowId = 'mrow-' + sanitizeId(p.id) + '-' + sanitizeId(m.id);
+    var detailId = 'mdetail-' + sanitizeId(p.id) + '-' + sanitizeId(m.id);
+    var allRes = allKeysTestResults[p.id + '/' + m.id];
+    var allBadge = '';
+    if (allRes && allRes.results) {
+      var okCnt = 0, failCnt = 0;
+      allRes.results.forEach(function(r) { if (r.ok) okCnt++; else failCnt++; });
+      allBadge = '<span class="model-alltest-badge show"><span class="ok">' + okCnt + '</span>/<span class="fail">' + failCnt + '</span></span>';
+    } else {
+      allBadge = '<span class="model-alltest-badge"></span>';
+    }
+    var chevronDown = '<svg class="quota-bar-chevron model-row-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+    return '<div class="model-row" id="' + rowId + '">' +
+      '<div class="model-row-main" onclick="toggleModelDetailRow(event, \'' + pidEsc + '\', \'' + midEsc + '\')">' +
+        (ts
+          ? (ts.ok
+              ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
+              : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
+          : '<button class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midEsc + '\'))">' + t('test') + '</button>') +
+        '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midEsc + '\')">' + t('delete') + '</button>' +
+        '<span class="model-id copyable" onclick="event.stopPropagation(); copyToClipboard(\'' + prefixEsc + '/' + midEsc + '\')" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + midEsc + '</span>' +
+        '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
+          '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
+          '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
+          '<option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>' +
+        '</select>' +
+        allBadge +
+        chevronDown +
+      '</div>' +
+      '<div class="model-key-detail-wrap" id="' + detailId + '"></div>' +
     '</div>';
   }).join('');
   el.innerHTML = '\
@@ -362,17 +385,208 @@ function renderDetailModels(p) {
       <div class="section-title">' + t('modelsTitle') + ' (' + models.length + ')</div>\
       <div class="flex mb-12" style="gap:8px">\
         <input id="m-input" placeholder="' + t('modelPlaceholder') + '" style="flex:1">\
-        <button class="btn btn-sm" onclick="withLoading(this, () => testModelDetail(\'' + p.id + '\'))">' + t('test') + '</button>\
-        <button class="btn btn-sm btn-primary" onclick="withLoading(this, () => addModelDetail(\'' + p.id + '\'))">' + t('create') + '</button>\
+        <button class="btn btn-sm" onclick="withLoading(this, () => testModelDetail(\'' + escapeHtml(p.id) + '\'))">' + t('test') + '</button>\
+        <button class="btn btn-sm btn-primary" onclick="withLoading(this, () => addModelDetail(\'' + escapeHtml(p.id) + '\'))">' + t('create') + '</button>\
       </div>\
       <div class="flex mb-12" style="gap:8px">\
-        <button class="btn btn-sm" onclick="withLoading(this, () => importModels(\'' + p.id + '\'))">' + t('importModels') + '</button>\
+        <button class="btn btn-sm" onclick="withLoading(this, () => importModels(\'' + escapeHtml(p.id) + '\'))">' + t('importModels') + '</button>\
       </div>\
       <div id="m-test-result" class="mb-12"></div>\
-      <div id="model-list">' +
-        (models.length === 0 ? emptyState(t('noModels')) : modelsHtml) + '\
-      </div>\
+      <div id="model-list">' + (models.length === 0 ? emptyState(t('noModels')) : modelsHtml) + '</div>\
     </div>';
+  // 重新展开之前打开的模型
+  expandedModelDetails.forEach(function(setKey) {
+    var parts = JSON.parse(setKey);
+    if (parts[0] === p.id) {
+      reexpandModelDetailRow(parts[0], parts[1]);
+    }
+  });
+}
+
+function toggleModelDetailRow(e, pid, mid) {
+  if (e && e.target && e.target.closest) {
+    if (e.target.closest('button, select, .copyable')) return;
+  }
+  var rowId = 'mrow-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+  var detailId = 'mdetail-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+  var wrap = document.getElementById(detailId);
+  if (!wrap) return;
+  var item = document.getElementById(rowId);
+  var chevron = item ? item.querySelector('.model-row-chevron') : null;
+  var key = JSON.stringify([pid, mid]);
+  if (expandedModelDetails.has(key)) {
+    expandedModelDetails.delete(key);
+    wrap.classList.remove('expanded');
+    if (chevron) chevron.style.transform = '';
+    setTimeout(function() { if (!expandedModelDetails.has(key)) wrap.innerHTML = ''; }, 300);
+  } else {
+    expandedModelDetails.add(key);
+    wrap.classList.add('expanded');
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+    wrap.innerHTML = '<div class="model-key-detail-loading">' + t('loading') + '...</div>';
+    fetchModelDetailRow(pid, mid);
+  }
+}
+
+async function fetchModelDetailRow(pid, mid) {
+  var detailId = 'mdetail-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+  var wrap = document.getElementById(detailId);
+  if (!wrap) return;
+  try {
+    var p = providerDetailCache;
+    var data = await apiGet('/usage/model-keys?provider=' + encodeURIComponent(p.Name) + '&model=' + encodeURIComponent(mid));
+    renderModelKeyDetailRow(pid, mid, data);
+  } catch (e) {
+    wrap.innerHTML = '<div class="model-key-detail-empty">' + escapeHtml(e.message || String(e)) + '</div>';
+  }
+}
+
+function renderModelKeyDetailRow(pid, mid, data) {
+  var detailId = 'mdetail-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+  var wrap = document.getElementById(detailId);
+  if (!wrap) return;
+  if (!data || !data.keys || data.keys.length === 0) {
+    wrap.innerHTML = '<div class="model-key-detail-empty">' + t('noKeysConfigured') + '</div>';
+    return;
+  }
+  var html = '<div class="model-key-detail">';
+  data.keys.forEach(function(k) {
+    var color = typeof getModelColor !== 'undefined' ? getModelColor(data.provider, data.model) : 'var(--accent2)';
+    var statusBadge = '';
+    var quotaInfo = '';
+    var quotaBar = '';
+    if (data.hasQuota && k.hasQuota) {
+      if (k.modelRemaining === 0) {
+        statusBadge = '<span class="key-status-badge key-status-exhausted">' + t('exhausted') + '</span>';
+      } else {
+        statusBadge = '<span class="key-status-badge key-status-available">' + t('available') + '</span>';
+      }
+      var pct = k.modelLimit > 0 ? ((k.modelLimit - k.modelRemaining) / k.modelLimit * 100) : 0;
+      var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
+      quotaBar = '<div class="model-key-quota-bar"><div class="model-key-quota-fill" style="width:' + pct + '%;background:' + fillColor + '"></div></div>';
+      quotaInfo = '<span class="model-key-quota-numbers">' + (k.modelLimit - k.modelRemaining) + '/' + k.modelLimit + '</span>';
+    } else if (k.modelLock) {
+      if (k.status === 'locked') {
+        statusBadge = '<span class="key-status-badge key-status-locked">' + t('dailyLocked') + '</span>';
+      } else {
+        statusBadge = '<span class="key-status-badge key-status-cooldown">' + t('cooldown') + '</span>';
+      }
+    } else if (!k.isActive) {
+      statusBadge = '<span class="key-status-badge key-status-inactive">' + t('inactive') + '</span>';
+    } else {
+      statusBadge = '<span class="key-status-badge key-status-available">' + t('available') + '</span>';
+    }
+    var lockInfo = '';
+    if (k.modelLock) {
+      try {
+        var lockTime = new Date(k.modelLock);
+        lockInfo = '<span class="model-key-lock-info">' + t('unlockAt') + ' ' + lockTime.toLocaleTimeString() + '</span>';
+      } catch (_) {}
+    }
+    var errorInfo = '';
+    if (k.lastError) {
+      errorInfo = '<div class="model-key-error">' + escapeHtml(k.lastError) + '</div>';
+    }
+    var inUseBadge = '';
+    var rowClass = 'model-key-row';
+    var usable = k.isActive && k.status === 'active' && !k.modelLock;
+    if (usable && data.inUseKeyName && k.keyName === data.inUseKeyName) {
+      inUseBadge = '<span class="key-status-badge key-status-in-use">' + t('inUse') + '</span>';
+      rowClass = 'model-key-row model-key-row-in-use';
+    } else if (!usable) {
+      rowClass = 'model-key-row model-key-row-disabled';
+    }
+    html += '<div class="' + rowClass + '" data-keyname="' + escapeHtml(k.keyName) + '">' +
+      '<span class="model-color-dot" style="background:' + color + '"></span>' +
+      '<span class="model-key-name">' + escapeHtml(k.keyName) + '</span>' +
+      quotaInfo + quotaBar + statusBadge + inUseBadge + lockInfo + errorInfo +
+      '<span class="model-key-ttft"></span>' +
+      '<span class="model-key-speed"></span>' +
+      '<span class="model-key-tokens"></span>' +
+    '</div>';
+  });
+  html += '</div>';
+  html += '<div class="model-key-detail-actions">' +
+    '<button class="btn btn-sm btn-primary" id="run-alltest-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '" onclick="runAllKeysTest(\'' + escapeHtml(pid) + '\', \'' + escapeHtml(mid) + '\')">' + t('runAllKeysTest') + '</button>' +
+    '<span class="model-alltest-status" id="alltest-status-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '"></span>' +
+  '</div>';
+  wrap.innerHTML = html;
+  var prev = allKeysTestResults[pid + '/' + mid];
+  if (prev && prev.results) {
+    renderKeyTestResults(pid, mid, prev.results);
+  }
+}
+
+async function runAllKeysTest(pid, mid) {
+  var btnId = 'run-alltest-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+  var statusId = 'alltest-status-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+  var btn = document.getElementById(btnId);
+  var statusEl = document.getElementById(statusId);
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.innerHTML = '<span class="badge badge-testing">' + t('runningAllKeysTest') + '</span>';
+  try {
+    var result = await apiPost('/providers/' + pid + '/models/test-all', { model: mid });
+    allKeysTestResults[pid + '/' + mid] = result;
+    if (result.results) {
+      renderKeyTestResults(pid, mid, result.results);
+      var okCnt = 0, failCnt = 0;
+      result.results.forEach(function(r) { if (r.ok) okCnt++; else failCnt++; });
+      var badgeId = 'mrow-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+      var row = document.getElementById(badgeId);
+      if (row) {
+        var badge = row.querySelector('.model-alltest-badge');
+        if (badge) {
+          badge.classList.add('show');
+          badge.innerHTML = '<span class="ok">' + okCnt + '</span>/<span class="fail">' + failCnt + '</span>';
+        }
+      }
+    }
+    if (statusEl) statusEl.innerHTML = '<span class="badge badge-valid">' + t('allKeysTestDone') + ' (' + (result.results ? result.results.length : 0) + ')</span>';
+  } catch (e) {
+    if (statusEl) statusEl.innerHTML = '<span class="badge badge-invalid">' + escapeHtml(e.message || String(e)) + '</span>';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderKeyTestResults(pid, mid, results) {
+  var detailId = 'mdetail-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+  var wrap = document.getElementById(detailId);
+  if (!wrap) return;
+  results.forEach(function(r) {
+    var rows = wrap.querySelectorAll('.model-key-row[data-keyname="' + escapeAttr(r.keyName) + '"]');
+    rows.forEach(function(row) {
+      var ttftEl = row.querySelector('.model-key-ttft');
+      var speedEl = row.querySelector('.model-key-speed');
+      var tokensEl = row.querySelector('.model-key-tokens');
+      if (r.ok) {
+        if (ttftEl) ttftEl.innerHTML = '<span class="model-key-metric">' + t('ttft') + ' ' + r.ttftMs + 'ms</span>';
+        if (speedEl) speedEl.innerHTML = '<span class="model-key-metric">' + (r.tokensPerSec != null ? r.tokensPerSec.toFixed(1) : '0') + ' ' + t('tokPerSec') + '</span>';
+        if (tokensEl) tokensEl.innerHTML = '<span class="model-key-metric">' + t('out') + ' ' + r.outputTokens + '</span>';
+      } else {
+        if (ttftEl) ttftEl.innerHTML = '<span class="model-key-metric model-key-metric-err">FAIL' + (r.status ? ' ' + r.status : '') + '</span>';
+        if (speedEl) speedEl.innerHTML = '';
+        if (tokensEl) tokensEl.innerHTML = '<span class="model-key-metric model-key-metric-err">' + escapeHtml(r.error || '') + '</span>';
+      }
+    });
+  });
+}
+
+function reexpandModelDetailRow(pid, mid) {
+  var detailId = 'mdetail-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+  var wrap = document.getElementById(detailId);
+  if (!wrap) return;
+  wrap.classList.add('expanded');
+  var rowId = 'mrow-' + sanitizeId(pid) + '-' + sanitizeId(mid);
+  var item = document.getElementById(rowId);
+  var chevron = item ? item.querySelector('.model-row-chevron') : null;
+  if (chevron) chevron.style.transform = 'rotate(180deg)';
+  wrap.innerHTML = '<div class="model-key-detail-loading">' + t('loading') + '...</div>';
+  fetchModelDetailRow(pid, mid);
+}
+
+function escapeAttr(s) {
+  return String(s).replace(/"/g, '\\"');
 }
 
 async function testModelDetail(pid) {

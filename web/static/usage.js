@@ -271,10 +271,9 @@ async function renderUsage(c) {
   lastUsageEntries = usage.entries || [];
   const quotaBars = quotas.quotas || [];
   c.innerHTML = '\
-    <div class="usage-header">\
+    <div class="usage-header usage-fullscreen">\
       <div class="usage-header-top">\
         <h2>' + t('usage') + '</h2>\
-        <button class="btn btn-primary btn-sm" onclick="openRecentRequests()">' + t('recentRequestsBtn') + '</button>\
       </div>\
       <div class="stat-grid">\
         <div class="stat-card"><div class="stat-value">' + summary.total + '</div><div class="stat-label">' + t('totalRequests') + '</div></div>\
@@ -288,11 +287,49 @@ async function renderUsage(c) {
         <div class="trend-card">' + renderTrendChart(lastUsageEntries) + '</div>\
         <div class="quota-monitor-card">' + renderQuotaBars(quotaBars) + '</div>\
       </div>\
+      <div class="recent-requests-section">' + renderRecentRequestsInline(lastUsageEntries) + '</div>\
     </div>';
   c.classList.remove('usage-page');
   attachTrendHover(lastUsageEntries);
   attachQuotaBarHover();
+  reexpandModelDetails();
   startUsageRefresh();
+}
+
+function renderRecentRequestsInline(entries) {
+  var limit = 50;
+  var rows = entries.slice(0, limit);
+  var header = '<div class="card-title">' + t('recentRequests') + '<span class="recent-count">' + entries.length + '</span></div>';
+  var body;
+  if (rows.length === 0) {
+    body = emptyState(t('noUsage'));
+  } else {
+    body = '<div class="recent-requests-scroll card-scroll">' +
+      '<table class="usage-table">' +
+        '<thead><tr>' +
+          '<th>' + t('thTime') + '</th>' +
+          '<th>' + t('thProvider') + '</th>' +
+          '<th>' + t('thModel') + '</th>' +
+          '<th>' + t('thKey') + '</th>' +
+          '<th>' + t('thStatus') + '</th>' +
+          '<th>' + t('thLatency') + '</th>' +
+          '<th>' + t('thTokens') + '</th>' +
+        '</tr></thead>' +
+        '<tbody id="recent-tbody">' + rows.map(renderUsageRow).join('') + '</tbody>' +
+      '</table>' +
+    '</div>';
+  }
+  return '<div class="card recent-requests-card">' + header + body + '</div>';
+}
+
+function updateRecentRequestsInline(entries) {
+  var tbody = document.getElementById('recent-tbody');
+  if (!tbody) return;
+  var limit = 50;
+  var rows = entries.slice(0, limit);
+  tbody.innerHTML = rows.map(renderUsageRow).join('');
+  var countEl = document.querySelector('.recent-requests-card .recent-count');
+  if (countEl) countEl.textContent = String(entries.length);
 }
 
 function startUsageRefresh() {
@@ -312,6 +349,7 @@ function startUsageRefresh() {
         updateTrendChart(lastUsageEntries);
         updateQuotaBars(quotas.quotas || []);
         updateRecentRequestsModal();
+        updateRecentRequestsInline(lastUsageEntries);
       }
     } catch(e) {}
   };
@@ -345,9 +383,9 @@ async function clearUsage() {
 }
 
 function renderQuotaBars(bars) {
-  if (!bars || bars.length === 0) return '';
+  if (!bars || bars.length === 0) return '<div class="card"><div class="card-title">' + t('quotaMonitor') + '</div>' + emptyState(t('noQuota')) + '</div>';
   var chevronDown = '<svg class="quota-bar-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
-  var html = '<div class="quota-section"><h3>Quota Monitor</h3>';
+  var html = '<div class="card"><div class="card-title">' + t('quotaMonitor') + '</div><div class="quota-section quota-section-scroll">';
   bars.forEach(function(bar) {
     var color = getModelColor(bar.provider, bar.model);
     var itemId = 'qbi-' + sanitizeId(bar.provider) + '-' + sanitizeId(bar.model);
@@ -392,12 +430,12 @@ function renderQuotaBars(bars) {
       '</div>';
     }
   });
-  html += '</div>';
+  html += '</div></div>';
   return html;
 }
 
 function updateQuotaBars(bars) {
-  var container = document.querySelector('.quota-section');
+  var container = document.querySelector('.quota-monitor-card > .card');
   if (!container) return;
   container.outerHTML = renderQuotaBars(bars);
   reexpandModelDetails();
@@ -531,7 +569,8 @@ function renderModelKeyDetail(provider, model, data) {
 
     var errorInfo = '';
     if (k.lastError) {
-      errorInfo = '<div class="model-key-error">' + escapeHtml(k.lastError) + '</div>';
+      var errStr = k.lastError.length > 60 ? k.lastError.slice(0, 60) + '…' : k.lastError;
+      errorInfo = '<span class="model-key-error" title="' + escapeHtml(k.lastError) + '">' + escapeHtml(errStr) + '</span>';
     }
 
     var quotaInfo = '';
@@ -551,6 +590,22 @@ function renderModelKeyDetail(provider, model, data) {
       rowClass = 'model-key-row model-key-row-disabled';
     }
 
+    var metricsHtml = '';
+    var hasMetrics = (k.successCount != null && k.successCount > 0) || (k.errorCount != null && k.errorCount > 0) || (k.avgTtftMs != null && k.avgTtftMs > 0) || (k.avgSpeed != null && k.avgSpeed > 0);
+    if (hasMetrics) {
+      var metricsParts = [];
+      if (k.successCount != null || k.errorCount != null) {
+        metricsParts.push('<span class="model-key-metric model-key-succ">' + (k.successCount || 0) + '/<span class="model-key-err">' + (k.errorCount || 0) + '</span></span>');
+      }
+      if (k.avgTtftMs != null && k.avgTtftMs > 0) {
+        metricsParts.push('<span class="model-key-metric">TTFT ' + k.avgTtftMs + 'ms</span>');
+      }
+      if (k.avgSpeed != null && k.avgSpeed > 0) {
+        metricsParts.push('<span class="model-key-metric">' + k.avgSpeed.toFixed(1) + ' tok/s</span>');
+      }
+      metricsHtml = '<span class="model-key-metrics">' + metricsParts.join('') + '</span>';
+    }
+
     html += '<div class="' + rowClass + '">' +
       '<span class="model-color-dot" style="background:' + color + '"></span>' +
       '<span class="model-key-name">' + escapeHtml(k.keyName) + '</span>' +
@@ -559,6 +614,7 @@ function renderModelKeyDetail(provider, model, data) {
       statusBadge +
       inUseBadge +
       lockInfo +
+      metricsHtml +
       errorInfo +
     '</div>';
   });

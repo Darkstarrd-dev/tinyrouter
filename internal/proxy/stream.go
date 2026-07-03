@@ -98,7 +98,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 
 	h.logger.Info("\U0001f4ca [stream] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
-	h.recordUsage(sel.Provider.Name, model, sel, "success", latencyMs, inputTokens, outputTokens, "")
+	h.recordUsage(sel.Provider.Name, model, sel, "success", latencyMs, latencyMs, inputTokens, outputTokens, "")
 }
 
 func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64) {
@@ -118,5 +118,5 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	inputTokens, outputTokens := extractTokens(bodyBytes)
 	h.logger.Info("\U0001f4ca [response] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
-	h.recordUsage(sel.Provider.Name, model, sel, "success", latencyMs, inputTokens, outputTokens, "")
+	h.recordUsage(sel.Provider.Name, model, sel, "success", latencyMs, 0, inputTokens, outputTokens, "")
 }

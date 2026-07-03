@@ -14,6 +14,7 @@ type Entry struct {
 	KeyName      string    `json:"keyName"`
 	Status       string    `json:"status"` // "success" | "error" | "retry"
 	LatencyMs    int64     `json:"latencyMs"`
+	TTFTMs       int64     `json:"ttftMs"`
 	InputTokens  int       `json:"inputTokens"`
 	OutputTokens int       `json:"outputTokens"`
 	Error        string    `json:"error,omitempty"`
@@ -82,6 +83,11 @@ func (rb *RingBuffer) All() []Entry {
 // The numbers are independent of the ring buffer capacity.
 func (rb *RingBuffer) Summary() CumulativeSummary {
 	return rb.acc.Summary()
+}
+
+// Accumulator returns the underlying accumulator for direct per-key stat queries.
+func (rb *RingBuffer) Accumulator() *Accumulator {
+	return rb.acc
 }
 
 // ModelStats returns per-model cumulative aggregate statistics.

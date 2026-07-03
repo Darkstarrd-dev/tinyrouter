@@ -122,30 +122,42 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type keyDetail struct {
-		KeyID       string  `json:"keyId"`
-		KeyName     string  `json:"keyName"`
-		IsActive    bool    `json:"isActive"`
-		Status      string  `json:"status"`
-		HasQuota    bool    `json:"hasQuota"`
-		ModelLimit  int     `json:"modelLimit"`
-		ModelRemain int     `json:"modelRemaining"`
-		ModelLock   *string `json:"modelLock"`
-		LastError   string  `json:"lastError"`
-		LastUsedAt  string  `json:"lastUsedAt"`
-		RotatedAt   string  `json:"rotatedAt"`
-		Priority    int     `json:"priority"`
-		ConfigIdx   int     `json:"configIdx"`
+		KeyID        string  `json:"keyId"`
+		KeyName      string  `json:"keyName"`
+		IsActive     bool    `json:"isActive"`
+		Status       string  `json:"status"`
+		HasQuota     bool    `json:"hasQuota"`
+		ModelLimit   int     `json:"modelLimit"`
+		ModelRemain  int     `json:"modelRemaining"`
+		ModelLock    *string `json:"modelLock"`
+		LastError    string  `json:"lastError"`
+		LastUsedAt   string  `json:"lastUsedAt"`
+		RotatedAt    string  `json:"rotatedAt"`
+		Priority     int     `json:"priority"`
+		ConfigIdx    int     `json:"configIdx"`
+		SuccessCount int     `json:"successCount"`
+		ErrorCount   int     `json:"errorCount"`
+		AvgTTFTMs    int64   `json:"avgTtftMs"`
+		AvgSpeed     float64 `json:"avgSpeed"`
 	}
 
 	hasQuota := false
 	details := make([]keyDetail, 0, len(provider.Keys))
+
+	// Fetch per-key usage stats
+	keyStatEntries := rt.usage.Accumulator().KeyStatsFor(provider.Name, model)
+	keyStatByID := make(map[string]usage.KeyStatEntry, len(keyStatEntries))
+	for _, kse := range keyStatEntries {
+		keyStatByID[kse.KeyID] = kse
+	}
+
 	for idx, k := range provider.Keys {
 		kd := keyDetail{
-			KeyID:    k.ID,
-			KeyName:  k.Name,
-			IsActive: k.IsActive,
-			Status:   "active",
-			Priority: k.Priority,
+			KeyID:     k.ID,
+			KeyName:   k.Name,
+			IsActive:  k.IsActive,
+			Status:    "active",
+			Priority:  k.Priority,
 			ConfigIdx: idx,
 		}
 		state := rt.reg.GetKeyState(provider.ID, k.ID)
@@ -172,6 +184,12 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 				hasQuota = true
 			}
 			state.Unlock()
+		}
+		if kse, ok := keyStatByID[k.ID]; ok {
+			kd.SuccessCount = kse.SuccessCount
+			kd.ErrorCount = kse.ErrorCount
+			kd.AvgTTFTMs = kse.AvgTTFTMs
+			kd.AvgSpeed = kse.AvgSpeed
 		}
 		details = append(details, kd)
 	}
@@ -257,11 +275,11 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"provider":       providerName,
-		"model":          model,
-		"hasQuota":       hasQuota,
-		"keys":           sorted,
-		"inUseKeyName":   inUseKeyName,
+		"provider":         providerName,
+		"model":            model,
+		"hasQuota":         hasQuota,
+		"keys":             sorted,
+		"inUseKeyName":     inUseKeyName,
 		"rotationStrategy": strategy,
 	})
 }
@@ -482,7 +500,6 @@ func (rt *Router) currentKeyName(providerName, model string) string {
 	})
 	return cands[0].name
 }
-
 
 func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {
 	staticFS, err := fs.Sub(web.Static, "static")

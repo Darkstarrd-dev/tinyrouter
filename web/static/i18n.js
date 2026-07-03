@@ -51,6 +51,8 @@ const L = {
     time: 'Time', provider: 'Provider', model: 'Model', latency: 'Latency', tokens: 'Tokens (in/out)',
     requests: 'Requests', total: 'Total',
     recentRequestsBtn: 'Recent Requests',
+    quotaMonitor: 'Quota Monitor', noQuota: 'No quota data',
+    thTime: 'Time', thProvider: 'Provider', thModel: 'Model', thKey: 'Key', thStatus: 'Status', thLatency: 'Latency', thTokens: 'Tokens',
     loading: 'Loading', untestedKey: 'Untested', available: 'Available', exhausted: 'Exhausted',
     cooldown: 'Cooldown', dailyLocked: 'Daily Locked', unlockAt: 'Unlock at', noKeysConfigured: 'No keys configured.',
     inUse: 'In Use', currentKey: 'Current', quotaUsed: 'Used', quotaRemain: 'Remain', quotaTotal: 'Total', noCurrentKey: 'No active key', perKeyLabel: 'per key/day',
@@ -85,6 +87,12 @@ const L = {
     pause: 'Paused',
     all: 'All', searchLogs: 'Search logs...',
     trendChart: '6h Request Trend',
+    runAllKeysTest: 'Run All-Keys Test',
+    runningAllKeysTest: 'Testing...',
+    allKeysTestDone: 'All-Keys Test Done',
+    ttft: 'TTFT',
+    tokPerSec: 'tok/s',
+    out: 'out',
   },
   cn: {
     endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台',
@@ -137,6 +145,8 @@ const L = {
     time: '时间', provider: '服务商', model: '模型', latency: '延迟', tokens: 'Token (入/出)',
     requests: '请求数', total: '总计',
     recentRequestsBtn: '最近请求',
+    quotaMonitor: '配额监控', noQuota: '无配额数据',
+    thTime: '时间', thProvider: '服务商', thModel: '模型', thKey: '密钥', thStatus: '状态', thLatency: '延迟', thTokens: 'Tokens',
     loading: '加载中', untestedKey: '未测试', available: '可用', exhausted: '已耗尽',
     cooldown: '冷却中', dailyLocked: '日配额锁定', unlockAt: '解锁时间', noKeysConfigured: '无配置密钥。',
     inUse: '使用中', currentKey: '当前', quotaUsed: '已用', quotaRemain: '剩余', quotaTotal: '总量', noCurrentKey: '无可用密钥', perKeyLabel: '每密钥/天',
@@ -171,6 +181,12 @@ const L = {
     pause: '已暂停',
     all: '全部', searchLogs: '搜索日志...',
     trendChart: '6小时请求趋势',
+    runAllKeysTest: '测试全部 Key',
+    runningAllKeysTest: '测试中...',
+    allKeysTestDone: '全部测试完成',
+    ttft: 'TTFT',
+    tokPerSec: 'tok/s',
+    out: '出',
   }
 };
 

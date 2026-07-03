@@ -79,11 +79,11 @@ func (r *Registry) UpdateKey(providerID, keyID string, updates config.Key) bool 
 		for j := range r.config.Providers[i].Keys {
 			if r.config.Providers[i].Keys[j].ID == keyID {
 				k := &r.config.Providers[i].Keys[j]
-			k.Name = updates.Name
-			k.Key = updates.Key
-			k.Priority = updates.Priority
-			k.IsActive = updates.IsActive
-			k.Account = updates.Account
+				k.Name = updates.Name
+				k.Key = updates.Key
+				k.Priority = updates.Priority
+				k.IsActive = updates.IsActive
+				k.Account = updates.Account
 				return true
 			}
 		}

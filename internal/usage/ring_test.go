@@ -257,6 +257,73 @@ func TestRingBuffer_Size(t *testing.T) {
 	}
 }
 
+func TestAccumulator_KeyStatsFor(t *testing.T) {
+	rb := New(100)
+	// key1: two successes with TTFT
+	rb.Add(Entry{
+		Provider: "providerA", Model: "modelX", KeyID: "key1", KeyName: "k1",
+		Status: "success", LatencyMs: 2000, TTFTMs: 200, InputTokens: 100, OutputTokens: 400,
+	})
+	rb.Add(Entry{
+		Provider: "providerA", Model: "modelX", KeyID: "key1", KeyName: "k1",
+		Status: "success", LatencyMs: 3000, TTFTMs: 300, InputTokens: 100, OutputTokens: 500,
+	})
+	// key2: one failure
+	rb.Add(Entry{
+		Provider: "providerA", Model: "modelX", KeyID: "key2", KeyName: "k2",
+		Status: "error", LatencyMs: 500, TTFTMs: 0, InputTokens: 0, OutputTokens: 0,
+	})
+	// different model — should be ignored
+	rb.Add(Entry{
+		Provider: "providerA", Model: "modelY", KeyID: "key1", KeyName: "k1",
+		Status: "success", LatencyMs: 1000, TTFTMs: 100, InputTokens: 50, OutputTokens: 200,
+	})
+	// different provider — should be ignored
+	rb.Add(Entry{
+		Provider: "providerB", Model: "modelX", KeyID: "key3", KeyName: "k3",
+		Status: "success", LatencyMs: 1000, TTFTMs: 100, InputTokens: 50, OutputTokens: 200,
+	})
+
+	stats := rb.Accumulator().KeyStatsFor("providerA", "modelX")
+	if len(stats) != 2 {
+		t.Fatalf("expected 2 key stats, got %d", len(stats))
+	}
+
+	byID := make(map[string]KeyStatEntry)
+	for _, s := range stats {
+		byID[s.KeyID] = s
+	}
+
+	ks1 := byID["key1"]
+	if ks1.SuccessCount != 2 {
+		t.Errorf("expected key1 success 2, got %d", ks1.SuccessCount)
+	}
+	if ks1.ErrorCount != 0 {
+		t.Errorf("expected key1 error 0, got %d", ks1.ErrorCount)
+	}
+	if ks1.AvgTTFTMs != 250 {
+		t.Errorf("expected key1 avg ttft 250, got %d", ks1.AvgTTFTMs)
+	}
+	// avgSpeed = totalOutput / (totalOutputPhaseMs/1000) = 900 / ((1800+2700)/1000) = 900/4.5 = 200
+	if ks1.AvgSpeed < 199 || ks1.AvgSpeed > 201 {
+		t.Errorf("expected key1 avg speed ~200, got %f", ks1.AvgSpeed)
+	}
+
+	ks2 := byID["key2"]
+	if ks2.SuccessCount != 0 {
+		t.Errorf("expected key2 success 0, got %d", ks2.SuccessCount)
+	}
+	if ks2.ErrorCount != 1 {
+		t.Errorf("expected key2 error 1, got %d", ks2.ErrorCount)
+	}
+	if ks2.AvgTTFTMs != 0 {
+		t.Errorf("expected key2 avg ttft 0, got %d", ks2.AvgTTFTMs)
+	}
+	if ks2.AvgSpeed != 0 {
+		t.Errorf("expected key2 avg speed 0, got %f", ks2.AvgSpeed)
+	}
+}
+
 func TestAccumulator_Clear(t *testing.T) {
 	acc := NewAccumulator()
 	acc.Record(entry("p", "m", "success", 100))

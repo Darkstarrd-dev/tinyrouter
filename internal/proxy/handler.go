@@ -245,7 +245,7 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, inputTokens, outputTokens int, errMsg string) {
+func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string) {
 	h.usage.Add(usage.Entry{
 		Timestamp:    time.Now(),
 		Provider:     sel.Provider.Name,
@@ -254,6 +254,7 @@ func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey,
 		KeyName:      sel.KeyName,
 		Status:       status,
 		LatencyMs:    latencyMs,
+		TTFTMs:       ttftMs,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		Error:        errMsg,
