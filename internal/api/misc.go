@@ -275,7 +275,7 @@ func (rt *Router) listModels(w http.ResponseWriter, r *http.Request) {
 		if len(p.Models) > 0 {
 			for _, m := range p.Models {
 				models = append(models, modelInfo{
-					ID:       p.Prefix + "/" + m,
+					ID:       p.Prefix + "/" + m.ID,
 					Provider: p.Name,
 					Type:     "provider",
 				})

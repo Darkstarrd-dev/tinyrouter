@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -27,28 +28,69 @@ type Key struct {
 	Account  string `yaml:"account,omitempty" json:"account,omitempty"`
 }
 
+// ModelDef represents one upstream model with its quota type tag.
+type ModelDef struct {
+	ID        string `yaml:"id" json:"id"`
+	QuotaType string `yaml:"quotaType,omitempty" json:"quotaType,omitempty"` // "unlimited" | "limited" | "paid"
+}
+
+// UnmarshalYAML supports both scalar strings and mapping nodes for backward compatibility.
+func (m *ModelDef) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		m.ID = value.Value
+		m.QuotaType = ""
+		return nil
+	}
+	type modelDefAlias ModelDef
+	var alias modelDefAlias
+	if err := value.Decode(&alias); err != nil {
+		return err
+	}
+	*m = ModelDef(alias)
+	return nil
+}
+
+// UnmarshalJSON supports both JSON strings and objects for backward compatibility.
+func (m *ModelDef) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		m.ID = s
+		m.QuotaType = ""
+		return nil
+	}
+	type modelDefAlias ModelDef
+	var alias modelDefAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*m = ModelDef(alias)
+	return nil
+}
+
 // Provider represents one upstream OpenAI-compatible endpoint.
 type Provider struct {
-	ID               string   `yaml:"id" json:"id"`
-	Name             string   `yaml:"name" json:"name"`
-	Prefix           string   `yaml:"prefix" json:"prefix"`
-	BaseURL          string   `yaml:"baseUrl" json:"baseUrl"`
-	APIType          string   `yaml:"apiType" json:"apiType"`
-	IsActive         bool     `yaml:"isActive" json:"isActive"`
-	Keys             []Key    `yaml:"keys" json:"keys"`
-	Models           []string `yaml:"models,omitempty" json:"models,omitempty"`
-	RotationStrategy string   `yaml:"rotationStrategy,omitempty" json:"rotationStrategy,omitempty"`
-	StickyLimit      int      `yaml:"stickyLimit,omitempty" json:"stickyLimit,omitempty"`
-	InjectStreamOpts bool     `yaml:"injectStreamOptions,omitempty" json:"injectStreamOptions,omitempty"`
+	ID               string    `yaml:"id" json:"id"`
+	Name             string    `yaml:"name" json:"name"`
+	Prefix           string    `yaml:"prefix" json:"prefix"`
+	BaseURL          string    `yaml:"baseUrl" json:"baseUrl"`
+	APIType          string    `yaml:"apiType" json:"apiType"`
+	IsActive         bool      `yaml:"isActive" json:"isActive"`
+	Keys             []Key     `yaml:"keys" json:"keys"`
+	Models           []ModelDef `yaml:"models,omitempty" json:"models,omitempty"`
+	RotationStrategy string    `yaml:"rotationStrategy,omitempty" json:"rotationStrategy,omitempty"`
+	StickyLimit      int       `yaml:"stickyLimit,omitempty" json:"stickyLimit,omitempty"`
+	InjectStreamOpts bool      `yaml:"injectStreamOptions,omitempty" json:"injectStreamOptions,omitempty"`
 }
 
 // Combo represents a model combination with a routing strategy.
 type Combo struct {
-	ID          string   `yaml:"id" json:"id"`
-	Name        string   `yaml:"name" json:"name"`
-	Strategy    string   `yaml:"strategy" json:"strategy"`
-	Models      []string `yaml:"models" json:"models"`
-	FusionJudge string   `yaml:"fusionJudge" json:"fusionJudge"`
+	ID       string   `yaml:"id" json:"id"`
+	Name     string   `yaml:"name" json:"name"`
+	Strategy string   `yaml:"strategy" json:"strategy"`
+	Models   []string `yaml:"models" json:"models"`
 }
 
 // Config is the top-level configuration structure.
@@ -104,6 +146,13 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.UsageRingSize == 0 {
 		cfg.UsageRingSize = 500
+	}
+	for i := range cfg.Providers {
+		for j := range cfg.Providers[i].Models {
+			if cfg.Providers[i].Models[j].QuotaType == "" {
+				cfg.Providers[i].Models[j].QuotaType = "limited"
+			}
+		}
 	}
 	return &cfg, nil
 }

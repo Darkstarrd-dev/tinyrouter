@@ -124,11 +124,13 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 		if !h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "") {
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 		}
-	case "fusion":
-		target := plan.Targets[0]
-		if !h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "") {
-			writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
+	case "greedy-squirrel":
+		for _, target := range plan.Targets {
+			if h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "") {
+				return
+			}
 		}
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 	default:
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown combo strategy: %s", plan.Strategy))
 	}
@@ -215,7 +217,7 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 		if len(p.Models) > 0 {
 			for _, m := range p.Models {
 				models = append(models, modelObj{
-					ID:      p.Prefix + "/" + m,
+					ID:      p.Prefix + "/" + m.ID,
 					Object:  "model",
 					OwnedBy: p.Name,
 				})

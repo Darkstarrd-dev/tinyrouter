@@ -21,8 +21,7 @@ async function renderCombos(c) {
         <span class="card-title">' + escapeHtml(cb.name) + '</span>\
         <span class="badge badge-active">' + escapeHtml(cb.strategy) + '</span>\
       </div>\
-      <p class="muted">' + t('models') + ' ' + (cb.models ? cb.models.join(', ') : 'none') + '</p>' +
-      (cb.fusionJudge ? '<p class="muted">Judge: ' + escapeHtml(cb.fusionJudge) + '</p>' : '') + '\
+      <p class="muted">' + t('models') + ' ' + (cb.models ? cb.models.join(', ') : 'none') + '</p>\
       <div class="mt-12" style="display:flex;gap:8px">\
         <button class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('editCombo') + '</button>\
         <button class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
@@ -42,7 +41,7 @@ function showAddCombo() {
         <select id="c-strategy">\
           <option value="fallback">' + t('fallbackDesc') + '</option>\
           <option value="round-robin">' + t('roundRobinDesc') + '</option>\
-          <option value="fusion">' + t('fusionDesc') + '</option>\
+          <option value="greedy-squirrel">' + t('greedySquirrelDesc') + '</option>\
         </select>\
       </div>\
       <div class="form-group"><label>' + t('comboModels') + '</label>\
@@ -51,16 +50,23 @@ function showAddCombo() {
         </div>\
         <textarea id="c-models" rows="3" placeholder="deepseek/deepseek-chat\nmy-custom/gpt-4o"></textarea>\
       </div>\
-      <div class="form-group"><label>' + t('fusionJudge') + '</label>\
-        <div style="display:flex;gap:8px;margin-bottom:8px">\
-          <button class="btn btn-sm" onclick="importModelsFromProvider(\'judge\')">' + t('importFromProvider') + '</button>\
-        </div>\
-        <input id="c-judge" placeholder="deepseek/deepseek-chat"></div>\
+      <div id="greedy-squirrel-hint" class="form-group" style="display:none">\
+        <p class="muted">' + t('greedySquirrelHint') + '</p>\
+      </div>\
       <div class="flex" style="gap:8px">\
         <button class="btn btn-primary" onclick="withLoading(this, () => addCombo())">' + t('create') + '</button>\
         <button class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
       </div>\
     </div>';
+  var sel = el.querySelector('#c-strategy');
+  var hintBox = el.querySelector('#greedy-squirrel-hint');
+  if (sel && hintBox) {
+    function syncHint() {
+      hintBox.style.display = (sel.value === 'greedy-squirrel') ? 'block' : 'none';
+    }
+    sel.addEventListener('change', syncHint);
+    syncHint();
+  }
 }
 
 async function addCombo() {
@@ -68,8 +74,7 @@ async function addCombo() {
   const c = {
     name: document.getElementById('c-name').value,
     strategy: document.getElementById('c-strategy').value,
-    models: models,
-    fusionJudge: document.getElementById('c-judge').value || null
+    models: models
   };
   await apiPost('/combos', c);
   document.getElementById('combo-form').style.display = 'none';
@@ -99,7 +104,7 @@ async function showEditCombo(id) {
         <select id="c-strategy">\
           <option value="fallback"' + (cb.strategy === 'fallback' ? ' selected' : '') + '>' + t('fallbackDesc') + '</option>\
           <option value="round-robin"' + (cb.strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobinDesc') + '</option>\
-          <option value="fusion"' + (cb.strategy === 'fusion' ? ' selected' : '') + '>' + t('fusionDesc') + '</option>\
+          <option value="greedy-squirrel"' + (cb.strategy === 'greedy-squirrel' ? ' selected' : '') + '>' + t('greedySquirrelDesc') + '</option>\
         </select>\
       </div>\
       <div class="form-group"><label>' + t('comboModels') + '</label>\
@@ -108,16 +113,23 @@ async function showEditCombo(id) {
         </div>\
         <textarea id="c-models" rows="3" placeholder="deepseek/deepseek-chat\nmy-custom/gpt-4o">' + escapeHtml((cb.models || []).join('\n')) + '</textarea>\
       </div>\
-      <div class="form-group"><label>' + t('fusionJudge') + '</label>\
-        <div style="display:flex;gap:8px;margin-bottom:8px">\
-          <button class="btn btn-sm" onclick="importModelsFromProvider(\'judge\')">' + t('importFromProvider') + '</button>\
-        </div>\
-        <input id="c-judge" value="' + escapeHtml(cb.fusionJudge || '') + '" placeholder="deepseek/deepseek-chat"></div>\
+      <div id="greedy-squirrel-hint" class="form-group" style="display:none">\
+        <p class="muted">' + t('greedySquirrelHint') + '</p>\
+      </div>\
       <div class="flex" style="gap:8px">\
         <button class="btn btn-primary" onclick="withLoading(this, () => saveEditCombo(\'' + id + '\'))">' + t('saveCombo') + '</button>\
         <button class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
       </div>\
     </div>';
+  var sel = el.querySelector('#c-strategy');
+  var hintBox = el.querySelector('#greedy-squirrel-hint');
+  if (sel && hintBox) {
+    function syncHint() {
+      hintBox.style.display = (sel.value === 'greedy-squirrel') ? 'block' : 'none';
+    }
+    sel.addEventListener('change', syncHint);
+    syncHint();
+  }
 }
 
 async function saveEditCombo(id) {
@@ -125,8 +137,7 @@ async function saveEditCombo(id) {
   const c = {
     name: document.getElementById('c-name').value,
     strategy: document.getElementById('c-strategy').value,
-    models: models,
-    fusionJudge: document.getElementById('c-judge').value || null
+    models: models
   };
   await apiPut('/combos/' + id, c);
   document.getElementById('combo-form').style.display = 'none';
@@ -158,7 +169,7 @@ async function importModelsFromProvider(target) {
       html += '<div class="muted" style="margin-bottom:8px">' + t('noModels') + '</div>';
     } else {
       for (var j = 0; j < models.length; j++) {
-        var fullId = p.prefix + '/' + models[j];
+        var fullId = p.prefix + '/' + models[j].id;
         html += '<div class="import-model-item" data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
       }
     }
@@ -170,7 +181,7 @@ async function importModelsFromProvider(target) {
     </div></div>';
   var overlay = document.getElementById('modal-overlay');
   overlay.innerHTML = html;
-  var isSingle = target === 'judge';
+  
   requestAnimationFrame(function() { overlay.classList.add('show'); });
   document.getElementById('import-close').onclick = function() {
     overlay.classList.remove('show');
@@ -178,7 +189,7 @@ async function importModelsFromProvider(target) {
   };
   document.getElementById('import-select-all').onclick = function() {
     var items = document.querySelectorAll('.import-model-item');
-    for (var k = 0; k < items.length; k++) { items[k].classList.add('selected'); if (isSingle) break; }
+    for (var k = 0; k < items.length; k++) { items[k].classList.add('selected'); }
   };
   document.getElementById('import-deselect-all').onclick = function() {
     var items = document.querySelectorAll('.import-model-item');
@@ -188,18 +199,13 @@ async function importModelsFromProvider(target) {
     var selected = [];
     var items = document.querySelectorAll('.import-model-item.selected');
     for (var k = 0; k < items.length; k++) selected.push(items[k].getAttribute('data-value'));
-    if (target === 'judge') {
-      var inp = document.getElementById('c-judge');
-      if (inp && selected.length > 0) inp.value = selected[0];
-    } else {
-      var ta = document.getElementById('c-models');
-      if (ta && selected.length > 0) {
-        var existing = ta.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
-        for (var k = 0; k < selected.length; k++) {
-          if (existing.indexOf(selected[k]) < 0) existing.push(selected[k]);
-        }
-        ta.value = existing.join('\n');
+    var ta = document.getElementById('c-models');
+    if (ta && selected.length > 0) {
+      var existing = ta.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+      for (var k = 0; k < selected.length; k++) {
+        if (existing.indexOf(selected[k]) < 0) existing.push(selected[k]);
       }
+      ta.value = existing.join('\n');
     }
     overlay.classList.remove('show');
     overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
@@ -208,11 +214,5 @@ async function importModelsFromProvider(target) {
 }
 
 function toggleImportModel(el) {
-  if (importTarget === 'judge') {
-    var items = document.querySelectorAll('.import-model-item');
-    for (var i = 0; i < items.length; i++) { items[i].classList.remove('selected'); }
-    el.classList.add('selected');
-  } else {
-    el.classList.toggle('selected');
-  }
+  el.classList.toggle('selected');
 }

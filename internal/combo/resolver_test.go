@@ -130,27 +130,79 @@ func TestResolve_InvalidModelFormat(t *testing.T) {
 	}
 }
 
-func TestResolve_Fusion(t *testing.T) {
+func TestResolve_GreedySquirrel_TierOrdering(t *testing.T) {
 	providers := []config.Provider{
-		{ID: "p1", Prefix: "provA", Name: "A"},
-		{ID: "p2", Prefix: "provB", Name: "B"},
+		{ID: "p1", Prefix: "provA", Name: "A", Models: []config.ModelDef{
+			{ID: "model-a", QuotaType: "unlimited"},
+		}},
+		{ID: "p2", Prefix: "provB", Name: "B", Models: []config.ModelDef{
+			{ID: "model-b", QuotaType: "paid"},
+		}},
+		{ID: "p3", Prefix: "provC", Name: "C", Models: []config.ModelDef{
+			{ID: "model-c", QuotaType: "limited"},
+		}},
 	}
 	c := config.Combo{
-		ID: "c1", Name: "fu", Strategy: "fusion",
-		Models:      []string{"provA/model-a", "provB/model-b"},
-		FusionJudge: "judge-model",
+		ID: "c1", Name: "gs", Strategy: "greedy-squirrel",
+		Models: []string{"provA/model-a", "provB/model-b", "provC/model-c"},
 	}
 	r := New(testRegistryWithProviders(providers, c))
 
-	plan, _ := r.Resolve("fu")
+	plan, err := r.Resolve("gs")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
 	}
-	if plan.JudgeModel != "judge-model" {
-		t.Errorf("expected judge model, got %s", plan.JudgeModel)
+	if plan.Strategy != "greedy-squirrel" {
+		t.Errorf("expected strategy greedy-squirrel, got %s", plan.Strategy)
 	}
-	if len(plan.Targets) != 2 {
-		t.Errorf("expected 2 targets, got %d", len(plan.Targets))
+	if len(plan.Targets) != 3 {
+		t.Fatalf("expected 3 targets, got %d", len(plan.Targets))
+	}
+	// Expected ordering: unlimited → limited → paid
+	if plan.Targets[0].ProviderID != "p1" || plan.Targets[0].QuotaType != "unlimited" {
+		t.Errorf("expected first target p1/unlimited, got %+v", plan.Targets[0])
+	}
+	if plan.Targets[1].ProviderID != "p3" || plan.Targets[1].QuotaType != "limited" {
+		t.Errorf("expected second target p3/limited, got %+v", plan.Targets[1])
+	}
+	if plan.Targets[2].ProviderID != "p2" || plan.Targets[2].QuotaType != "paid" {
+		t.Errorf("expected third target p2/paid, got %+v", plan.Targets[2])
+	}
+}
+
+func TestResolve_GreedySquirrel_UnknownQuotaDefaultsLimited(t *testing.T) {
+	providers := []config.Provider{
+		{ID: "p1", Prefix: "provA", Name: "A", Models: []config.ModelDef{
+			{ID: "model-a", QuotaType: "unlimited"},
+		}},
+		{ID: "p2", Prefix: "provB", Name: "B"},
+		{ID: "p3", Prefix: "provC", Name: "C"},
+	}
+	c := config.Combo{
+		ID: "c1", Name: "gs2", Strategy: "greedy-squirrel",
+		Models: []string{"provA/model-a", "provB/model-b", "provC/model-c"},
+	}
+	r := New(testRegistryWithProviders(providers, c))
+
+	plan, _ := r.Resolve("gs2")
+	if plan == nil {
+		t.Fatal("expected non-nil plan")
+	}
+	if len(plan.Targets) != 3 {
+		t.Fatalf("expected 3 targets, got %d", len(plan.Targets))
+	}
+	// model-a is unlimited, model-b and model-c have empty quota → default to limited
+	if plan.Targets[0].ProviderID != "p1" || plan.Targets[0].QuotaType != "unlimited" {
+		t.Errorf("expected first target p1/unlimited, got %+v", plan.Targets[0])
+	}
+	if plan.Targets[1].QuotaType != "limited" {
+		t.Errorf("expected second target limited, got %+v", plan.Targets[1])
+	}
+	if plan.Targets[2].QuotaType != "limited" {
+		t.Errorf("expected third target limited, got %+v", plan.Targets[2])
 	}
 }
 

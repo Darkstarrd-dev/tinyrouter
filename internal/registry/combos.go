@@ -50,7 +50,6 @@ func (r *Registry) UpdateCombo(id string, updates config.Combo) bool {
 			r.config.Combos[i].Name = updates.Name
 			r.config.Combos[i].Strategy = updates.Strategy
 			r.config.Combos[i].Models = updates.Models
-			r.config.Combos[i].FusionJudge = updates.FusionJudge
 			return true
 		}
 	}

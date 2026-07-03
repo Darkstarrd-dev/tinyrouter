@@ -330,7 +330,7 @@ function renderDetailModels(p) {
   const el = document.getElementById('detail-models');
   const models = p.models || [];
   var modelsHtml = models.map(function(m) {
-    var ts = modelTestStatus[m];
+    var ts = modelTestStatus[m.id];
     var statusClass = 'model-pending';
     var statusText = t('untested');
     var quotaHtml = '';
@@ -342,11 +342,16 @@ function renderDetailModels(p) {
       }
     }
     return '<div class="model-row">\
-        <button class="btn btn-sm" onclick="withLoading(this, () => testSingleModel(\'' + p.id + '\',\'' + escapeHtml(m) + '\'))">' + t('test') + '</button>\
-      <button class="btn btn-sm btn-danger" onclick="deleteModelDetail(\'' + p.id + '\',\'' + escapeHtml(m) + '\')">' + t('delete') + '</button>\
-      <span class="model-id copyable" onclick="copyToClipboard(\'' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '\')" title="' + t('clickToCopy') + '">' + escapeHtml(p.prefix) + '/' + escapeHtml(m) + '</span>\
+        <button class="btn btn-sm" onclick="withLoading(this, () => testSingleModel(\'' + p.id + '\',\'' + escapeHtml(m.id) + '\'))">' + t('test') + '</button>\
+      <button class="btn btn-sm btn-danger" onclick="deleteModelDetail(\'' + p.id + '\',\'' + escapeHtml(m.id) + '\')">' + t('delete') + '</button>\
+      <span class="model-id copyable" onclick="copyToClipboard(\'' + escapeHtml(p.prefix) + '/' + escapeHtml(m.id) + '\')" title="' + t('clickToCopy') + '">' + escapeHtml(p.prefix) + '/' + escapeHtml(m.id) + '</span>\
       ' + quotaHtml + '\
       <span class="model-status ' + statusClass + '">' + escapeHtml(statusText) + '</span>\
+      <select class="model-quota-select" data-model="' + escapeHtml(m.id) + '" onchange="updateModelQuotaType(\'' + escapeHtml(p.id) + '\', this)" style="font-size:12px;padding:2px 6px;border-radius:4px">\
+        <option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>\
+        <option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>\
+        <option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>\
+      </select>\
     </div>';
   }).join('');
   el.innerHTML = '\
@@ -440,7 +445,7 @@ async function importModels(pid) {
       if (resultEl) resultEl.innerHTML = '<span class="badge badge-invalid">' + t('noModelsUpstream') + '</span>';
       return;
     }
-    const existing = new Set(p.models || []);
+    const existing = new Set((p.models || []).map(function(x) { return x.id; }));
     var added = 0;
     for (const m of models) {
       if (!existing.has(m.id)) {
@@ -457,6 +462,17 @@ async function importModels(pid) {
     if (resultEl) {
       resultEl.innerHTML = '<span class="badge badge-invalid">' + t('failed', [e.message || 'unknown error']) + '</span>';
     }
+  }
+}
+
+async function updateModelQuotaType(pid, selectEl) {
+  var modelId = selectEl.getAttribute('data-model');
+  var quotaType = selectEl.value;
+  try {
+    await apiPatch('/providers/' + pid + '/models/quota', { model: modelId, quotaType: quotaType });
+    toast(t('quotaType') + ' \u2192 ' + t(quotaType), 'success');
+  } catch (e) {
+    toast(e.message || t('failed'), 'error');
   }
 }
 

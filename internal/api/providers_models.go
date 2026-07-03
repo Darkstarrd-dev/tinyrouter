@@ -214,13 +214,45 @@ func (rt *Router) addProviderModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rt.reg.AddModel(providerID, req.Model) {
+	if rt.reg.AddModel(providerID, config.ModelDef{ID: req.Model}) {
 		cfg := rt.reg.Config()
 		config.Save(rt.configPath, &cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
 		writeAPIError(w, http.StatusNotFound, "provider not found")
+	}
+}
+
+// updateModelQuota updates the quotaType of a single model on a provider.
+// Request: {"model": "model-id", "quotaType": "unlimited|limited|paid"}
+func (rt *Router) updateModelQuota(w http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "id")
+	var req struct {
+		Model     string `json:"model"`
+		QuotaType string `json:"quotaType"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.Model == "" {
+		writeAPIError(w, http.StatusBadRequest, "model required")
+		return
+	}
+	switch req.QuotaType {
+	case "unlimited", "limited", "paid":
+	default:
+		writeAPIError(w, http.StatusBadRequest, "invalid quotaType, must be unlimited | limited | paid")
+		return
+	}
+	if rt.reg.UpdateModelQuotaType(providerID, req.Model, req.QuotaType) {
+		cfg := rt.reg.Config()
+		config.Save(rt.configPath, &cfg)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	} else {
+		writeAPIError(w, http.StatusNotFound, "model not found on provider")
 	}
 }
 

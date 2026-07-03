@@ -11,13 +11,13 @@ import (
 type ModelTarget struct {
 	ProviderID string
 	Model      string
+	QuotaType  string
 }
 
 // ComboPlan describes how to execute a combo request.
 type ComboPlan struct {
-	Strategy   string        // "fallback" | "round-robin" | "fusion"
-	Targets    []ModelTarget // ordered (fallback/round-robin) or parallel (fusion)
-	JudgeModel string        // fusion only
+	Strategy string        // "fallback" | "round-robin" | "greedy-squirrel"
+	Targets  []ModelTarget // ordered; greedy-squirrel sorts by quota tier internally
 }
 
 // Resolver resolves combo names into execution plans.
@@ -55,7 +55,17 @@ func (r *Resolver) Resolve(comboName string) (*ComboPlan, error) {
 		if !ok {
 			continue
 		}
-		targets = append(targets, ModelTarget{ProviderID: provider.ID, Model: model})
+		mt := ModelTarget{ProviderID: provider.ID, Model: model}
+		for _, md := range provider.Models {
+			if md.ID == model {
+				mt.QuotaType = md.QuotaType
+				break
+			}
+		}
+		if mt.QuotaType == "" {
+			mt.QuotaType = "limited"
+		}
+		targets = append(targets, mt)
 	}
 
 	if len(targets) == 0 {
@@ -63,13 +73,14 @@ func (r *Resolver) Resolve(comboName string) (*ComboPlan, error) {
 	}
 
 	plan := &ComboPlan{
-		Strategy:   combo.Strategy,
-		Targets:    targets,
-		JudgeModel: combo.FusionJudge,
+		Strategy: combo.Strategy,
+		Targets:  targets,
 	}
 
 	if combo.Strategy == "round-robin" {
 		plan.Targets = r.rotateTargets(combo.Name, targets)
+	} else if combo.Strategy == "greedy-squirrel" {
+		plan.Targets = sortTargetsByTier(targets)
 	}
 
 	return plan, nil
@@ -109,6 +120,27 @@ func splitModel(s string) (string, string) {
 		}
 	}
 	return "", s
+}
+
+// sortTargetsByTier sorts targets by quota tier: unlimited → limited → paid,
+// preserving original order within each tier.
+func sortTargetsByTier(targets []ModelTarget) []ModelTarget {
+	var unlimited, limited, paid []ModelTarget
+	for _, t := range targets {
+		switch t.QuotaType {
+		case "unlimited":
+			unlimited = append(unlimited, t)
+		case "paid":
+			paid = append(paid, t)
+		default:
+			limited = append(limited, t)
+		}
+	}
+	result := make([]ModelTarget, 0, len(targets))
+	result = append(result, unlimited...)
+	result = append(result, limited...)
+	result = append(result, paid...)
+	return result
 }
 
 // IsComboName checks if the given model string matches a combo name.
