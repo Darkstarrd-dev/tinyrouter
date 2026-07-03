@@ -1,7 +1,7 @@
 // ===================== Translation System =====================
 const L = {
   en: {
-    endpoint: 'Endpoint', providers: 'Providers', combos: 'Combos', usage: 'Usage', console: 'Console',
+    endpoint: 'Endpoint', providers: 'Providers', combos: 'Combos', usage: 'Usage', console: 'Console', playground: 'Playground',
     shutdown: 'Shutdown',
     listenPort: 'Listen Port', save: 'Save',
     apiEndpoint: 'API Endpoint:', noKeyRequired: 'No API key required. Any key or no key works.',
@@ -96,9 +96,21 @@ const L = {
     firstToken: 'First Token',
     speed: 'Speed',
     outputTokensLabel: 'Output',
+    // Playground
+    pgSelectModel: 'Select Model', pgNoModels: 'No models configured', pgSendMessage: 'Send', pgStop: 'Stop', pgClear: 'Clear Chat',
+    pgTemperature: 'Temperature', pgTopP: 'Top P', pgMaxTokens: 'Max Tokens', pgFreqPenalty: 'Frequency Penalty', pgPresPenalty: 'Presence Penalty',
+    pgStream: 'Stream', pgParams: 'Parameters', pgDebug: 'Debug', pgCustomBody: 'Custom Body',
+    pgUseCustomBody: 'Use Custom Body', pgCustomBodyHint: 'Edit raw JSON request body. Overrides parameters above.',
+    pgRawSSE: 'Raw SSE Events', pgRequest: 'Request Body', pgProvider: 'Provider', pgKey: 'Key',
+    pgThinking: 'Thinking', pgCopy: 'Copy', pgRegenerate: 'Regenerate', pgEdit: 'Edit', pgSave: 'Save',
+    pgEmptyState: 'Send a message to start chatting', pgEnterMessage: 'Type a message...',
+    pgStreaming: 'Streaming...', pgStopped: 'Stopped', pgError: 'Error', pgWaiting: 'Waiting...',
+    pgRespProvider: 'Provider: {0}', pgRespKey: 'Key: {0}', pgNoProvider: 'N/A',
+    pgClearConfirm: 'Clear all messages?', pgCopiedMsg: 'Message copied', pgExportCfg: 'Export', pgImportCfg: 'Import',
+    pgResetCfg: 'Reset', pgCfgExported: 'Config exported', pgCfgImported: 'Config imported', pgCfgReset: 'Config reset',
   },
   cn: {
-    endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台',
+    endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台', playground: '测试',
     shutdown: '关闭',
     listenPort: '监听端口', save: '保存',
     apiEndpoint: 'API 地址:', noKeyRequired: '无需 API Key，任意 Key 或无 Key 均可访问。',
@@ -193,6 +205,18 @@ const L = {
     firstToken: '首字延迟',
     speed: '速度',
     outputTokensLabel: '输出',
+    // Playground
+    pgSelectModel: '选择模型', pgNoModels: '未配置模型', pgSendMessage: '发送', pgStop: '停止', pgClear: '清空对话',
+    pgTemperature: '温度', pgTopP: 'Top P', pgMaxTokens: '最大 Tokens', pgFreqPenalty: '频率惩罚', pgPresPenalty: '存在惩罚',
+    pgStream: '流式', pgParams: '参数', pgDebug: '调试', pgCustomBody: '自定义请求体',
+    pgUseCustomBody: '使用自定义请求体', pgCustomBodyHint: '编辑原始 JSON 请求体，将覆盖上方参数。',
+    pgRawSSE: '原始 SSE 事件', pgRequest: '请求体', pgProvider: '服务商', pgKey: '密钥',
+    pgThinking: '思考中', pgCopy: '复制', pgRegenerate: '重新生成', pgEdit: '编辑', pgSave: '保存',
+    pgEmptyState: '发送消息开始对话', pgEnterMessage: '输入消息...',
+    pgStreaming: '生成中...', pgStopped: '已停止', pgError: '错误', pgWaiting: '等待中...',
+    pgRespProvider: '服务商: {0}', pgRespKey: '密钥: {0}', pgNoProvider: '无',
+    pgClearConfirm: '清空所有消息？', pgCopiedMsg: '消息已复制', pgExportCfg: '导出', pgImportCfg: '导入',
+    pgResetCfg: '重置', pgCfgExported: '配置已导出', pgCfgImported: '配置已导入', pgCfgReset: '配置已重置',
   }
 };
 

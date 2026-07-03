@@ -64,9 +64,14 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
+			// Expose custom response headers (X-TinyRouter-*) to clients.
+			w.Header().Set("Access-Control-Expose-Headers", "X-TinyRouter-Provider, X-TinyRouter-Key")
 			next.ServeHTTP(w, r)
 		})
 	})
+	// Compress responses (brotli/gzip) for compressible content types.
+	// SSE responses and pre-compressed binaries are auto-skipped inside.
+	r.Use(Compress)
 
 	// Proxy routes (OpenAI-compatible)
 	r.Post("/v1/chat/completions", proxyHandler.ChatCompletions)

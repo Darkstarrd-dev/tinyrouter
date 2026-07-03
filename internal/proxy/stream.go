@@ -50,6 +50,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if sel != nil {
+		w.Header().Set("X-TinyRouter-Provider", sel.Provider.Name)
+		w.Header().Set("X-TinyRouter-Key", sel.KeyName)
+	}
 	w.WriteHeader(http.StatusOK)
 
 	buf := make([]byte, 32*1024)
@@ -106,6 +110,10 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if sel != nil {
+		w.Header().Set("X-TinyRouter-Provider", sel.Provider.Name)
+		w.Header().Set("X-TinyRouter-Key", sel.KeyName)
+	}
 	w.WriteHeader(resp.StatusCode)
 
 	bodyBytes, err := io.ReadAll(resp.Body)

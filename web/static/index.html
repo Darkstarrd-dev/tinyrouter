@@ -20,6 +20,8 @@
 })();
 </script>
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/vendor/highlight-github-dark.css">
+<link rel="stylesheet" href="/vendor/katex.min.css">
 </head>
 <body>
 <div class="app">
@@ -41,6 +43,7 @@
 <button class="nav-item active" type="button" data-page="endpoint">Endpoint</button>
 <button class="nav-item" type="button" data-page="providers">Providers</button>
 <button class="nav-item" type="button" data-page="combos">Combos</button>
+<button class="nav-item" type="button" data-page="playground">Playground</button>
 <button class="nav-item" type="button" data-page="usage">Usage</button>
 <button class="nav-item" type="button" data-page="console">Console</button>
 </nav>
@@ -62,5 +65,12 @@
 <script src="/combos.js"></script>
 <script src="/usage.js"></script>
 <script src="/console.js"></script>
+<!-- Playground vendor deps (load order matters: katex -> marked -> ext -> purify -> hljs) -->
+<script src="/vendor/katex.min.js"></script>
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/marked-katex-extension.umd.js"></script>
+<script src="/vendor/purify.min.js"></script>
+<script src="/vendor/highlight.min.js"></script>
+<script src="/playground.js"></script>
 </body>
 </html>

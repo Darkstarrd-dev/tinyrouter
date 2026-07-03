@@ -24,6 +24,10 @@ function navigateTo(page) {
   currentPage = page;
   currentProviderId = null;
   stopUsageRefresh();
+  // Cleanup playground streaming state when leaving the page.
+  if (currentPage !== 'playground' && typeof cleanupPlayground === 'function') {
+    cleanupPlayground();
+  }
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);
   });
@@ -38,6 +42,7 @@ function navigateTo(page) {
       case 'endpoint': return renderEndpoint(container);
       case 'providers': return renderProviders(container);
       case 'combos': return renderCombos(container);
+      case 'playground': return renderPlayground(container);
       case 'usage': return renderUsage(container);
       case 'console': return renderConsole(container);
     }
