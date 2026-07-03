@@ -21,6 +21,7 @@ func (rt *Router) bulkAddKeys(w http.ResponseWriter, r *http.Request) {
 			Name     string `json:"name"`
 			Key      string `json:"key"`
 			Priority int    `json:"priority"`
+			Account  string `json:"account"`
 		} `json:"keys"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -50,6 +51,7 @@ func (rt *Router) bulkAddKeys(w http.ResponseWriter, r *http.Request) {
 			Name:     name,
 			Priority: priority,
 			IsActive: true,
+			Account:  k.Account,
 		}
 		if rt.reg.AddKey(providerID, newKey) {
 			added++

@@ -3,6 +3,7 @@ package proxy
 import (
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
@@ -100,6 +101,23 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		return
 	}
 
+	// SenseNova-style 429: no rate-limit headers, but body is classifiable into rpm/tpm.
+	// Both rpm and tpm are per-account limits with ~60s sliding window.
+	// Action: cooldown key+model 60s, exclude all same-account keys, switch to different account.
+	if snType := classifySenseNova429(bodyStr); snType != sn429Unknown {
+		rpmCooldown := 60 * time.Second
+		h.selector.MarkRateLimited(providerID, sel.Key.ID, model, rpmCooldown)
+		h.excludeSameAccountKeys(sel, state)
+		state.temp429Retries = 0
+		label := "rpm"
+		if snType == sn429TPM {
+			label = "tpm"
+		}
+		h.logger.Warn("429 %s: %s | Key %s cooled 60s, switching account", label, truncStr(bodyStr, 200), sel.Key.Name)
+		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, bodyStr)
+		return
+	}
+
 	// Fallback: no adapter (SenseNova/Elysiver) — use original logic
 	if rotation.IsDailyQuota429(bodyStr, model) {
 		h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, model, bodyStr)
@@ -133,4 +151,41 @@ func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.Selecte
 	state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 	h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, truncStr(string(body), 500))
 	state.temp429Retries = 0
+}
+
+// senseNova429Type classifies SenseNova 429 responses by body content.
+type senseNova429Type int
+
+const (
+	sn429Unknown senseNova429Type = iota
+	sn429RPM                      // {"message":"rpm exhausted","type":"quota_exceeded_error","code":"8"}
+	sn429TPM                      // {"message":"rate limit exceeded on dimension: tpm","type":"invalid_request_error","code":"429001"}
+)
+
+// classifySenseNova429 inspects the 429 body to determine if it's an rpm or tpm limit.
+// Returns sn429Unknown if the body doesn't match SenseNova patterns.
+func classifySenseNova429(body string) senseNova429Type {
+	lower := strings.ToLower(body)
+	if strings.Contains(lower, "rpm exhausted") {
+		return sn429RPM
+	}
+	if strings.Contains(lower, "tpm") {
+		return sn429TPM
+	}
+	return sn429Unknown
+}
+
+// excludeSameAccountKeys adds the current key and all keys with the same non-empty
+// Account to the exclusion list. This prevents switching to another key of the same
+// account when the rate limit is per-account (e.g., SenseNova rpm/tpm).
+func (h *Handler) excludeSameAccountKeys(sel *rotation.SelectedKey, state *retryState) {
+	state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
+	if sel.Key.Account == "" {
+		return
+	}
+	for _, k := range sel.Provider.Keys {
+		if k.ID != sel.Key.ID && k.Account == sel.Key.Account {
+			state.excludeKeyIDs = append(state.excludeKeyIDs, k.ID)
+		}
+	}
 }

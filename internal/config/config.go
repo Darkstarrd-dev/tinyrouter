@@ -24,6 +24,7 @@ type Key struct {
 	Name     string `yaml:"name" json:"name"`
 	Priority int    `yaml:"priority" json:"priority"`
 	IsActive bool   `yaml:"isActive" json:"isActive"`
+	Account  string `yaml:"account,omitempty" json:"account,omitempty"`
 }
 
 // Provider represents one upstream OpenAI-compatible endpoint.

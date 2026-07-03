@@ -28,3 +28,7 @@ Thumbs.db
 
 # Local reference docs
 providerinfo.md
+
+# Test artifacts
+coverage
+tests/**/results.jsonl

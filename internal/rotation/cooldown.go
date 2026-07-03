@@ -15,6 +15,7 @@ type CooldownManager interface {
 	MarkUnavailable(providerID, keyID, model string, statusCode int, body string) time.Time
 	ClearError(providerID, keyID, model string)
 	MarkDailyQuotaLocked(providerID, keyID, model string, body string) time.Time
+	MarkRateLimited(providerID, keyID, model string, duration time.Duration) time.Time
 }
 
 func (s *Selector) MarkUnavailable(providerID, keyID, model string, statusCode int, body string) time.Time {
@@ -141,6 +142,25 @@ func (s *Selector) MarkDailyQuotaLocked(providerID, keyID, model string, body st
 	state.ModelLocks[model] = unlock
 	state.Status = "locked"
 	state.LastError = fmt.Sprintf("429 daily quota: %s", truncate(body, 200))
+	state.LastErrorAt = time.Now()
+	return unlock
+}
+
+// MarkRateLimited applies a fixed-duration cooldown for a key+model without
+// incrementing the exponential backoff level. Used for SenseNova rpm/tpm 429s
+// where the limit is per-account with a ~60s sliding window.
+func (s *Selector) MarkRateLimited(providerID, keyID, model string, duration time.Duration) time.Time {
+	state := s.reg.GetKeyState(providerID, keyID)
+	if state == nil {
+		return time.Time{}
+	}
+	state.Lock()
+	defer state.Unlock()
+
+	unlock := time.Now().Add(duration)
+	state.ModelLocks[model] = unlock
+	state.Status = "cooldown"
+	state.LastError = fmt.Sprintf("rate limited: %s (%v)", model, duration)
 	state.LastErrorAt = time.Now()
 	return unlock
 }
