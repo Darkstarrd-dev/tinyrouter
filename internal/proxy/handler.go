@@ -172,7 +172,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		// NIM min_interval: wait if too soon since last send on this key.
-		if cfgProvider != nil && cfgProvider.APIType == "nim" {
+		if cfgProvider != nil && cfgProvider.IsNIM() {
 			if wait := h.selector.WaitNIMInterval(providerID, sel.Key.ID); wait > 0 {
 				h.logger.Debug("NIM min_interval wait %v for key %s", wait, sel.Key.Name)
 				time.Sleep(wait)
@@ -231,7 +231,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		h.parseAndUpdateQuota(sel, providerID, upstreamModel, resp.Header)
 
 		// NIM: track request count and rotate if limit reached.
-		if cfgProvider != nil && cfgProvider.APIType == "nim" {
+		if cfgProvider != nil && cfgProvider.IsNIM() {
 			h.selector.OnNIMRequestSuccess(providerID, sel.Key.ID, upstreamModel)
 		}
 

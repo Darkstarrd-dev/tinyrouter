@@ -77,7 +77,7 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 		return nil, fmt.Errorf("no available keys for provider %s (model %s)", providerID, model)
 	}
 	// Apply NIM per-key request-count filter.
-	if provider.APIType == "nim" {
+	if provider.IsNIM() {
 		candidates = s.filterNIMCandidates(provider.ID, candidates)
 	}
 	var chosen config.Key
@@ -113,7 +113,7 @@ func (s *Selector) OnKeyFailure(providerID, keyID, model string, statusCode int,
 		return
 	}
 	// NIM 429 uses NIM-specific cooldown ladder, not exponential backoff.
-	if provider.APIType == "nim" && statusCode == 429 {
+	if provider.IsNIM() && statusCode == 429 {
 		s.MarkNIM429(providerID, keyID, model)
 		return
 	}

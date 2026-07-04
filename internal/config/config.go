@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -89,8 +90,19 @@ type Provider struct {
 	NIMConfig        *NIMSettings `yaml:"nim,omitempty" json:"nim,omitempty"`
 }
 
+// IsNIM reports whether this provider should use the NIM-specific key rotation
+// and throttling path. It returns true when APIType == "nim" OR when the
+// BaseURL contains "nvidia" (auto-detection fallback so a misconfigured
+// apiType never silently bypasses NIM throttling).
+func (p Provider) IsNIM() bool {
+	if p.APIType == "nim" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(p.BaseURL), "nvidia")
+}
+
 // NIMSettings holds NVIDIA NIM-specific key rotation and throttling config.
-// Only effective when Provider.APIType == "nim".
+// Effective when Provider.IsNIM() is true (apiType == "nim" or BaseURL contains "nvidia").
 type NIMSettings struct {
 	RequestCountPerKey int   `yaml:"request_count_per_key" json:"request_count_per_key"`
 	MinIntervalMs      int   `yaml:"min_interval_ms" json:"min_interval_ms"`

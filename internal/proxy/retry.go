@@ -55,7 +55,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 	latencyMs := time.Since(startTime).Milliseconds()
 
 	// NIM 429: use NIM-specific cooldown ladder.
-	if sel.Provider.APIType == "nim" {
+	if sel.Provider.IsNIM() {
 		h.selector.MarkNIM429(providerID, sel.Key.ID, model)
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 		state.temp429Retries = 0
