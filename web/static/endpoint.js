@@ -47,9 +47,60 @@ async function renderEndpoint(c) {
 }
 
 async function savePort() {
-  const port = parseInt(document.getElementById('port').value);
-  await apiPatch('/settings', { port });
-  toast(t('portSaved'), 'success');
+  var port = parseInt(document.getElementById('port').value);
+  if (!port || port < 1 || port > 65535) {
+    toast(t('invalidPort'), 'error');
+    return;
+  }
+  var ok = await confirmModal(t('confirmRestart'));
+  if (!ok) return;
+  try {
+    var resp = await apiPatch('/settings', { port: port });
+    if (resp.error) {
+      toast(resp.error, 'error', 5000);
+      return;
+    }
+    if (resp.restart) {
+      showRestarting(port);
+      pollNewPort(port);
+    } else {
+      toast(t('portSaved'), 'success');
+    }
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
+}
+
+function showRestarting(newPort) {
+  var overlay = document.getElementById('modal-overlay');
+  overlay.innerHTML = '<div class="modal" style="text-align:center;min-width:280px">' +
+    '<div style="margin:16px auto;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite"></div>' +
+    '<div class="modal-title">' + t('restarting') + '</div>' +
+    '<p class="muted mt-12">' + t('restartingDesc', [newPort]) + '</p>' +
+    '</div>';
+  overlay.classList.add('show');
+  overlay.onclick = null;
+}
+
+async function pollNewPort(newPort) {
+  var newBase = 'http://127.0.0.1:' + newPort;
+  var startTime = Date.now();
+  var timeout = 15000;
+  while (Date.now() - startTime < timeout) {
+    try {
+      await fetch(newBase + '/api/settings');
+      window.location.href = newBase + '/';
+      return;
+    } catch (e) {
+      await new Promise(function(r) { setTimeout(r, 500); });
+    }
+  }
+  var overlay = document.getElementById('modal-overlay');
+  overlay.innerHTML = '<div class="modal" style="text-align:center;min-width:280px">' +
+    '<div class="modal-title">' + t('restartFailed') + '</div>' +
+    '<p class="muted mt-12">' + t('restartFailedDesc') + '</p>' +
+    '<div class="modal-footer" style="justify-content:center;margin-top:16px"><button class="btn btn-primary" onclick="location.reload()">' + t('close') + '</button></div>' +
+    '</div>';
 }
 async function saveRotation() {
   const rotation = {

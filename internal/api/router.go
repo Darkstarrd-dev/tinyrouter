@@ -32,6 +32,7 @@ type Router struct {
 	client       *http.Client
 	testClient   *http.Client
 	shutdown     context.CancelFunc
+	restartFn    func(string) error
 }
 
 // New creates an API Router.
@@ -54,6 +55,12 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+// SetRestartFunc configures a callback that will gracefully restart the HTTP
+// server on a new address. Used by updateSettings when the port changes.
+func (rt *Router) SetRestartFunc(fn func(string) error) {
+	rt.restartFn = fn
 }
 
 // Routes returns the root HTTP handler with all routes registered.

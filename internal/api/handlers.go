@@ -2,10 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tinyrouter/tinyrouter/internal/config"
@@ -39,8 +42,21 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := rt.reg.Config()
+	portChanged := false
 	if updates.Port != nil {
-		cfg.Port = *updates.Port
+		newPort := *updates.Port
+		if newPort < 1 || newPort > 65535 {
+			writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("invalid port number: %d", newPort))
+			return
+		}
+		if newPort != cfg.Port {
+			if err := checkPortAvailable(newPort); err != nil {
+				writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("port %d is not available: %v", newPort, err))
+				return
+			}
+			portChanged = true
+		}
+		cfg.Port = newPort
 	}
 	if updates.ConsoleLogMaxLines != nil {
 		cfg.ConsoleLogMaxLines = *updates.ConsoleLogMaxLines
@@ -60,6 +76,21 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rt.reg.Reload(&cfg)
+
+	if portChanged && rt.restartFn != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"ok":      true,
+			"restart": true,
+			"port":    cfg.Port,
+		})
+		newAddr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			rt.restartFn(newAddr)
+		}()
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -306,6 +337,16 @@ func writeAPIError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]any{"error": msg})
+}
+
+// checkPortAvailable tests whether a TCP port can be bound on 127.0.0.1.
+func checkPortAvailable(port int) error {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	return ln.Close()
 }
 
 func (rt *Router) getIntQuery(r *http.Request, key string, defaultVal int) int {

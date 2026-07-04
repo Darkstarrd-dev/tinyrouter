@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os/exec"
 	"runtime"
 	"time"
@@ -28,7 +27,7 @@ import (
 type hostContext struct {
 	logger     *console.Logger
 	consoleURL string   // full URL to the admin UI (e.g. http://127.0.0.1:7700)
-	srv        *http.Server
+	sm         *ServerManager
 	// quit returns a channel that closes when the UI requests shutdown (POST /api/shutdown).
 	quit func() <-chan struct{}
 }
@@ -86,23 +85,10 @@ func main() {
 
 	// Build HTTP server
 	handler := apiRouter.Routes(proxyHandler)
-
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  300 * time.Second,
-		WriteTimeout: 300 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
-
-	// Start server in goroutine
-	go func() {
-		logger.Info("TinyRouter v%s starting on http://%s", Version, addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
-		}
-	}()
+	sm := NewServerManager(handler, addr, logger)
+	sm.Start()
+	apiRouter.SetRestartFunc(sm.Restart)
 
 	// Auto-open browser on the default (console) host; tray/webview hosts override
 	// openBrowserOnStartHost to false so the tray/window is the entry point, not a popped browser.
@@ -120,14 +106,14 @@ func main() {
 	runHostLoop(&hostContext{
 		logger:     logger,
 		consoleURL: fmt.Sprintf("http://%s", addr),
-		srv:        srv,
+		sm:         sm,
 		quit:       shutdownCtx.Done,
 	})
 
 	// Graceful HTTP server shutdown.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := sm.Shutdown(ctx); err != nil {
 		log.Fatalf("forced shutdown: %v", err)
 	}
 	if stateManager != nil {
