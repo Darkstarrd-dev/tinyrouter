@@ -25,6 +25,7 @@ type Handler struct {
 	client           *http.Client
 	UsageUpdateCh    chan struct{}
 	InflightUpdateCh chan struct{}
+	Inflight         *InflightTracker
 }
 
 func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, quotaTracker *usage.QuotaTracker, logger *console.Logger) *Handler {
@@ -37,6 +38,7 @@ func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.
 		logger:           logger,
 		UsageUpdateCh:    make(chan struct{}, 1),
 		InflightUpdateCh: make(chan struct{}, 1),
+		Inflight:         NewInflightTracker(),
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 		},

@@ -164,6 +164,7 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 		AvgTTFTMs    int64   `json:"avgTtftMs"`
 		AvgSpeed     float64 `json:"avgSpeed"`
 		InFlight     int     `json:"inFlight"`
+		LiveSpeed    float64 `json:"liveSpeed"`
 	}
 
 	hasQuota := false
@@ -174,6 +175,12 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 	keyStatByID := make(map[string]usage.KeyStatEntry, len(keyStatEntries))
 	for _, kse := range keyStatEntries {
 		keyStatByID[kse.KeyID] = kse
+	}
+
+	// Fetch live speeds from inflight tracker
+	liveSpeeds := make(map[string]float64)
+	if rt.proxyHandler != nil && rt.proxyHandler.Inflight != nil {
+		liveSpeeds = rt.proxyHandler.Inflight.LiveSpeedForKeys()
 	}
 
 	for idx, k := range provider.Keys {
@@ -216,6 +223,9 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 			kd.ErrorCount = kse.ErrorCount
 			kd.AvgTTFTMs = kse.AvgTTFTMs
 			kd.AvgSpeed = kse.AvgSpeed
+		}
+		if liveSpeed, ok := liveSpeeds[provider.ID+"/"+k.ID]; ok {
+			kd.LiveSpeed = liveSpeed
 		}
 		details = append(details, kd)
 	}

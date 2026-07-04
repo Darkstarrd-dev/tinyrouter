@@ -706,7 +706,7 @@ function renderModelKeyDetail(provider, model, data) {
     }
 
     var metricsHtml = '';
-    var hasMetrics = (k.successCount != null && k.successCount > 0) || (k.errorCount != null && k.errorCount > 0) || (k.avgTtftMs != null && k.avgTtftMs > 0) || (k.avgSpeed != null && k.avgSpeed > 0);
+    var hasMetrics = (k.successCount != null && k.successCount > 0) || (k.errorCount != null && k.errorCount > 0) || (k.avgTtftMs != null && k.avgTtftMs > 0) || (k.avgSpeed != null && k.avgSpeed > 0) || (k.liveSpeed != null && k.liveSpeed > 0);
     if (hasMetrics) {
       var metricsParts = [];
       if (k.successCount != null || k.errorCount != null) {
@@ -715,7 +715,9 @@ function renderModelKeyDetail(provider, model, data) {
       if (k.avgTtftMs != null && k.avgTtftMs > 0) {
         metricsParts.push('<span class="model-key-metric">TTFT ' + k.avgTtftMs + 'ms</span>');
       }
-      if (k.avgSpeed != null && k.avgSpeed > 0) {
+      if (k.inFlight && k.inFlight > 0 && k.liveSpeed != null && k.liveSpeed > 0) {
+        metricsParts.push('<span class="model-key-metric metric-live">' + k.liveSpeed.toFixed(1) + ' tok/s</span>');
+      } else if (k.avgSpeed != null && k.avgSpeed > 0) {
         metricsParts.push('<span class="model-key-metric">' + k.avgSpeed.toFixed(1) + ' tok/s</span>');
       }
       metricsHtml = '<span class="model-key-metrics">' + metricsParts.join('') + '</span>';
