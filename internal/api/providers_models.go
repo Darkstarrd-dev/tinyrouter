@@ -189,6 +189,16 @@ func (rt *Router) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 
 // --- Provider Model Testing ---
 
+// headerToMap converts an http.Header to a map[string][]string,
+// preserving multi-value structure without filtering or merging.
+func headerToMap(h http.Header) map[string][]string {
+	m := make(map[string][]string, len(h))
+	for k, v := range h {
+		m[k] = v
+	}
+	return m
+}
+
 // testProviderModel tests a specific model by sending a minimal chat completion.
 // Request: {model}
 // Response: {ok, latencyMs, error?, status?}
@@ -220,6 +230,11 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 
 	chatURL := proxy.BuildUpstreamURL(provider.BaseURL, "/v1/chat/completions")
 	body := `{"model":"` + req.Model + `","messages":[{"role":"user","content":"hi"}],"max_tokens":16,"stream":false}`
+	var parsedReqBody any = body
+	var reqJSON map[string]any
+	if json.Unmarshal([]byte(body), &reqJSON) == nil {
+		parsedReqBody = reqJSON
+	}
 	req2, err := http.NewRequest("POST", chatURL, strings.NewReader(body))
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid URL")
@@ -238,12 +253,26 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 			"latencyMs": latencyMs,
 			"error":     err.Error(),
 			"status":    0,
+			"request": map[string]any{
+				"method":  "POST",
+				"url":     chatURL,
+				"headers": headerToMap(req2.Header),
+				"body":    parsedReqBody,
+			},
+			"responseHeaders": nil,
+			"responseBody":    nil,
 		})
 		return
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+
+	var parsedRespBody any = string(respBody)
+	var respJSON map[string]any
+	if json.Unmarshal(respBody, &respJSON) == nil {
+		parsedRespBody = respJSON
+	}
 
 	var errMsg string
 	ok = resp.StatusCode == 200
@@ -296,6 +325,14 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 		"latencyMs": latencyMs,
 		"error":     errMsg,
 		"status":    resp.StatusCode,
+		"request": map[string]any{
+			"method":  "POST",
+			"url":     chatURL,
+			"headers": headerToMap(req2.Header),
+			"body":    parsedReqBody,
+		},
+		"responseHeaders": headerToMap(resp.Header),
+		"responseBody":    parsedRespBody,
 	}
 	if quotaTotal > 0 {
 		respMap["quotaRemain"] = quotaRemain

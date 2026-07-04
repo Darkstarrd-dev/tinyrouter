@@ -368,6 +368,9 @@ function renderDetailModels(p) {
               ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
               : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
           : '<button class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midEsc + '\'))">' + t('test') + '</button>') +
+        (ts
+          ? '<button class="btn btn-sm btn-info" onclick="event.stopPropagation(); showModelInfo(\'' + midEsc + '\')">' + t('info') + '</button>'
+          : '<button class="btn btn-sm" disabled>' + t('info') + '</button>') +
         '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
           '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
           '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
@@ -723,6 +726,81 @@ async function doTestModel(pid, modelId) {
   } catch (e) {
     if (resultEl) resultEl.innerHTML = '<span class="badge badge-invalid">' + t('failed', [e.message]) + '</span>';
   }
+}
+
+// ===================== Info Modal =====================
+
+function showModelInfo(modelId) {
+  var ts = modelTestStatus[modelId];
+  if (!ts) return;
+
+  var overlay = document.getElementById('info-modal-overlay');
+  var titleEl = document.getElementById('info-modal-title');
+  var bodyEl = document.getElementById('info-modal-body');
+
+  titleEl.textContent = modelId + ' \u2014 ' + t('info');
+
+  var html = '';
+
+  if (ts.request) {
+    html += renderInfoSection(t('requestInfo'), ts.request);
+  }
+  if (ts.responseHeaders) {
+    html += renderInfoSection(t('responseHeaders'), ts.responseHeaders);
+  }
+  if (ts.responseBody != null) {
+    html += renderInfoSection(t('responseBody'), ts.responseBody);
+  }
+
+  bodyEl.innerHTML = html;
+  overlay.classList.add('show');
+
+  document.addEventListener('keydown', infoModalEscapeHandler);
+}
+
+function closeInfoModal() {
+  var overlay = document.getElementById('info-modal-overlay');
+  overlay.classList.remove('show');
+  document.removeEventListener('keydown', infoModalEscapeHandler);
+}
+
+function infoModalEscapeHandler(e) {
+  if (e.key === 'Escape') {
+    closeInfoModal();
+  }
+}
+
+function renderInfoSection(title, data) {
+  var content = '';
+  if (data === null || data === undefined) {
+    content = '<pre class="info-json">' + t('noData') + '</pre>';
+  } else if (typeof data === 'string') {
+    content = '<div class="info-field"><pre class="info-json">' + escapeHtml(data) + '</pre><button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button></div>';
+  } else {
+    for (var k in data) {
+      var v = data[k];
+      var vStr;
+      if (v === null) {
+        vStr = 'null';
+      } else if (typeof v === 'object') {
+        vStr = JSON.stringify(v, null, 2);
+      } else {
+        vStr = String(v);
+      }
+      content += '<div class="info-field"><span class="info-field-key">' + escapeHtml(k) + '</span><pre class="info-json">' + escapeHtml(vStr) + '</pre><button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button></div>';
+    }
+  }
+  return '<div class="info-section"><div class="info-section-title">' + escapeHtml(title) + '</div>' + content + '</div>';
+}
+
+function copyInfoText(btn) {
+  var pre = btn.previousElementSibling;
+  var text = pre ? pre.textContent : '';
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = t('copied');
+    setTimeout(function() { btn.textContent = orig; }, 1500);
+  });
 }
 
 async function addModelDetail(pid) {
