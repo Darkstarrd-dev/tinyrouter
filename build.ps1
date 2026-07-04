@@ -7,11 +7,11 @@
 #   ./build.ps1 -Variant tray -Playground -Strip # tray + playground + minimal size
 #   ./build.ps1 -Variant webview                 # tray + native WebView2 window (Win11 runtime preinstalled)
 #   ./build.ps1 -Variant debug                   # no flags, full DWARF for dlv
+#   ./build.ps1 -All                             # build all 13 variants at once into dist/
 #
-# Output matrix (host x playground x strip):
-#   - Variant default|tray|webview|debug
-#   - Playground switch toggles the `playground` build tag (embeds playground assets)
-#   - Strip switch toggles -s -w (smaller binary, no DWARF/symtab)
+# Without -All, exactly one variant is produced per invocation (selected by -Variant
+# plus -Playground/-Strip toggles). -All ignores -Variant/-Playground/-Strip and
+# builds the full matrix: default|tray|webview x {pg,strip} combinations + debug.
 #
 # All artifacts land in ./dist/ with descriptive names:
 #   tinyrouter.exe                        default console (current behavior)
@@ -22,7 +22,9 @@
 #   tinyrouter-tray-pg-stripped.exe       tray + playground + strip
 #   tinyrouter-webview.exe                tray + WebView2 window (pure Go, no CGO)
 #   tinyrouter-webview-pg.exe             tray + WebView2 + playground
-#   tinyrouter-debug.exe                   full DWARF, no stripping, console window
+#   tinyrouter-debug.exe                  full DWARF, no stripping, console window
+#
+# See the 13-artifact matrix at the bottom of this file.
 
 param(
     [ValidateSet("default", "tray", "webview", "debug")]
@@ -30,104 +32,152 @@ param(
 
     [switch]$Playground,
     [switch]$Strip,
+    [switch]$All,
 
     [string]$OutputDir = "dist"
 )
 
 $ErrorActionPreference = "Stop"
-$goarch = "amd64"
 
-# --- Build tag set + ldflags per variant -------------------------------------
-$tags = @()
-$ldflags = @()
-
-switch ($Variant) {
-    "default" {
-        # Current behavior: console subsystem + auto-open browser.
-        $base = "tinyrouter"
+# --- Ensure rsrc.syso exists (generated from web/static/favicon.ico) -------
+# Shared by both single-build and -All paths. Idempotent: re-runs `go generate`
+# only when syso is missing OR favicon.ico/rsrc.manifest is newer than syso.
+function Invoke-EnsureSyso {
+    $needGenerate = $false
+    if (-not (Test-Path rsrc.syso)) {
+        $needGenerate = $true
+    } else {
+        foreach ($dep in @("web/static/favicon.ico", "rsrc.manifest")) {
+            if ((Test-Path $dep) -and
+                (Get-Item $dep).LastWriteTime -gt (Get-Item rsrc.syso).LastWriteTime) {
+                $needGenerate = $true; break
+            }
+        }
     }
-    "tray" {
-        $tags += "tray"
-        $ldflags += "-H windowsgui"   # hide console window
-        $base = "tinyrouter-tray"
-    }
-    "webview" {
-        $tags += "tray", "webview"
-        $ldflags += "-H windowsgui"
-        # jchv/go-webview2 is pure Go on Windows; CGO not required.
-        $base = "tinyrouter-webview"
-    }
-    "debug" {
-        # No flags: full DWARF, no stripping, console window.
-        # Strip is forcibly ignored for debug variant below.
-        $base = "tinyrouter-debug"
+    if ($needGenerate) {
+        Write-Host "Regenerating rsrc.syso from web/static/favicon.ico + rsrc.manifest..."
+        & go generate ./...
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "go generate failed (install rsrc: go install github.com/akavel/rsrc@latest)"
+            exit $LASTEXITCODE
+        }
     }
 }
 
-# --- Playground tag ---------------------------------------------------------
-if ($Playground) {
-    $tags += "playground"
+# --- Core: build one variant ------------------------------------------------
+# Inputs: variantName (string), withPg (bool), withStrip (bool).
+# Output: writes one .exe into $OutputDir; returns its final size in bytes.
+function Invoke-BuildOne {
+    param(
+        [string]$variant,
+        [bool]$withPg,
+        [bool]$withStrip
+    )
+
+    $tags = @()
+    $ldflags = @()
+
+    switch ($variant) {
+        "default" { $base = "tinyrouter" }
+        "tray" {
+            $tags += "tray"
+            $ldflags += "-H windowsgui"
+            $base = "tinyrouter-tray"
+        }
+        "webview" {
+            $tags += "tray", "webview"
+            $ldflags += "-H windowsgui"
+            $base = "tinyrouter-webview"
+        }
+        "debug" { $base = "tinyrouter-debug" }
+    }
+
+    if ($withPg -and $variant -ne "debug") { $tags += "playground" }
+    # debug always keeps full DWARF regardless of withStrip.
+    if ($withStrip -and $variant -ne "debug") {
+        $ldflags += "-s", "-w"
+    }
+
+    # Compose output filename: base + [-pg] + [-stripped] + .exe
+    $nameParts = @($base)
+    if ($withPg -and $variant -ne "debug") { $nameParts += "pg" }
+    if ($withStrip -and $variant -ne "debug") { $nameParts += "stripped" }
+    $out = ($nameParts -join "-") + ".exe"
+
+    $buildArgs = @("build")
+    if ($tags.Count -gt 0) { $buildArgs += "-tags", ($tags -join ",") }
+    if ($ldflags.Count -gt 0) { $buildArgs += "-ldflags", ($ldflags -join " ") }
+    $buildArgs += "-o", "$OutputDir/$out", "."
+
+    # jchv/go-webview2 is pure Go; all variants work with CGO_ENABLED=0.
+    $env:CGO_ENABLED = "0"
+
+    $desc = $variant
+    if ($withPg -and $variant -ne "debug")   { $desc += " +pg" }
+    if ($withStrip -and $variant -ne "debug") { $desc += " +strip" }
+    Write-Host ("Building {0,-22} -> {1}" -f $desc, $out)
+    Write-Host ("  tags:    {0}" -f ($tags -join ','))
+    Write-Host ("  ldflags: {0}" -f ($ldflags -join ' '))
+
+    & go @buildArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Build failed for $out"
+        exit $LASTEXITCODE
+    }
+
+    $size = (Get-Item "$OutputDir/$out").Length
+    Write-Host ("Done: {0} ({1:N0} bytes / {2:N2} MB)`n" -f $out, $size, ($size / 1MB))
+    return $size
 }
 
-# --- Strip (ignored for debug variant; debug always keeps full DWARF) -------
-if ($Strip -and $Variant -ne "debug") {
-    $ldflags += "-s", "-w"
-}
-
-# --- Output filename composition -------------------------------------------
-# Order of suffixes: -pg (if playground), -stripped (if strip), then .exe
-# debug variant ignores both playground and strip in the name for clarity.
-$nameParts = @($base)
-if ($Playground -and $Variant -ne "debug") { $nameParts += "pg" }
-if ($Strip -and $Variant -ne "debug") { $nameParts += "stripped" }
-$out = ($nameParts -join "-") + ".exe"
-
-# --- Build artefact directory ----------------------------------------------
+# --- Prepare output dir -----------------------------------------------------
 if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir | Out-Null
 }
 
-# --- Ensure rsrc.syso exists (generated from web/static/favicon.ico) -------
-# rsrc.syso is gitignored (regenerable). First-time builders may not have it.
-# Run `go generate` if missing or if favicon.ico is newer than rsrc.syso.
-$needGenerate = $false
-if (-not (Test-Path rsrc.syso)) {
-    $needGenerate = $true
-} elseif ((Test-Path web/static/favicon.ico) -and
-          (Get-Item web/static/favicon.ico).LastWriteTime -gt (Get-Item rsrc.syso).LastWriteTime) {
-    $needGenerate = $true
-}
-if ($needGenerate) {
-    Write-Host "Regenerating rsrc.syso from web/static/favicon.ico..."
-    & go generate ./...
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "go generate failed (install rsrc: go install github.com/akavel/rsrc@latest)"
-        exit $LASTEXITCODE
+Invoke-EnsureSyso
+
+if ($All) {
+    # Full 13-artifact matrix: default|tray|webview x {(none),(pg),(strip),(pg+strip)} + debug only.
+    # -Variant/-Playground/-Strip are ignored when -All is set.
+    if ($Playground -or $Strip -or $PSBoundParameters.ContainsKey("Variant")) {
+        Write-Warning "-All ignores -Variant/-Playground/-Strip; building complete matrix."
     }
+    Write-Host "=== Building all 13 variants ===`n"
+    $results = @()
+    foreach ($v in @("default", "tray", "webview")) {
+        $results += Invoke-BuildOne $v $false $false
+        $results += Invoke-BuildOne $v $true  $false
+        $results += Invoke-BuildOne $v $false $true
+        $results += Invoke-BuildOne $v $true  $true
+    }
+    $results += Invoke-BuildOne "debug" $false $false
+
+    Write-Host "=== Summary ==="
+    Get-ChildItem "$OutputDir/*.exe" | Sort-Object Name |
+        ForEach-Object {
+            $s = $_.Length
+            "{0,-40} {1,10:N0} bytes ({2,6:N2} MB)" -f $_.Name, $s, ($s / 1MB)
+        }
+    Write-Host ("`nTotal: {0} artifacts, {1:N2} MB" -f $results.Count, (($results | Measure-Object -Sum).Sum / 1MB))
+} else {
+    # Single-variant mode: -Variant + -Playground + -Strip select one artifact.
+    Invoke-BuildOne $Variant ([bool]$Playground) ([bool]$Strip)
 }
 
-# --- Assemble go build args -------------------------------------------------
-$buildArgs = @("build")
-if ($tags.Count -gt 0) { $buildArgs += "-tags", ($tags -join ",") }
-if ($ldflags.Count -gt 0) { $buildArgs += "-ldflags", ($ldflags -join " ") }
-$buildArgs += "-o", "$OutputDir/$out", "."
-
-# jchv/go-webview2 (the webview backend) is pure Go and works with CGO_ENABLED=0.
-# Set CGO_ENABLED=0 for all variants for cleaner cross-compilation.
-$env:CGO_ENABLED = "0"
-
-# --- Run build --------------------------------------------------------------
-Write-Host "Building $Variant -> $OutputDir/$out"
-Write-Host ("  tags:    {0}" -f ($tags -join ','))
-Write-Host ("  ldflags: {0}" -f ($ldflags -join ' '))
-Write-Host "  cgo:     $env:CGO_ENABLED"
-
-& go @buildArgs
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Build failed"
-    exit $LASTEXITCODE
-}
-
-$size = (Get-Item "$OutputDir/$out").Length
-Write-Host ("Done: {0} ({1:N0} bytes / {2:N2} MB)" -f $out, $size, ($size / 1MB))
+# --- 13-artifact output matrix (for reference) -------------------------------
+# | Variant  | PG   | Strip | Output                              |
+# |----------|------|-------|-------------------------------------|
+# | default  | no   | no    | tinyrouter.exe                      |
+# | default  | yes  | no    | tinyrouter-pg.exe                   |
+# | default  | no   | yes   | tinyrouter-stripped.exe             |
+# | default  | yes  | yes   | tinyrouter-pg-stripped.exe          |
+# | tray     | no   | no    | tinyrouter-tray.exe                 |
+# | tray     | yes  | no    | tinyrouter-tray-pg.exe              |
+# | tray     | no   | yes   | tinyrouter-tray-stripped.exe        |
+# | tray     | yes  | yes   | tinyrouter-tray-pg-stripped.exe    |
+# | webview  | no   | no    | tinyrouter-webview.exe              |
+# | webview  | yes  | no    | tinyrouter-webview-pg.exe           |
+# | webview  | no   | yes   | tinyrouter-webview-stripped.exe     |
+# | webview  | yes  | yes   | tinyrouter-webview-pg-stripped.exe |
+# | debug    | -    | -     | tinyrouter-debug.exe                |
