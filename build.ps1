@@ -5,7 +5,7 @@
 #   ./build.ps1 -Playground                      # include playground module (build tag)
 #   ./build.ps1 -Variant tray                    # tray-resident, hidden console
 #   ./build.ps1 -Variant tray -Playground -Strip # tray + playground + minimal size
-#   ./build.ps1 -Variant webview                 # tray + native WebView2 window (needs CGO)
+#   ./build.ps1 -Variant webview                 # tray + native WebView2 window (Win11 runtime preinstalled)
 #   ./build.ps1 -Variant debug                   # no flags, full DWARF for dlv
 #
 # Output matrix (host x playground x strip):
@@ -20,7 +20,7 @@
 #   tinyrouter-tray-pg.exe                tray + playground
 #   tinyrouter-tray-stripped.exe           tray + strip
 #   tinyrouter-tray-pg-stripped.exe       tray + playground + strip
-#   tinyrouter-webview.exe                tray + WebView2 window (CGO)
+#   tinyrouter-webview.exe                tray + WebView2 window (pure Go, no CGO)
 #   tinyrouter-webview-pg.exe             tray + WebView2 + playground
 #   tinyrouter-debug.exe                   full DWARF, no stripping, console window
 
@@ -40,7 +40,6 @@ $goarch = "amd64"
 # --- Build tag set + ldflags per variant -------------------------------------
 $tags = @()
 $ldflags = @()
-$needsCgo = $false
 
 switch ($Variant) {
     "default" {
@@ -55,7 +54,7 @@ switch ($Variant) {
     "webview" {
         $tags += "tray", "webview"
         $ldflags += "-H windowsgui"
-        $needsCgo = $true              # webview/webview_go needs CGO + WebView2
+        # jchv/go-webview2 is pure Go on Windows; CGO not required.
         $base = "tinyrouter-webview"
     }
     "debug" {
@@ -88,13 +87,34 @@ if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir | Out-Null
 }
 
+# --- Ensure rsrc.syso exists (generated from web/static/favicon.ico) -------
+# rsrc.syso is gitignored (regenerable). First-time builders may not have it.
+# Run `go generate` if missing or if favicon.ico is newer than rsrc.syso.
+$needGenerate = $false
+if (-not (Test-Path rsrc.syso)) {
+    $needGenerate = $true
+} elseif ((Test-Path web/static/favicon.ico) -and
+          (Get-Item web/static/favicon.ico).LastWriteTime -gt (Get-Item rsrc.syso).LastWriteTime) {
+    $needGenerate = $true
+}
+if ($needGenerate) {
+    Write-Host "Regenerating rsrc.syso from web/static/favicon.ico..."
+    & go generate ./...
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "go generate failed (install rsrc: go install github.com/akavel/rsrc@latest)"
+        exit $LASTEXITCODE
+    }
+}
+
 # --- Assemble go build args -------------------------------------------------
 $buildArgs = @("build")
 if ($tags.Count -gt 0) { $buildArgs += "-tags", ($tags -join ",") }
 if ($ldflags.Count -gt 0) { $buildArgs += "-ldflags", ($ldflags -join " ") }
 $buildArgs += "-o", "$OutputDir/$out", "."
 
-$env:CGO_ENABLED = if ($needsCgo) { "1" } else { "0" }
+# jchv/go-webview2 (the webview backend) is pure Go and works with CGO_ENABLED=0.
+# Set CGO_ENABLED=0 for all variants for cleaner cross-compilation.
+$env:CGO_ENABLED = "0"
 
 # --- Run build --------------------------------------------------------------
 Write-Host "Building $Variant -> $OutputDir/$out"
