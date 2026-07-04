@@ -31,6 +31,65 @@ go build -o tinyrouter .
 # 或手动访问 http://localhost:20128
 ```
 
+## 构建变体 TinyRouter
+
+TinyRouter 提供多套构建变体，通过 build tag 与链接器 flag 组合控制是否带托盘常驻、是否内嵌 Playg 模块、是否裁剪二进制。Windows 下推荐用 `build.ps1` 一键产出。
+
+### 构建命令
+
+```powershell
+# 默认：console 窗口 + 自动打开浏览器 (当前行为)
+./build.ps1
+
+# 默认 + 裁剪符号表 (-s -w)
+./build.ps1 -Strip
+
+# 带 Playground 模块 (内嵌 Playground static-pg 资产)
+./build.ps1 -Playground
+
+# 托盘常驻：右下角图标右键菜单 "打开控制台/退出",无 console 窗口
+./build.ps1 -Variant tray
+
+# 托盘 + Playground + 裁剪 (最小托盘带 Playg 版)
+./build.ps1 -Variant tray -Playground -Strip
+
+# 调试版：全 DWARF/无裁剪/console 窗口，供 dlv 使用
+./build.ps1 -Variant debug
+
+# WebView 变体：托盘 + 原生 WebView2 窗口(需 CGO + Win11 WebView2 Runtime)
+./build.ps1 -Variant webview -Playground
+```
+
+### 构建矩阵产出文件名 (位于 `dist/`)
+
+| Variant | Playground | Strip | 输出文件 | 体积 |
+|---|---|---|---|---|
+| default | 否 | 否 | `tinyrouter.exe` | ~14.75 MB |
+| default | 否 | 是 | `tinyrouter-stripped.exe` | ~11.12 MB |
+| default | 是 | 否 | `tinyrouter-pg.exe` | ~18.77 MB |
+| default | 是 | 是 | `tinyrouter-pg-stripped.exe` | ~15.13 MB |
+| tray | 否 | 否 | `tinyrouter-tray.exe` | ~15.22 MB |
+| tray | 否 | 是 | `tinyrouter-tray-stripped.exe` | ~11.37 MB |
+| tray | 是 | 否 | `tinyrouter-tray-pg.exe` | ~19.24 MB |
+| tray | 是 | 是 | `tinyrouter-tray-pg-stripped.exe` | ~15.39 MB |
+| debug | — | — | `tinyrouter-debug.exe` | ~14.75 MB |
+| webview | (可选) | (可选) | `tinyrouter-webview[-pg].exe` | 需 CGO |
+
+### Variant 含义
+
+- **default**: 当前行为，启动 console 子系统窗口，自动打开浏览器
+- **tray**: 隐藏 console (-H windowsgui),依靠系统托盘图标驻留,右键菜单项 "打开控制台/退出"。Ctrl+C 与 UI 触发的 `POST /api/shutdown` 都会优雅退出
+- **webview**: 在 tray 基础上用 WebView2 弹出原生窗口承载 UI(需 CGO + WebView2 Runtime,Win11 默认满足)
+- **debug**: 无 windowsgui,不裁剪,保留完整 DWARF 供 `dlv` 调试;Playground/Strip 开关被忽略
+
+### Build tag 详解
+
+- `-tags tray`: 启用 `host_tray_windows.go`,编译 `fyne.io/systray`;无此 tag 则用 `host_console.go`(原行为)
+- `-tags webview`: 启用 `host_webview.go`(预留),依赖 `-tags tray` 同时生效
+- `-tags playground`: 启用 `web/embed_playground.go`,内嵌 `web/playground/static-pg` 资产;否则用 `web/embed_playground_stub.go`(空 FS)
+- `-ldflags "-H windowsgui"`: Windows 链接器去掉控制台子系统,只对 tray/webview 变体生效
+- `-ldflags "-s -w"`: 剥离符号表与 DWARF,约减 3.6 MB,失去 `dlv` 调试能力,运行不感知
+
 ## 配置
 
 编辑 `config.yaml` 或通过 Web UI 管理：

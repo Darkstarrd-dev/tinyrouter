@@ -34,10 +34,59 @@ GOOS=windows GOARCH=amd64 go build -o tinyrouter-windows-amd64.exe .
 GOOS=darwin GOARCH=arm64 go build -o tinyrouter-darwin-arm64 .
 ```
 
+## 构建变体 (Build Variants)
+
+TinyRouter 通过 build tag + 链接器 flag 组合，提供多个构建变体。Windows 下用 `build.ps1` 一键产出。
+
+### build.ps1 参数
+
+```powershell
+./build.ps1 [-Variant default|tray|webview|debug] [-Playground] [-Strip] [-OutputDir dist]
+```
+
+### Variant 含义
+
+| Variant | 行为 | tags | ldflags | CGO |
+|---|---|---|---|---|
+| `default` | console 窗口 + 自动打开浏览器(当前行为) | — | — | 无 |
+| `tray` | 系统托盘常驻,无 console 窗口,右键菜单"打开控制台/退出" | `tray` | `-H windowsgui` | 无 |
+| `webview` | tray + WebView2 原生窗口(需 WebView2 Runtime) | `tray,webview` | `-H windowsgui` | 是 |
+| `debug` | 全 DWARF/console 窗口,供 `dlv` 调试;Playground/Strip 被忽略 | — | — | 无 |
+
+### 关键开关
+
+- **-Playground**: 启用 `playground` build tag,内嵌 `web/playground/static-pg` 资产(无此 tag 用 `web/embed_playground_stub.go` 空 FS)
+- **-Strip**: 加 `-ldflags "-s -w"` 剥离符号表 + DWARF,减约 3.6 MB;失去 `dlv` 调试能力,运行不感知
+
+### 默认构建 vs 标签构建
+
+- **无 tag** = 当前行为(console 窗口 + 浏览器),`go build -o tinyrouter .` 与 `./build.ps1` 等价
+- **`-tags tray`** = 切换到 `host_tray_windows.go`,引入 `fyne.io/systray`;无此 tag 用 `host_console.go`
+- **`-tags playground`** = 切换到 `web/embed_playground.go`,内嵌 Playground 资产;无此 tag 用 `web/embed_playground_stub.go`
+
+### 8 产物矩阵 (实际体积)
+
+| Variant | Playground | Strip | 输出文件 | 体积 |
+|---|---|---|---|---|
+| default | 否 | 否 | `tinyrouter.exe` | 14.75 MB |
+| default | 否 | 是 | `tinyrouter-stripped.exe` | 11.12 MB |
+| default | 是 | 否 | `tinyrouter-pg.exe` | 18.77 MB |
+| default | 是 | 是 | `tinyrouter-pg-stripped.exe` | 15.13 MB |
+| tray | 否 | 否 | `tinyrouter-tray.exe` | 15.22 MB |
+| tray | 否 | 是 | `tinyrouter-tray-stripped.exe` | 11.37 MB |
+| tray | 是 | 否 | `tinyrouter-tray-pg.exe` | 19.24 MB |
+| tray | 是 | 是 | `tinyrouter-tray-pg-stripped.exe` | 15.39 MB |
+
+Playground 模块增量约 +4.2 MB;Strip 减约 3.6 MB;Tray 仅增约 +0.3 MB(纯 Go,无 CGO,单 exe 无外置 DLL)。
+
 ## 代码结构
 
 ```
-main.go                     # 入口
+main.go                     # 入口(host_loop 调用点,业务逻辑)
+host_console.go            !tray && !webview   # 默认: OS 信号 + UI 关停
+host_tray_windows.go      tray && windows      # 托盘实现 (fyne.io/systray)
+host_tray_other.go        tray && !windows     # Linux/macOS 回退到 console 行为
+build.ps1                                       # 构建脚本(8+ 变体)
 internal/
   config/                   # 配置结构 + YAML 加载/保存
   registry/                 # Provider/Key/Combo CRUD + 运行时状态
@@ -49,6 +98,8 @@ internal/
   api/                      # 管理 REST API
 web/
   static/                   # 内嵌 UI (HTML/JS/CSS)
+  embed_playground.go       # playground tag: 内嵌 static + playground/static-pg
+  embed_playground_stub.go  # !playground tag: 空 PlaygroundStatic FS
 ```
 
 ## 工作流约定

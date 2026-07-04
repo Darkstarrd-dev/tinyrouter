@@ -8,11 +8,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"os/exec"
-	"os/signal"
 	"runtime"
-	"syscall"
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/api"
@@ -25,6 +22,16 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/state"
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 )
+
+// hostContext carries everything the host loop needs to drive exit + UI without
+// leaking platform specifics (tray/webview/console) back into main.
+type hostContext struct {
+	logger     *console.Logger
+	consoleURL string   // full URL to the admin UI (e.g. http://127.0.0.1:7700)
+	srv        *http.Server
+	// quit returns a channel that closes when the UI requests shutdown (POST /api/shutdown).
+	quit func() <-chan struct{}
+}
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
@@ -97,24 +104,27 @@ func main() {
 		}
 	}()
 
-	// Open browser after a short delay so the server is ready.
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		if err := openBrowser(fmt.Sprintf("http://%s", addr)); err != nil {
-			logger.Info("failed to open browser: %v", err)
-		}
-	}()
-
-	// Graceful shutdown: wait for OS signal or UI-triggered shutdown.
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	select {
-	case <-quit:
-		logger.Info("shutting down (signal)...")
-	case <-shutdownCtx.Done():
-		logger.Info("shutting down (UI)...")
+	// Auto-open browser on the default (console) host; tray/webview hosts override
+	// openBrowserOnStartHost to false so the tray/window is the entry point, not a popped browser.
+	if openBrowserOnStartHost() {
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			if err := openBrowser(fmt.Sprintf("http://%s", addr)); err != nil {
+				logger.Info("failed to open browser: %v", err)
+			}
+		}()
 	}
 
+	// Block on the host loop until shutdown is requested (signal or UI or tray quit).
+	// runHostLoop (and its shutdown wiring) is implemented per build tag in host_*.go.
+	runHostLoop(&hostContext{
+		logger:     logger,
+		consoleURL: fmt.Sprintf("http://%s", addr),
+		srv:        srv,
+		quit:       shutdownCtx.Done,
+	})
+
+	// Graceful HTTP server shutdown.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
