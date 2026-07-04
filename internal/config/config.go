@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -158,6 +159,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.UsageRingSize == 0 {
 		cfg.UsageRingSize = 500
+	}
+	// Default EnablePlayground to true if not explicitly set in config.
+	// Existing configs from before this field was added would otherwise
+	// get the zero value (false) and silently hide the playground.
+	if !bytes.Contains(data, []byte("enablePlayground")) {
+		cfg.EnablePlayground = true
 	}
 	for i := range cfg.Providers {
 		for j := range cfg.Providers[i].Models {
