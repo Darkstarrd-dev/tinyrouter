@@ -9,6 +9,10 @@ tinyrouter-*
 
 # Config (generated at runtime)
 config.yaml
+config.yaml.tmp
+
+# State persistence (generated at runtime)
+state.yaml
 
 # Go workspace
 go.work
