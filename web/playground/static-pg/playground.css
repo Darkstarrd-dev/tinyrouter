@@ -1,24 +1,23 @@
 /* Playground module styling. 编译进 playground 模块才被引用。 */
 
 /* ===================== Playground ===================== */
-.pg-layout{display:grid;grid-template-columns:1fr 320px;grid-template-rows:1fr auto;gap:0;height:100%}
-.pg-main{grid-row:1;grid-column:1;display:flex;flex-direction:column;min-height:0;padding-right:12px}
-.pg-main-inner{max-width:56rem;margin:0 auto;padding:16px 16px;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;box-sizing:border-box}
+.pg-layout{height:100%;display:grid;grid-template-columns:1fr 320px;grid-template-rows:1fr auto;gap:0;overflow:hidden}
+#page-content:has(.pg-layout){height:100%}
+.pg-main{grid-row:1;grid-column:1;display:flex;flex-direction:column;min-height:0;min-width:0;padding-right:12px;overflow:hidden}
+.pg-main-inner{max-width:56rem;width:100%;margin:0 auto;padding:16px 16px;flex:1 1 0;min-height:0;display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden}
 @media (max-width:900px){.pg-main-inner{padding:8px}}
-.pg-side{grid-row:1 / span 2;grid-column:2;display:flex;flex-direction:column;gap:8px;overflow-y:auto;padding-left:12px;border-left:1px solid var(--glass-border)}
-.pg-input-bar{grid-row:2;grid-column:1;display:flex;gap:8px;align-items:stretch;padding-top:8px;padding-bottom:16px}
+.pg-side{grid-row:1 / span 2;grid-column:2;display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0;min-width:0;padding-left:12px;border-left:1px solid var(--glass-border)}
+.pg-input-bar{grid-row:2;grid-column:1;display:flex;gap:8px;align-items:stretch;flex-shrink:0;padding-top:8px;padding-bottom:16px;padding-right:12px}
 .pg-input-card{
   flex:1;
   background:var(--glass-bg);
   border:1px solid var(--glass-border);
   border-radius:12px;
-  box-shadow:0 18px 60px -32px rgba(0,0,0,.65);
-  transition:border-color .2s,box-shadow .2s;
+  transition:border-color .2s;
   overflow:hidden;
 }
 .pg-input-card:focus-within{
   border-color:var(--accent);
-  box-shadow:0 22px 70px -34px rgba(0,0,0,.75);
 }
 .pg-input-bar-toolbar{
   border-top:1px solid var(--glass-border);
@@ -47,6 +46,7 @@
 }
 .pg-input-actions{display:flex;flex-direction:column;gap:4px;align-items:stretch;flex:0 0 auto}
 .pg-input-actions .pg-btn-row{align-self:stretch}
+.pg-input-actions .pg-btn-row .pg-btn{width:100%;box-sizing:border-box}
 .pg-input-bar .pg-send.stop{
   background:rgba(239,68,68,.10);
   color:var(--danger);
