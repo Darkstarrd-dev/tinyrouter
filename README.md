@@ -11,7 +11,7 @@
 - **模型列表** — 自定义模型 ID，每个 Provider 独立配置
 - **Rotation 覆盖** — 每个 Provider 可独立设置轮询策略，覆盖全局默认
 - **前缀解析** — `ms/deepseek-chat` 格式自动解析为对应 Provider
-- **Combo** — fallback / round-robin / fusion 三种组合策略，支持从 Provider 导入模型
+- **Combo** — fallback / round-robin 两种组合策略，支持从 Provider 导入模型
 - **EN / CN 双语 UI** — 侧边栏一键切换
 - **深色 / 浅色主题** — 玻璃拟态设计
 - **内存 Usage** — 环形缓冲 (默认 500 条)，实时统计请求数/成功率/平均延迟/Token 用量

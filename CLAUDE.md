@@ -42,7 +42,7 @@ internal/
   config/                   # 配置结构 + YAML 加载/保存
   registry/                 # Provider/Key/Combo CRUD + 运行时状态
   rotation/                 # Key 选择策略 + 冷却/退避
-  combo/                    # Combo 解析 (fallback/round-robin/fusion)
+  combo/                    # Combo 解析 (fallback/round-robin)
   proxy/                    # /v1/* 代理处理器 (SSE 透传)
   usage/                    # 内存环形缓冲统计
   console/                  # 控制台日志捕获 + SSE 推送
@@ -84,7 +84,6 @@ web/
 ### 6. Combo 策略 (移植自 9router `open-sse/services/combo.js`)
 - **fallback:** 按顺序尝试模型，失败则下一个
 - **round-robin:** 轮转选择模型
-- **fusion:** 并行发送全部模型 + judge 模型裁决
 
 ## 9router 参考映射
 

@@ -14,7 +14,7 @@
 | **纯本地** | 无 admin 鉴权、无远程访问、无多人场景 |
 | **Endpoint 端口设置** | UI 可配置监听端口；无需 API Key，任意 Key 或无 Key 均可访问 |
 | **Providers** | 保留自定义端点 (OpenAI-compatible)、API Key 提供商、免费套餐提供商；**去除 OAuth Providers** |
-| **Combos** | 保留全部三种策略：fallback / round-robin / fusion |
+| **Combos** | 保留两种策略：fallback / round-robin |
 | **Usage** | 保留用量统计，**仅内存存储**，重启清零；环形缓冲默认 500 条，UI 可配置 |
 | **Console Log UI** | 实时控制台日志查看页面 |
 
@@ -84,8 +84,7 @@ github.com/fsnotify/fsnotify   # 配置热重载（可选）
 │                                                          │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │ ComboRegistry (内存 + config.yaml)                 │   │
-│  │  └─ combos[]: {id, name, strategy, models[],      │   │
-│  │     fusionJudge}                                  │   │
+│  │  └─ combos[]: {id, name, strategy, models[]}      │   │
 │  └──────────────────────────────────────────────────┘   │
 │                                                          │
 │  ┌──────────────────────────────────────────────────┐   │
@@ -118,7 +117,7 @@ ProxyHandler
   ├─ 1. 解析 model 字段 → "{prefix}/{model}" 或 combo 名
   │
   ├─ 2a. 若匹配 combo → ComboResolver.resolve(model)
-  │     → 按 strategy (fallback/round-robin/fusion) 选出 target provider+model
+  │     → 按 strategy (fallback/round-robin) 选出 target provider+model
   │
   ├─ 2b. 若匹配 provider prefix → 直接使用
   │
@@ -213,11 +212,10 @@ providers:
 combos:
   - id: "combo1"
     name: "Fast + Smart"
-    strategy: "fallback"       # fallback | round-robin | fusion
+    strategy: "fallback"       # fallback | round-robin
     models:
       - "deepseek/deepseek-chat"
       - "my-custom/gpt-4o"
-    fusionJudge: null          # 仅 fusion 策略时填写 judge model
 ```
 
 ### 4.2 内存数据结构 (Go)
@@ -256,9 +254,8 @@ type Key struct {
 type Combo struct {
     ID           string   `yaml:"id"`
     Name         string   `yaml:"name"`
-    Strategy     string   `yaml:"strategy"` // fallback | round-robin | fusion
+    Strategy     string   `yaml:"strategy"` // fallback | round-robin
     Models       []string `yaml:"models"`   // ["deepseek/deepseek-chat", ...]
-    FusionJudge  string   `yaml:"fusionJudge"`
 }
 
 // UsageEntry — 单次请求用量记录
@@ -435,13 +432,11 @@ type comboState struct {
 // Resolve 返回一组要尝试的 {provider, model} 对
 // fallback: 返回全部模型按顺序
 // round-robin: 返回从当前轮转位置开始的模型
-// fusion: 返回全部模型 (并行) + judge model
 func (r *Resolver) Resolve(comboName string) (*ComboPlan, error)
 
 type ComboPlan struct {
     Strategy    string
-    Targets     []ModelTarget // 并行 (fusion) 或顺序 (fallback/round-robin)
-    JudgeModel  string         // fusion only
+    Targets     []ModelTarget
 }
 
 type ModelTarget struct {
@@ -664,8 +659,8 @@ GET    /api/models                       → 列出所有 provider + combo 的�
 
 #### Page 3: Combos
 - Combo 列表 (卡片式)
-- 每张卡片: 名称、策略选择器 (fallback/round-robin/fusion)、模型列表
-- 新增 Combo → 表单 (name, strategy, models 多选, fusionJudge)
+- 每张卡片: 名称、策略选择器 (fallback/round-robin)、模型列表
+- 新增 Combo → 表单 (name, strategy, models 多选)
 - 编辑/删除 Combo
 
 #### Page 4: Usage
@@ -693,7 +688,7 @@ GET    /api/models                       → 列出所有 provider + combo 的�
 | `open-sse/executors/*` (其他) | **去除** | cursor/kiro/codex/antigravity/vertex 等专用 executor |
 | `src/sse/services/auth.js` | **保留** → `internal/rotation/selector.go` | fill-first/round-robin + 冷却/退避 |
 | `src/sse/services/model.js` | **简化** → `internal/proxy/handler.go` 内前缀匹配 | 仅 OpenAI-compatible，无 alias resolution |
-| `open-sse/services/combo.js` | **保留** → `internal/combo/resolver.go` | fallback/round-robin/fusion |
+| `open-sse/services/combo.js` | **保留** → `internal/combo/resolver.go` | fallback/round-robin |
 | `src/lib/usageDb.js` | **简化** → `internal/usage/ring.go` | 内存环形缓冲，无 SQLite |
 | `src/lib/requestDetailsDb.js` | **去除** | 不保存请求/响应体 |
 | `src/lib/consoleLogBuffer.js` | **保留** → `internal/console/logger.go` | 相同格式 + SSE 推送 |
@@ -752,7 +747,7 @@ tinyrouter/
 │   │   └── cooldown.go             # 指数退避 + 429日配额 + per-model锁
 │   │
 │   ├── combo/
-│   │   └── resolver.go             # fallback / round-robin / fusion 解析
+│   │   └── resolver.go             # fallback / round-robin 解析
 │   │
 │   ├── proxy/
 │   │   ├── handler.go              # /v1/* 入口, model 解析, 重试循环
@@ -819,7 +814,7 @@ tinyrouter/
 
 ### Phase 5: Combo (Day 4)
 
-- [ ] `internal/combo/resolver.go` — fallback/round-robin/fusion
+- [ ] `internal/combo/resolver.go` — fallback/round-robin
 - [ ] handler.go 集成 combo 解析
 - [ ] 验证: 三种策略均能正确路由
 
