@@ -663,11 +663,6 @@ function renderModelKeyDetail(provider, model, data) {
       }
     }
 
-    var lockInfo = '';
-    if (k.modelLock) {
-      lockInfo = '<span class="model-key-lock-info model-key-countdown" data-unlock="' + k.modelLock + '">' + formatRemaining(new Date(k.modelLock).getTime() - Date.now()) + '</span>';
-    }
-
     var errorInfo = '';
     if (k.lastError) {
       var errStr = k.lastError.length > 60 ? k.lastError.slice(0, 60) + '…' : k.lastError;
@@ -728,15 +723,14 @@ function renderModelKeyDetail(provider, model, data) {
     }
 
     html += '<div class="' + rowClass + '">' +
-      timerHtml +
       '<span class="' + dotClass + '" style="background:' + color + '"></span>' +
       '<span class="model-key-name">' + escapeHtml(k.keyName) + '</span>' +
       quotaInfo +
       quotaBar +
       statusBadge +
-      lockInfo +
       metricsHtml +
       errorInfo +
+      timerHtml +
     '</div>';
   });
   html += '</div>';

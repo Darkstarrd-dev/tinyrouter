@@ -376,7 +376,7 @@ tbody tr:last-child td{border-bottom:none}
 .model-key-detail-wrap.expanded{max-height:none}
 .model-key-detail{padding:8px 0 4px 24px;border-left:2px solid var(--glass-border);margin-left:4px;margin-top:6px}
 .model-key-row{display:flex;align-items:center;gap:8px;padding:4px 0;flex-wrap:wrap}
-.model-key-detail-wrap .model-key-row{display:grid;grid-template-columns:12px 90px auto minmax(60px,1fr) auto auto auto auto minmax(0,1fr);gap:10px;align-items:center;padding:6px 4px;flex-wrap:nowrap}
+.model-key-detail-wrap .model-key-row{display:grid;grid-template-columns:12px 90px auto minmax(60px,1fr) auto auto minmax(0,1fr) 30px;gap:10px;align-items:center;padding:6px 4px;flex-wrap:nowrap}
 .model-key-detail-wrap .model-key-row > *{min-width:0}
 .model-key-badges{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 .model-key-quota{display:flex;align-items:center;gap:6px;min-width:0}
@@ -386,7 +386,7 @@ tbody tr:last-child td{border-bottom:none}
 .model-key-quota-fill{height:100%;border-radius:3px;transition:width .3s}
 .model-key-quota-numbers{font-size:var(--font-badge);color:var(--text-muted);font-variant-numeric:tabular-nums;text-align:right}
 .model-key-lock-info{font-size:var(--font-badge);color:var(--warn)}
-.model-key-error{font-size:var(--font-badge);color:var(--danger);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;justify-self:end;text-align:right}
+.model-key-error{font-size:var(--font-badge);color:var(--danger);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;justify-self:end;text-align:right;min-width:0;max-width:100%;display:block}
 .model-key-metrics{display:inline-flex;gap:8px}
 .model-key-metric.model-key-succ{color:var(--accent2)}
 .model-key-metric.model-key-succ .model-key-err{color:var(--danger)}
@@ -702,7 +702,7 @@ tbody tr:last-child td{border-bottom:none}
 @keyframes calling-pulse{0%{box-shadow:0 0 0 0 rgba(79,140,255,0.7)}50%{box-shadow:0 0 8px 3px rgba(79,140,255,0.5)}100%{box-shadow:0 0 0 0 rgba(79,140,255,0)}}
 
 /* ===================== Model Key Timer (quota monitor) ===================== */
-.model-key-timer{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;font-size:10px;font-variant-numeric:tabular-nums;font-weight:700;border:1.5px solid;box-sizing:border-box;margin-right:6px;vertical-align:middle;flex-shrink:0}
+.model-key-timer{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;font-size:10px;font-variant-numeric:tabular-nums;font-weight:700;border:1.5px solid;box-sizing:border-box;vertical-align:middle;flex-shrink:0}
 .model-key-timer-cooldown{border-color:var(--danger);color:var(--danger)}
 .model-key-timer-idle{border-color:var(--accent2);color:var(--accent2)}
 
