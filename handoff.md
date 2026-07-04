@@ -211,3 +211,152 @@
 3. **Light 主题玻璃效果**：浅色背景下的玻璃拟态不如深色明显
 4. **config.yaml 安全性**：现有测试 key 为真实凭据，避免泄露
 5. **URL 规范化**：`BuildUpstreamURL` 处理三种 base URL 格式（根路径、`/v1`、完整路径），均能正确规范化
+
+---
+
+## 本轮完成内容（第 5 轮：Playground 审核、提取、可选编译 + UI 对齐）
+
+### 1. 代码审核全量修复（高/中/低危共 13 处）
+
+| 编号 | 严重性 | 文件 | 问题 | 修复 |
+|---|---|---|---|---|
+| H1 | 高 | `index.html` | Mermaid `securityLevel:'loose'` 允许 LLM 注入 click 回调 XSS | 改为 `'strict'` |
+| M1 | 中 | `stream.go` | `sel` 在 nil 守卫外解引用，未来可能 panic | 日志/recordUsage 前加 `if sel == nil { return }` |
+| M2 | 中 | `playground.js` | `msg.role !== 'loading'` typo（应为 `status`） | 修复 condition |
+| M3 | 中 | `playground.js` | `pgMergeChunk` 上游 prefix 变化时错误拼接 | 加 `next.length < current.length` 回退 |
+| M4 | 中 | `playground.js` | localStorage 超 1MB 直接全量丢弃 | 改为逐条 shift 直到符合限制 |
+| L1 | 低 | `compress.go` | Brotli `BestCompression`(11) 对本地代理不必要地慢 | 降为 `DefaultCompression`(6) |
+| L3 | 低 | `playground.js` | iframe `sandbox="allow-same-origin"` 无意义 | 改为 `sandbox=""` |
+| L4 | 低 | `playground.js` | `window.open` 缺 `noopener` | 加第三参 |
+| L5 | 低 | `playground.js` | 纯图像 loading 消息不修复 | `hasContent` 增加 `pgImageParts` 检查 |
+| L6 | 低 | `playground.js` | SSE `split('\n')` 不兼容 `\r` | 改为 `replace(/\r\n/g,'\n').split('\n')` |
+| L7 | 低 | `playground.js` | DOMPurify ADD_ATTR 含 href 依赖默认策略 | 加注释说明 |
+
+### 2. UI 布局对齐 new-api（实用对齐）
+
+保留右侧 320px 侧栏（承载 TinyRouter 独有的 Debug/SSE viewer/Custom body），仅视觉风格对齐：
+
+- **用户气泡**：accent-gradient → muted 灰底（`var(--glass-hover)` + border + shadow）
+- **助手脚气泡**：glass-bg → 透明无边（`background:transparent; border:none; padding:0`）
+- **消息区居中**：`max-width:56rem; margin:0 auto`
+- **输入栏**：加 `pg-input-card` 外层容器，含 `box-shadow` + `focus-within` 边框高亮
+- **空状态**：4 张 quick-prompt 卡片（分析数据/总结文本/编码助手/获取建议）
+- **操作按钮**：文本 → SVG 图标（Lucide 风格，含 title 提示）
+- **侧栏面板**：标题加 `border-bottom` section header
+
+### 3. JS 模块独立化（PG_HOST 适配器契约）
+
+- **适配器契约**：`window.PG_HOST = {apiGet, toast, escapeHtml, copyToClipboard, t}` 可选注入
+- **211 处调用**全部替换为 `pgApiGet`/`pgToast`/`pgEscapeHtml`/`pgCopyToClipboard`/`pgT` 包装函数
+- 未注入时 fallback 到现有全局函数，保持 TinyRouter 宿主原行为不变
+- **pg-i18n.js** 抽出：56 英文 + 56 中文翻译 key
+- **playground.css** 抽出：271 行 `.pg-*` 样式，从 `style.css` 分离
+- **playground/README.md**：模块文档，含宿主集成方式、PG_HOST 契约表格、后端端点要求、生命周期
+
+### 4. 可选编译：Build tags + 运行时 flag 双层隔离
+
+#### 4.1 构建标签（Build tags）
+
+```
+# 核心版（不含 playground，~14.7 MB）
+go build -o tinyrouter .
+
+# 含 playground 版（~18.7 MB，vendor 资源 ~4 MB）
+go build -tags playground -o tinyrouter .
+```
+
+**实现**：
+- `web/embed.go`（`//go:build !playground`）：仅嵌入核心 `web/static/`（app.js、api.js、i18n.js、endpoint.js、providers.js、combos.js、usage.js、console.js、style.css、favicon、logo）
+- `web/embed_playground.go`（`//go:build playground`）：嵌入核心 + `web/playground/static-pg/`（vendor/、playground.js、playground.css、pg-i18n.js）
+- `web/embed_playground_stub.go`（`//go:build !playground`）：空 `PlaygroundStatic` 零值 + `PlaygroundCompiled()=false`
+- `web.PlaygroundCompiled()` 函数在 router.go 中用于条件注册 `/vendor/*`、`/playground.js` 等路由
+
+**目录结构**：
+```
+web/
+  embed.go                          # !playground 构建
+  embed_playground.go               # playground 构建
+  embed_playground_stub.go          # !playground 桩
+  static/                           # 核心 SPA 资源
+    index.html                      # 含 playground 引用
+    index-nopg.html                 # 不含 playground 引用
+    app.js, api.js, i18n.js, ...
+    style.css                       # 仅核心样式（.pg-* 已移出）
+  playground/
+    README.md                       # 模块文档
+    static-pg/                      # playground 专属资源
+      playground.js                 # 主模块（含 PG_HOST 契约）
+      playground.css                # 271 行 .pg-* 样式
+      pg-i18n.js                    # 56 en + 56 cn 翻译
+      vendor/                       # 第三方依赖（~4MB）
+        katex.min.js, marked.min.js, highlight.min.js,
+        purify.min.js, mermaid.min.js, KaTeX fonts/
+```
+
+#### 4.2 运行时开关（Runtime flag）
+
+- **config.yaml** 新增 `enablePlayground: true/false`（默认 `true`）
+- **Settings API**（`GET/PATCH /api/settings`）支持读写 `enablePlayground` 字段
+- **serveUI** 根据 `PlaygroundCompiled() && EnablePlayground` 选择：
+  - `true` → 服务 `index.html`（含 playground nav + vendor 引用）
+  - `false` → 服务 `index-nopg.html`（纯核心版，无 playground 入口）
+
+#### 4.3 取值矩阵
+
+| `-tags playground` | `enablePlayground` | 行为 |
+|---|---|---|
+| 无 | 任意 | 无 playground 路由，始终服务 `index-nopg.html` |
+| 有 | `true` | 完整 playground：vendor 资源 + nav 入口 + 路由注册 |
+| 有 | `false` | vendor 路由已注册但入口隐藏，服务 `index-nopg.html` |
+
+#### 4.4 Release 发布说明
+
+发布时需产出两个版本：
+
+| 版本 | 二进制名 | 构建命令 | 大小 |
+|---|---|---|---|
+| **Lite**（核心代理） | `tinyrouter-lite-{os}-{arch}` | `go build` | ~14.7 MB |
+| **Full**（含 Playground） | `tinyrouter-{os}-{arch}` | `go build -tags playground` | ~18.7 MB |
+
+Lite 版仅含代理核心（providers/combos/usage/console 管理 + `/v1/*` 透传），不含 Playground 交互式聊天 UI。Full 版在 Lite 基础上增加 Playground 模块，默认启用（`enablePlayground: true`），可通过 `enablePlayground: false` 关闭。
+
+## 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| `internal/api/compress.go` | Brotli 降级 DefaultCompression |
+| `internal/api/handlers.go` | `getSettings`/`updateSettings` 增加 `enablePlayground` |
+| `internal/api/misc.go` | `serveUI` 双 index 选择逻辑 |
+| `internal/api/router.go` | 条件注册 playground 静态路由 + `web` import |
+| `internal/config/config.go` | `Config` 新增 `EnablePlayground` 字段 |
+| `internal/proxy/stream.go` | nil sel 防御 early-return |
+| `web/embed.go` | `//go:build !playground` + `PlaygroundCompiled()` |
+| `web/embed_playground.go` | **新建**：`//go:build playground` 嵌入 playground 资源 |
+| `web/embed_playground_stub.go` | **新建**：`//go:build !playground` 空桩 |
+| `web/static/i18n.js` | 删除所有 pg* 翻译 key（移至 pg-i18n.js） |
+| `web/static/index.html` | `securityLevel:strict` + `playground.css` link |
+| `web/static/index-nopg.html` | **新建**：不含 playground 引用的核心版 index |
+| `web/static/style.css` | 删除全部 `.pg-*` 样式段（移至 playground.css） |
+| `web/playground/static-pg/playground.js` | 审核修复 + PG_HOST 契约 + UI 对齐 + 图标化 |
+| `web/playground/static-pg/playground.css` | **新建**：271 行 playground 样式 |
+| `web/playground/static-pg/pg-i18n.js` | **新建**：56 en + 56 cn 翻译 |
+| `web/playground/static-pg/vendor/` | 从 `web/static/vendor/` 迁移 |
+| `web/playground/README.md` | **新建**：模块文档 |
+
+## 架构决策记录
+
+### Playground 模块化策略
+Playground 作为独立可选模块，通过 `//go:build playground` 构建标签控制是否编译进二进制。vendor 资源（KaTeX/marked/hljs/purify/mermaid ~4MB）与核心代理资源物理分离（`web/static/` vs `web/playground/static-pg/`），Go embed 无法 exclude 子目录，因此必须物理隔离目录。
+
+### PG_HOST 适配器契约
+`window.PG_HOST` 可选注入 5 个宿主函数（apiGet/toast/escapeHtml/copyToClipboard/t），未注入时 fallback 到全局函数。这使 playground.js 可被其他项目（非 TinyRouter）复用，只需提供向后兼容的契约实现。
+
+### 运行时 flag 与构建标签的协作
+`PlaygroundCompiled()` 在编译时固定（`//go:build` 控制），`enablePlayground` 在运行时可通过 YAML 或 API 切换。serveUI 同时检查两者：构建无 playground → 强制核心版；构建有 playground → 按 flag 选择。这避免了"核心版编译 + enablePlayground=true"的配置矛盾。
+
+## 未完成事项
+
+1. **Fusion 策略并行执行**：当前 combo 的 fusion 策略仅执行首个模型，多模型并行+judge 裁决未实现
+2. **Provider 详情页骨架屏**：可直接显示内容而非骨架
+3. **Console 页加载态**：目前直接显示日志容器，可加初始加载动画
+4. **4MB 二进制体积优化**：当前版本 vendor 资源在 playground 构建中完整嵌入。未来可考虑按需加载（CDN）或 wasm 压缩进一步缩减
