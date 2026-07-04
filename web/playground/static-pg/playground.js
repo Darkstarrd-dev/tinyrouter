@@ -1632,9 +1632,11 @@ function pgRenderInputBar() {
       '<textarea class="pg-input" id="pg-input" placeholder="' + pgEscapeHtml(pgT('pgEnterMessage')) + '" onkeydown="pgOnInputKey(event)"></textarea>' +
       '<div class="pg-input-bar-toolbar"></div>' +
     '</div>' +
-    sendBtn +
-    '<div class="pg-btn-row" style="flex-direction:column;gap:4px">' +
-      '<button class="pg-btn danger" onclick="pgClear()">' + pgEscapeHtml(pgT('pgClear')) + '</button>' +
+    '<div class="pg-input-actions">' +
+      sendBtn +
+      '<div class="pg-btn-row">' +
+        '<button class="pg-btn danger" onclick="pgClear()">' + pgEscapeHtml(pgT('pgClear')) + '</button>' +
+      '</div>' +
     '</div>';
   var ta = document.getElementById('pg-input');
   if (ta) ta.addEventListener('paste', pgPasteImage);

@@ -47,6 +47,7 @@ function navigateTo(page) {
       case 'console': return renderConsole(container);
     }
   })();
+  if (page === 'playground' && mainEl) mainEl.classList.add('main-no-scroll');
   if (p && p.then) p.then(() => container.classList.add('page-enter'));
 }
 
