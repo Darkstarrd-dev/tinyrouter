@@ -700,7 +700,9 @@ async function testSingleModel(pid, modelId) {
     toast(t('modelTestFailed') + (ts.error || 'unknown error'), 'error');
   }
   currentProviderId = pid;
+  var scrollTop = document.getElementById('page-content').scrollTop || document.querySelector('.main').scrollTop;
   renderProviders(document.getElementById('page-content'));
+  requestAnimationFrame(function() { (document.querySelector('.main') || document.getElementById('page-content')).scrollTop = scrollTop; });
 }
 
 async function doTestModel(pid, modelId) {
