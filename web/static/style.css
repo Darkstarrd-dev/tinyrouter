@@ -114,16 +114,18 @@ body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 ::-webkit-scrollbar-thumb:hover{background:rgba(128,128,128,0.4)}
 
 /* ===================== Sidebar ===================== */
-.sidebar{width:230px;background:rgba(128,128,128,0.03);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-right:1px solid var(--glass-border);flex-shrink:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
+.sidebar{width:190px;background:rgba(128,128,128,0.03);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-right:1px solid var(--glass-border);flex-shrink:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
 .sidebar-header{padding:12px;border-bottom:1px solid var(--glass-border)}
 .sidebar-brand{display:flex;align-items:center;gap:12px}
-.sidebar-logo{width:56px;height:56px;border-radius:10px;flex-shrink:0}
+.sidebar-logo{width:56px;height:56px;border-radius:10px;flex-shrink:0;transition:opacity .2s}
+.sidebar-logo-link{display:inline-flex;flex-shrink:0;text-decoration:none;line-height:0}
+.sidebar-logo-link:hover .sidebar-logo{opacity:0.85;transition:opacity .2s}
 .sidebar-brand-content{display:flex;flex-direction:column;gap:4px;min-width:0}
 .sidebar h1{font-size:calc(var(--font-base) + 2.5px);font-weight:700;background:var(--accent-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:-0.3px;white-space:nowrap;margin:0;line-height:1.2}
 .sidebar-nav{padding:12px 8px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;flex:1}
 .sidebar-footer{padding:12px;border-top:1px solid var(--glass-border);margin-top:auto}
 .header-controls{display:flex;align-items:center;gap:3px}
-.nav-item{padding:10px 12px;cursor:pointer;color:var(--text-muted);border-radius:10px;transition:all .2s cubic-bezier(0.4,0,0.2,1);font-size:var(--font-base);font-weight:500;position:relative;border:none;background:none;font-family:inherit;text-align:left;width:100%;display:flex;align-items:center}
+.nav-item{padding:10px 12px;cursor:pointer;color:var(--text-muted);border-radius:10px;transition:all .2s cubic-bezier(0.4,0,0.2,1);font-size:calc(var(--font-base) * 1.3);font-weight:500;position:relative;border:none;background:none;font-family:inherit;text-align:left;width:100%;display:flex;align-items:center}
 .nav-item:hover{color:var(--text);background:var(--glass-hover)}
 .nav-item.active{color:var(--accent);background:rgba(79,195,247,0.08)}
 [data-theme="light"] .nav-item.active{background:rgba(14,165,233,0.08)}
