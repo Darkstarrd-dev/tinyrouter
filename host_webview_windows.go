@@ -114,6 +114,18 @@ func openWebviewWindow(hctx *hostContext) {
 	w.SetTitle("TinyRouter")
 	w.Navigate(hctx.consoleURL)
 
+	// Maximize the window after creation. jchv/go-webview2 creates the window
+	// at the requested Width/Height but doesn't expose a Maximize API; we call
+	// Win32 ShowWindow directly with SW_MAXIMIZE = 3.
+	// w.Window() returns unsafe.Pointer to the HWND (uintptr).
+	// Must do this after Navigate so the WebView2 controller is fully created;
+	// calling it earlier can race the controller's window attachment.
+	hwnd := uintptr(w.Window())
+	if hwnd != 0 {
+		const swMaximize = 3
+		_, _, _ = windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow").Call(hwnd, swMaximize)
+	}
+
 	// w.Run() pumps Win32 messages for this thread until the window is closed.
 	// On close it returns; the deferred cleanup runs and the goroutine exits, but
 	// the systray host loop keeps the process alive.
