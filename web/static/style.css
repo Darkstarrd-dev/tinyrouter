@@ -141,7 +141,7 @@ body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 /* ===================== Main Content ===================== */
 .main{flex:1;min-width:0;height:100%;padding:32px 40px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none}
 .main::-webkit-scrollbar{display:none}
-.main.main-no-scroll{overflow:hidden}
+.main.main-no-scroll{overflow:hidden;padding:0}
 h2{font-size:var(--font-h2);font-weight:700;margin-bottom:24px;letter-spacing:-0.3px}
 h3{font-size:var(--font-h3);font-weight:600;color:var(--text-secondary);margin-bottom:12px}
 
@@ -253,12 +253,11 @@ tbody tr:last-child td{border-bottom:none}
 
 /* ===================== Usage Page ===================== */
 .usage-header{flex-shrink:0}
-.usage-fullscreen{display:flex;flex-direction:column;height:calc(100vh - 60px);gap:12px;overflow:hidden}
+.usage-fullscreen{display:flex;flex-direction:column;height:100%;gap:0;overflow:hidden}
 
 /* Header row: title (left) + stat cards (right, nowrap-friendly flex) */
-.usage-header-top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:4px;flex-shrink:0;flex-wrap:wrap}
-.usage-title{font-size:32px;margin:0;line-height:1.1;flex-shrink:0}
-.stat-grid{display:flex;gap:6px;align-items:center;margin-bottom:0;justify-content:flex-end;flex-wrap:nowrap;flex:1;min-width:0}
+
+.stat-grid{display:flex;gap:6px;align-items:center;margin-bottom:0;justify-content:flex-start;flex-wrap:wrap;flex-shrink:0;padding:12px 20px}
 .stat-card{padding:6px 10px;border-radius:10px;flex:0 1 auto;min-width:0;display:flex;flex-direction:column;justify-content:center}
 .stat-card .stat-value{font-size:calc(var(--font-stat-value) * 0.7);line-height:1.1}
 .stat-card .stat-label{font-size:calc(var(--font-base) - 2px);margin-top:0}
@@ -266,7 +265,7 @@ tbody tr:last-child td{border-bottom:none}
 /* Main body: 2-col grid, quota spans both rows on the left */
 .trend-card{min-height:0;display:flex;flex-direction:column}
 .trend-card > .card{flex:1;display:flex;flex-direction:column;min-height:0;margin-bottom:0}
-.quota-monitor-card{min-height:0;display:flex}
+.quota-monitor-card{min-height:0;display:flex;flex-direction:column}
 .quota-monitor-card .card{flex:1;display:flex;flex-direction:column;min-height:0;margin-bottom:0}
 .quota-section-scroll{flex:1;overflow-y:auto;min-height:0;padding-right:4px;scrollbar-width:none;-ms-overflow-style:none}
 .quota-section-scroll::-webkit-scrollbar{display:none}
@@ -281,7 +280,8 @@ tbody tr:last-child td{border-bottom:none}
 .usage-table tbody tr:hover{background:var(--table-hover)}
 
 /* Charts Row: quota (left, spans 2 rows) + trend (top right) + recent (bottom right) */
-.usage-body-grid{display:grid;gap:16px;flex:1;min-height:0;grid-template-columns:1fr;grid-template-rows:auto;align-items:stretch}
+.usage-body-grid{display:grid;gap:0;flex:1;min-height:0;grid-template-columns:1fr;grid-template-rows:auto;align-items:stretch}
+.usage-body-grid .card{border-radius:0;margin-bottom:0}
 @media (min-width:1024px){
   .usage-body-grid{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
   .usage-body-grid .quota-monitor-card{grid-column:1;grid-row:1 / span 2}
@@ -444,9 +444,9 @@ tbody tr:last-child td{border-bottom:none}
   .nav-item{white-space:nowrap;flex-shrink:0}
   .sidebar-footer{display:none}
   .main{padding:16px;height:calc(100vh - 80px)}
+  .main.main-no-scroll{padding:0}
   .stat-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
-  .usage-header-top{flex-direction:column;align-items:stretch}
-  .usage-title{margin-bottom:4px}
+  
   .usage-body-grid{grid-template-columns:1fr;grid-template-rows:auto}
   .usage-body-grid .quota-monitor-card,
   .usage-body-grid .trend-card,
@@ -455,8 +455,9 @@ tbody tr:last-child td{border-bottom:none}
 }
 @media (max-width:480px){
   .stat-grid{grid-template-columns:repeat(2,1fr);flex-wrap:wrap;justify-content:flex-start}
-  .usage-title{font-size:24px}
+  
   .main{padding:12px}
+  .main.main-no-scroll{padding:0}
   .card{padding:14px}
   .stat-card{padding:14px}
   h2{font-size:calc(var(--font-h2) - 2px);margin-bottom:16px}

@@ -273,19 +273,17 @@ async function renderUsage(c) {
   const quotaBars = quotas.quotas || [];
   c.innerHTML = '\
     <div class="usage-header usage-fullscreen">\
-      <div class="usage-header-top">\
-        <h2 class="usage-title">' + t('usage') + '</h2>\
-        <div class="stat-grid">\
-          <div class="stat-card"><div class="stat-value">' + summary.total + '</div><div class="stat-label">' + t('totalRequests') + '</div></div>\
-          <div class="stat-card"><div class="stat-value" style="color:var(--accent2)">' + summary.success + '</div><div class="stat-label">' + t('success') + '</div></div>\
-          <div class="stat-card"><div class="stat-value" style="color:var(--danger)">' + summary.error + '</div><div class="stat-label">' + t('errors') + '</div></div>\
-          <div class="stat-card"><div class="stat-value">' + summary.avgLatencyMs + 'ms</div><div class="stat-label">' + t('avgLatency') + '</div></div>\
-          <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalInputTokens) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
-          <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalOutputTokens) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
-        </div>\
-      </div>\
       <div class="charts-row usage-body-grid">\
-        <div class="quota-monitor-card">' + renderQuotaBars(quotaBars) + '</div>\
+        <div class="quota-monitor-card">' + renderQuotaBars(quotaBars) + '\
+          <div class="stat-grid">\
+            <div class="stat-card"><div class="stat-value">' + summary.total + '</div><div class="stat-label">' + t('totalRequests') + '</div></div>\
+            <div class="stat-card"><div class="stat-value" style="color:var(--accent2)">' + summary.success + '</div><div class="stat-label">' + t('success') + '</div></div>\
+            <div class="stat-card"><div class="stat-value" style="color:var(--danger)">' + summary.error + '</div><div class="stat-label">' + t('errors') + '</div></div>\
+            <div class="stat-card"><div class="stat-value">' + summary.avgLatencyMs + 'ms</div><div class="stat-label">' + t('avgLatency') + '</div></div>\
+            <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalInputTokens) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
+            <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalOutputTokens) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
+          </div>\
+        </div>\
         <div class="trend-card">' + renderTrendChart(lastUsageEntries) + '</div>\
         <div class="recent-requests-section">' + renderRecentRequestsInline(lastUsageEntries) + '</div>\
       </div>\
