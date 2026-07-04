@@ -103,7 +103,13 @@ func openWebviewWindow(hctx *hostContext) {
 			Title:  "TinyRouter",
 			Width:  1280,
 			Height: 800,
-			IconId: 1, // resource ID 1 in rsrc.syso (the embedded favicon)
+			// IconId is intentionally 0; jchv uses it to LoadImageW as RT_ICON,
+			// but rsrc places the manifest at ID 1 and the icon group at ID 2 —
+			// so IconId=1 picks up nothing useful and IconId=2 hits the RT_ICON
+			// bucket, not RT_GROUP_ICON. We override the class icon ourselves
+			// below via SetClassLongPtrW + LoadIconW (which DOES understand
+			// RT_GROUP_ICON) once we have the HWND.
+			IconId: 0,
 			Center: true,
 		},
 	})
@@ -114,16 +120,49 @@ func openWebviewWindow(hctx *hostContext) {
 	w.SetTitle("TinyRouter")
 	w.Navigate(hctx.consoleURL)
 
-	// Maximize the window after creation. jchv/go-webview2 creates the window
-	// at the requested Width/Height but doesn't expose a Maximize API; we call
-	// Win32 ShowWindow directly with SW_MAXIMIZE = 3.
-	// w.Window() returns unsafe.Pointer to the HWND (uintptr).
-	// Must do this after Navigate so the WebView2 controller is fully created;
-	// calling it earlier can race the controller's window attachment.
+	// Apply our own icon to the window class (covers alt-tab, taskbar,
+	// and the title-bar icon). rsrc puts the icon GROUP at resource ID 2,
+	// so LoadIconW(hinst, MAKEINTRESOURCE(2)) is the right call.
 	hwnd := uintptr(w.Window())
 	if hwnd != 0 {
+		user32 := windows.NewLazySystemDLL("user32.dll")
+		kernel32 := windows.NewLazySystemDLL("kernel32.dll")
+
+		// GetModuleHandle(NULL) → our own exe handle.
+		hinst, _, _ := kernel32.NewProc("GetModuleHandleW").Call(0)
+
+		// LoadIconW(hinst, MAKEINTRESOURCE(2)) loads the RT_GROUP_ICON@2
+		// we embedded via rsrc -ico web/static/favicon.ico.
+		hicon, _, _ := user32.NewProc("LoadIconW").Call(hinst, 2)
+
+		if hicon != 0 {
+			// Win32 GCLP_HICON (=-14) and GCLP_HICONSM (=-34) as uintptr.
+			// Use int32 cast (not const decl) — a bare negative const overflows
+			// uintptr in Go's const type inference, but runtime conversion is fine.
+			gclpHIcon := int32(-14)   // large icon (alt-tab / taskbar)
+			gclpHIconSm := int32(-34) // small icon (title bar)
+			// SetClassLongPtrW replaces both entries on the window class.
+			_, _, _ = user32.NewProc("SetClassLongPtrW").Call(hwnd, uintptr(gclpHIcon), hicon)
+			_, _, _ = user32.NewProc("SetClassLongPtrW").Call(hwnd, uintptr(gclpHIconSm), hicon)
+
+			// Force a non-client repaint so the title-bar icon updates immediately.
+			const (
+				rdwInvalidate = 0x0001
+				rdwFrame      = 0x0400
+				rdwUpdNow     = 0x0100
+			)
+			_, _, _ = user32.NewProc("RedrawWindow").Call(
+				hwnd,
+				0, 0,
+				rdwInvalidate|rdwFrame|rdwUpdNow,
+			)
+		}
+
+		// Maximize the window after creation. jchv/go-webview2 has no Maximize
+		// API; ShowWindow(hwnd, SW_MAXIMIZE=3) does it. Must run after Navigate
+		// so the WebView2 controller is already attached to the window.
 		const swMaximize = 3
-		_, _, _ = windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow").Call(hwnd, swMaximize)
+		_, _, _ = user32.NewProc("ShowWindow").Call(hwnd, swMaximize)
 	}
 
 	// w.Run() pumps Win32 messages for this thread until the window is closed.
