@@ -100,6 +100,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 		}
 	}
 
+	if sel == nil {
+		h.logger.Warn("stream response with nil selector, skipping usage recording")
+		return
+	}
 	h.logger.Info("\U0001f4ca [stream] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
 	h.recordUsage(sel.Provider.Name, model, sel, "success", latencyMs, latencyMs, inputTokens, outputTokens, "")
@@ -124,6 +128,10 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	w.Write(bodyBytes)
 
 	inputTokens, outputTokens := extractTokens(bodyBytes)
+	if sel == nil {
+		h.logger.Warn("pass-through response with nil selector, skipping usage recording")
+		return
+	}
 	h.logger.Info("\U0001f4ca [response] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
 	h.recordUsage(sel.Provider.Name, model, sel, "success", latencyMs, 0, inputTokens, outputTokens, "")

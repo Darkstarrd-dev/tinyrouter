@@ -383,7 +383,7 @@ func (rt *Router) testProviderModelAllKeys(w http.ResponseWriter, r *http.Reques
 		httpReq.Header.Set("Accept", "text/event-stream")
 
 		t0 := time.Now()
-resp, err := rt.testClient.Do(httpReq)
+		resp, err := rt.testClient.Do(httpReq)
 		if err != nil {
 			result.Ok = false
 			result.Error = err.Error()

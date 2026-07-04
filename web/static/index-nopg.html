@@ -20,9 +20,6 @@
 })();
 </script>
 <link rel="stylesheet" href="/style.css">
-<link rel="stylesheet" href="/playground.css">
-<link rel="stylesheet" href="/vendor/pg-highlight-theme.css">
-<link rel="stylesheet" href="/vendor/katex.min.css">
 </head>
 <body>
 <div class="app">
@@ -44,7 +41,6 @@
 <button class="nav-item active" type="button" data-page="endpoint">Endpoint</button>
 <button class="nav-item" type="button" data-page="providers">Providers</button>
 <button class="nav-item" type="button" data-page="combos">Combos</button>
-<button class="nav-item" type="button" data-page="playground">Playground</button>
 <button class="nav-item" type="button" data-page="usage">Usage</button>
 <button class="nav-item" type="button" data-page="console">Console</button>
 </nav>
@@ -66,14 +62,5 @@
 <script src="/combos.js"></script>
 <script src="/usage.js"></script>
 <script src="/console.js"></script>
-<!-- Playground vendor deps (load order matters: katex -> marked -> ext -> purify -> hljs -> mermaid) -->
-<script src="/vendor/katex.min.js"></script>
-<script src="/vendor/marked.min.js"></script>
-<script src="/vendor/marked-katex-extension.umd.js"></script>
-<script src="/vendor/purify.min.js"></script>
-<script src="/vendor/highlight.min.js"></script>
-<script src="/vendor/mermaid.min.js"></script>
-<script>if (window.mermaid) { window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict', themeVariables: { background: '#1a1326', primaryColor: '#c4a6ff', primaryTextColor: '#e6def0', lineColor: '#a89bd6', secondaryColor: '#2a1f3d', tertiaryColor: '#3a2c5e' } }); }</script>
-<script src="/playground.js"></script>
 </body>
 </html>

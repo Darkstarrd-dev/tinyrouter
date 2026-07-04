@@ -76,7 +76,7 @@ func (cw *compressWriter) WriteHeader(code int) {
 	cw.Header().Set("Content-Encoding", cw.encoding)
 	switch cw.encoding {
 	case "br":
-		cw.encoder = brotli.NewWriterLevel(cw.ResponseWriter, brotli.BestCompression)
+		cw.encoder = brotli.NewWriterLevel(cw.ResponseWriter, brotli.DefaultCompression)
 	case "gzip":
 		gw, err := gzip.NewWriterLevel(cw.ResponseWriter, gzip.BestCompression)
 		if err != nil {

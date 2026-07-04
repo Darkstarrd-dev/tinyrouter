@@ -109,6 +109,7 @@ type Config struct {
 	ConsoleLogMaxLines int            `yaml:"consoleLogMaxLines" json:"consoleLogMaxLines"`
 	UsageRingSize      int            `yaml:"usageRingSize" json:"usageRingSize"`
 	Rotation           RotationConfig `yaml:"rotation" json:"rotation"`
+	EnablePlayground   bool           `yaml:"enablePlayground" json:"enablePlayground"`
 	Providers          []Provider     `yaml:"providers" json:"providers"`
 	Combos             []Combo        `yaml:"combos" json:"combos"`
 }
@@ -126,8 +127,9 @@ func DefaultConfig() *Config {
 			RetryDelaySec: 5,
 			BackoffMaxSec: 240,
 		},
-		Providers: []Provider{},
-		Combos:    []Combo{},
+		EnablePlayground: true,
+		Providers:        []Provider{},
+		Combos:           []Combo{},
 	}
 }
 

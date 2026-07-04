@@ -694,5 +694,6 @@ tbody tr:last-child td{border-bottom:none}
   .pg-side{grid-column:1;grid-row:3;border-left:none;border-top:1px solid var(--glass-border);padding-left:0;padding-top:12px;max-height:50vh}
   .pg-main{padding-right:0}
   .pg-bubble{max-width:95%}
-}
+ }
+
 

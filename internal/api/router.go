@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
 	"github.com/tinyrouter/tinyrouter/internal/usage"
+	"github.com/tinyrouter/tinyrouter/web"
 )
 
 // Router holds all dependencies needed to wire up HTTP routes.
@@ -138,6 +140,18 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	})
 
 	// Embedded UI (fallback to index.html)
+	// Playground static routes: only register when the playground module is
+	// compiled into the binary (build tag `playground`). At runtime the flag
+	// is a no-op when the binary lacks playground resources.
+	if web.PlaygroundCompiled() {
+		if pgStatic, err := fs.Sub(web.PlaygroundStatic, "playground/static-pg"); err == nil {
+			pgFSRoot := http.FileServer(http.FS(pgStatic))
+			r.Get("/playground.js", pgFSRoot.ServeHTTP)
+			r.Get("/playground.css", pgFSRoot.ServeHTTP)
+			r.Get("/pg-i18n.js", pgFSRoot.ServeHTTP)
+			r.Get("/vendor/*", pgFSRoot.ServeHTTP)
+		}
+	}
 	r.Get("/*", rt.serveUI)
 
 	return r

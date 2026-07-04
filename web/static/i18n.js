@@ -96,73 +96,7 @@ const L = {
     firstToken: 'First Token',
     speed: 'Speed',
     outputTokensLabel: 'Output',
-    // Playground
-    pgSelectModel: 'Select Model', pgNoModels: 'No models configured', pgSendMessage: 'Send', pgStop: 'Stop', pgClear: 'Clear Chat',
-    pgTemperature: 'Temperature', pgTopP: 'Top P', pgMaxTokens: 'Max Tokens', pgFreqPenalty: 'Frequency Penalty', pgPresPenalty: 'Presence Penalty',
-    pgStream: 'Stream', pgParams: 'Parameters', pgDebug: 'Debug', pgCustomBody: 'Custom Body',
-    pgUseCustomBody: 'Use Custom Body', pgCustomBodyHint: 'Edit raw JSON request body. Overrides parameters above.',
-    pgRawSSE: 'Raw SSE Events', pgRequest: 'Request Body', pgProvider: 'Provider', pgKey: 'Key',
-    pgThinking: 'Thinking', pgCopy: 'Copy', pgRegenerate: 'Regenerate', pgEdit: 'Edit', pgSave: 'Save',
-    pgEmptyState: 'Send a message to start chatting', pgEnterMessage: 'Type a message...',
-    pgStreaming: 'Streaming...', pgStopped: 'Stopped', pgError: 'Error', pgWaiting: 'Waiting...',
-    pgRespProvider: 'Provider: {0}', pgRespKey: 'Key: {0}', pgNoProvider: 'N/A',
-    pgClearConfirm: 'Clear all messages?', pgCopiedMsg: 'Message copied', pgExportCfg: 'Export', pgImportCfg: 'Import',
-    pgResetCfg: 'Reset', pgCfgExported: 'Config exported', pgCfgImported: 'Config imported', pgCfgReset: 'Config reset',
-    // Parameters panel extras
-    pgSeed: 'Seed', pgSeedPlaceholder: 'Random seed (blank = random)',
-    pgParamToggle: 'Toggle parameter',
-    // System prompt
-    pgSystemPrompt: 'System Prompt', pgSystemPromptPlaceholder: 'Optional system prompt sent as the first message',
-    // Image / multimodal
-    pgImage: 'Images', pgImageEnable: 'Enable', pgImageDisable: 'Disable',
-    pgImageAdd: 'Add URL', pgImageHint: 'Enable to attach image URLs for multimodal chat',
-    pgImageHintDisabled: 'Image input is unavailable in custom body mode',
-    pgImageHintEmpty: 'Click + to add an image URL for multimodal chat',
-    pgImageCount: '{0} image(s) attached',
-    pgImageCustomDisabled: 'Image input is unavailable in custom body mode',
-    pgImagePasteAdded: 'Pasted image added',
-    // Role toggle
-    pgToggleRole: 'Change role', pgRoleUser: 'User', pgRoleAssistant: 'Assistant', pgRoleSystem: 'System',
-    pgSystemBadge: 'System message',
-    // Show source / preview
-    pgShowSource: 'Show source', pgShowPreview: 'Show preview',
-    // Reasoning
-    pgThinkingTitle: 'Thinking', pgThinkingDone: 'Thought process', pgThinkingSec: 'Thought process ({0}s)', pgThinkingMs: 'Thought process ({0}ms)',
-    // Sources
-    pgSources: 'Sources', pgSourcesCount: 'Sources ({0})',
-    // Error actions
-    pgRetry: 'Retry', pgEditPrompt: 'Edit prompt', pgNoPrevUser: 'No prior user message to edit',
-    // Metadata
-    pgMetaResponse: 'Response: {0}', pgMetaJustTime: '{0}',
-    pgDurationMs: '{0}ms', pgDurationSec: '{0}s',
-    // Code block
-    pgCopyCode: 'Copy code', pgCodeCopied: 'Code copied', pgCodeCopyFailed: 'Copy failed',
-    pgHtmlPreview: 'HTML preview',
-    pgShowMore: 'Show more',
-    // Debug panel tabs
-    pgDebugTabPreview: 'Preview Request', pgDebugTabRequest: 'Actual Request', pgDebugTabResponse: 'Response',
-    pgDebugNoPreview: 'Building request preview...', pgDebugNoRequest: 'No request data yet', pgDebugNoResponse: 'No response data yet',
-    pgDebugPreviewUpdated: 'Preview updated', pgDebugLastRequest: 'Last request',
-    pgDebugCustomBadge: 'Custom',
-    // SSE viewer
-    pgSSEDataFlow: 'SSE Data Stream', pgSSEEmpty: 'No SSE response data',
-    pgSSECopyAll: 'Copy All', pgSSEExpandAll: 'Expand All', pgSSECollapseAll: 'Collapse All',
-    pgSSECopiedAll: 'All data copied', pgSSEComplete: 'Stream complete [DONE]', pgSSEParseError: 'Parse error',
-    pgSSEEvent: 'SSE Event', pgSSEContent: 'Content', pgSSEReasoning: 'Has Reasoning',
-    pgSSEFinish: 'Finish', pgSSETokens: 'Tokens', pgSSEErrors: 'error(s)',
-    // Custom body editor
-    pgCustomMode: 'Custom Request Body Mode',
-    pgCustomWarning: 'When enabled, your custom request body is sent. Parameter panel settings are ignored.',
-    pgCustomJsonValid: 'Valid format', pgCustomJsonInvalid: 'Invalid format',
-    pgCustomFormat: 'Format', pgCustomJsonError: 'JSON error: {0}',
-    // Code viewer
-    pgCodeLargeContent: 'Content is large, some features may be limited',
-    pgCodeTruncated: '// ... content truncated for performance ...',
-    pgCodeShowFull: 'Show full content', pgCodeCollapse: 'Collapse', pgCodeExpand: 'Expand',
-    pgCodeProcessing: 'Processing large content...', pgCodeCopiedClipboard: 'Copied to clipboard',
-    // Error code
-    pgErrorCode: 'Code: {0}',
-    // Confirm clear (reuse ConfirmDialog wordings)
+    // Playground keys moved to pg-i18n.js
   },
   cn: {
     endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台', playground: '测试',
@@ -260,72 +194,7 @@ const L = {
     firstToken: '首字延迟',
     speed: '速度',
     outputTokensLabel: '输出',
-    // Playground
-    pgSelectModel: '选择模型', pgNoModels: '未配置模型', pgSendMessage: '发送', pgStop: '停止', pgClear: '清空对话',
-    pgTemperature: '温度', pgTopP: 'Top P', pgMaxTokens: '最大 Tokens', pgFreqPenalty: '频率惩罚', pgPresPenalty: '存在惩罚',
-    pgStream: '流式', pgParams: '参数', pgDebug: '调试', pgCustomBody: '自定义请求体',
-    pgUseCustomBody: '使用自定义请求体', pgCustomBodyHint: '编辑原始 JSON 请求体，将覆盖上方参数。',
-    pgRawSSE: '原始 SSE 事件', pgRequest: '请求体', pgProvider: '服务商', pgKey: '密钥',
-    pgThinking: '思考中', pgCopy: '复制', pgRegenerate: '重新生成', pgEdit: '编辑', pgSave: '保存',
-    pgEmptyState: '发送消息开始对话', pgEnterMessage: '输入消息...',
-    pgStreaming: '生成中...', pgStopped: '已停止', pgError: '错误', pgWaiting: '等待中...',
-    pgRespProvider: '服务商: {0}', pgRespKey: '密钥: {0}', pgNoProvider: '无',
-    pgClearConfirm: '清空所有消息？', pgCopiedMsg: '消息已复制', pgExportCfg: '导出', pgImportCfg: '导入',
-    pgResetCfg: '重置', pgCfgExported: '配置已导出', pgCfgImported: '配置已导入', pgCfgReset: '配置已重置',
-    // 参数面板补充
-    pgSeed: 'Seed', pgSeedPlaceholder: '随机种子 (留空为随机)',
-    pgParamToggle: '切换参数',
-    // System prompt
-    pgSystemPrompt: '系统提示', pgSystemPromptPlaceholder: '可选，作为第一条消息发送',
-    // 图片 / 多模态
-    pgImage: '图片', pgImageEnable: '启用', pgImageDisable: '停用',
-    pgImageAdd: '添加 URL', pgImageHint: '启用后可添加图片 URL 进行多模态对话',
-    pgImageHintDisabled: '自定义请求体模式下图片功能不可用',
-    pgImageHintEmpty: '点击 + 按钮添加图片 URL 进行多模态对话',
-    pgImageCount: '已添加 {0} 张图片',
-    pgImageCustomDisabled: '自定义请求体模式下图片功能不可用',
-    pgImagePasteAdded: '已添加粘贴的图片',
-    // 角色切换
-    pgToggleRole: '切换角色', pgRoleUser: '用户', pgRoleAssistant: '助手', pgRoleSystem: '系统',
-    pgSystemBadge: '系统消息',
-    // 显示源码 / 预览
-    pgShowSource: '显示源码', pgShowPreview: '显示预览',
-    // 思考
-    pgThinkingTitle: '思考中', pgThinkingDone: '思考过程', pgThinkingSec: '思考过程 ({0}s)', pgThinkingMs: '思考过程 ({0}ms)',
-    // 引用源
-    pgSources: '引用源', pgSourcesCount: '引用源 ({0})',
-    // 错误动作
-    pgRetry: '重试', pgEditPrompt: '编辑提示', pgNoPrevUser: '没有可编辑的上一条用户消息',
-    // 元数据
-    pgMetaResponse: '响应: {0}', pgMetaJustTime: '{0}',
-    pgDurationMs: '{0}ms', pgDurationSec: '{0}s',
-    // 代码块
-    pgCopyCode: '复制代码', pgCodeCopied: '代码已复制', pgCodeCopyFailed: '复制失败',
-    pgHtmlPreview: 'HTML 预览',
-    pgShowMore: '显示更多',
-    // 调试面板 Tab
-    pgDebugTabPreview: '预览请求体', pgDebugTabRequest: '实际请求体', pgDebugTabResponse: '响应',
-    pgDebugNoPreview: '正在构造请求体预览...', pgDebugNoRequest: '暂无请求数据', pgDebugNoResponse: '暂无响应数据',
-    pgDebugPreviewUpdated: '预览更新', pgDebugLastRequest: '最后请求',
-    pgDebugCustomBadge: '自定义',
-    // SSE 查看器
-    pgSSEDataFlow: 'SSE 数据流', pgSSEEmpty: '暂无 SSE 响应数据',
-    pgSSECopyAll: '复制全部', pgSSEExpandAll: '全部展开', pgSSECollapseAll: '全部收起',
-    pgSSECopiedAll: '已复制全部数据', pgSSEComplete: '流式响应完成 [DONE]', pgSSEParseError: '解析错误',
-    pgSSEEvent: 'SSE 事件', pgSSEContent: '内容', pgSSEReasoning: '有 Reasoning',
-    pgSSEFinish: '完成', pgSSETokens: '令牌', pgSSEErrors: '错误',
-    // 自定义请求体编辑器
-    pgCustomMode: '自定义请求体模式',
-    pgCustomWarning: '启用此模式后，将使用您自定义的请求体发送。参数面板设置将被忽略。',
-    pgCustomJsonValid: '格式正确', pgCustomJsonInvalid: '格式错误',
-    pgCustomFormat: '格式化', pgCustomJsonError: 'JSON 错误: {0}',
-    // 代码查看器
-    pgCodeLargeContent: '内容较大，部分功能可能受限',
-    pgCodeTruncated: '// ... 内容被截断以提升性能 ...',
-    pgCodeShowFull: '显示完整内容', pgCodeCollapse: '收起', pgCodeExpand: '展开',
-    pgCodeProcessing: '正在处理大内容...', pgCodeCopiedClipboard: '已复制到剪贴板',
-    // 错误代码
-    pgErrorCode: '代码: {0}',
+    // Playground keys moved to pg-i18n.js
   }
 };
 

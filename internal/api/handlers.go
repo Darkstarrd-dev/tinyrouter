@@ -21,6 +21,7 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 		"consoleLogMaxLines": cfg.ConsoleLogMaxLines,
 		"usageRingSize":      cfg.UsageRingSize,
 		"rotation":           cfg.Rotation,
+		"enablePlayground":   cfg.EnablePlayground,
 	})
 }
 
@@ -30,6 +31,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		ConsoleLogMaxLines *int                   `json:"consoleLogMaxLines"`
 		UsageRingSize      *int                   `json:"usageRingSize"`
 		Rotation           *config.RotationConfig `json:"rotation"`
+		EnablePlayground   *bool                  `json:"enablePlayground"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
@@ -48,6 +50,9 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if updates.Rotation != nil {
 		cfg.Rotation = *updates.Rotation
+	}
+	if updates.EnablePlayground != nil {
+		cfg.EnablePlayground = *updates.EnablePlayground
 	}
 
 	if err := config.Save(rt.configPath, &cfg); err != nil {

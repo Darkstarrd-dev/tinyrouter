@@ -516,10 +516,19 @@ func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serve index.html at root
-	data, err := fs.ReadFile(staticFS, "index.html")
+	// Root: choose index.html variant based on EnablePlayground flag AND whether
+	// the playground module was compiled into this binary.
+	// Path matrix:
+	//   PlaygroundCompiled==false:  serve index-nopg.html always (no playground resources)
+	//   PlaygroundCompiled==true && EnablePlayground:  serve index.html (full)
+	//   PlaygroundCompiled==true && !EnablePlayground: serve index-nopg.html
+	indexFile := "index-nopg.html"
+	if web.PlaygroundCompiled() && rt.reg.Config().EnablePlayground {
+		indexFile = "index.html"
+	}
+	data, err := fs.ReadFile(staticFS, indexFile)
 	if err != nil {
-		http.Error(w, "index.html not found", http.StatusInternalServerError)
+		http.Error(w, indexFile+" not found", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
