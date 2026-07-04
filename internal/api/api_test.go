@@ -20,7 +20,7 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 )
 
-func setupTestServer(t *testing.T) (*httptest.Server, *registry.Registry, string) {
+func setupTestServer(t *testing.T) (*httptest.Server, *registry.Registry, string, *Router) {
 	t.Helper()
 	cfg := config.DefaultConfig()
 	cfg.Providers = []config.Provider{
@@ -42,7 +42,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *registry.Registry, string
 	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
 	apiRouter := New(reg, cfg, tmpFile, usageBuf, usage.NewQuotaTracker(), logger, proxyHandler, context.CancelFunc(func() {}), selector, comboRes)
 	handler := apiRouter.Routes(proxyHandler)
-	return httptest.NewServer(handler), reg, tmpFile
+	return httptest.NewServer(handler), reg, tmpFile, apiRouter
 }
 
 func requestJSON(t *testing.T, method, url, body string) *http.Response {
@@ -76,7 +76,7 @@ func readBody(t *testing.T, resp *http.Response) string {
 }
 
 func TestSettings_Get(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
+	srv, _, _, _ := setupTestServer(t)
 	defer srv.Close()
 
 	resp := requestJSON(t, "GET", srv.URL+"/api/settings", "")
@@ -97,7 +97,7 @@ func TestSettings_Get(t *testing.T) {
 }
 
 func TestSettings_Update(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
+	srv, _, _, _ := setupTestServer(t)
 	defer srv.Close()
 
 	payload := `{"port": 9999}`
@@ -115,7 +115,7 @@ func TestSettings_Update(t *testing.T) {
 }
 
 func TestProviders_CRUD(t *testing.T) {
-	srv, reg, _ := setupTestServer(t)
+	srv, reg, _, _ := setupTestServer(t)
 	defer srv.Close()
 
 	// Create
@@ -173,7 +173,7 @@ func TestProviders_CRUD(t *testing.T) {
 }
 
 func TestKeys_CRUD(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
+	srv, _, _, _ := setupTestServer(t)
 	defer srv.Close()
 
 	// Create provider
@@ -222,7 +222,7 @@ func TestKeys_CRUD(t *testing.T) {
 }
 
 func TestCombos_CRUD(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
+	srv, _, _, _ := setupTestServer(t)
 	defer srv.Close()
 
 	// Create
@@ -263,7 +263,7 @@ func TestCombos_CRUD(t *testing.T) {
 }
 
 func TestUsage_Endpoints(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
+	srv, _, _, _ := setupTestServer(t)
 	defer srv.Close()
 
 	// Get (empty)
@@ -313,7 +313,7 @@ func TestUsage_Endpoints(t *testing.T) {
 }
 
 func TestConsoleLogs_Endpoints(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
+	srv, _, _, _ := setupTestServer(t)
 	defer srv.Close()
 
 	// Get
@@ -335,7 +335,7 @@ func TestConsoleLogs_Endpoints(t *testing.T) {
 }
 
 func TestModels_List(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
+	srv, _, _, _ := setupTestServer(t)
 	defer srv.Close()
 
 	resp := requestJSON(t, "GET", srv.URL+"/api/models", "")
@@ -351,7 +351,7 @@ func TestModels_List(t *testing.T) {
 }
 
 func TestProvider_NotFound(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
+	srv, _, _, _ := setupTestServer(t)
 	defer srv.Close()
 
 	resp := requestJSON(t, "GET", srv.URL+"/api/providers/nonexistent/keys", "")
@@ -362,5 +362,65 @@ func TestProvider_NotFound(t *testing.T) {
 	json.Unmarshal([]byte(readBody(t, resp)), &body)
 	if body["error"] == nil {
 		t.Error("expected error message in response")
+	}
+}
+
+func TestGetQuotas_CurrentKeyID_Name(t *testing.T) {
+	srv, reg, _, rt := setupTestServer(t)
+	defer srv.Close()
+
+	// Create a provider with 2 keys that share the same name "Key-1" but different IDs
+	dupProv := config.Provider{
+		ID: "dup-prov", Name: "DupProv", Prefix: "dup", BaseURL: "https://dup.com",
+		APIType: "openai-compatible", IsActive: true,
+		Keys: []config.Key{
+			{ID: "dk1", Key: "sk-d1", Name: "Key-1", Priority: 1, IsActive: true},
+			{ID: "dk2", Key: "sk-d2", Name: "Key-1", Priority: 2, IsActive: true},
+		},
+		Models: []config.ModelDef{{ID: "model-x"}},
+	}
+	reg.AddProvider(dupProv)
+
+	// Seed quota data so the bar appears in the API response
+	rt.quotaTracker.Update("DupProv", "model-x", "dk1", "Key-1", 100, 80, 2)
+
+	// currentKey should return one of the two Key-1 keys
+	ck := rt.currentKey("DupProv", "model-x")
+	if ck.ID == "" {
+		t.Error("expected non-empty currentKey.ID, got empty")
+	}
+	if ck.Name != "Key-1" {
+		t.Errorf("expected currentKey.Name = \"Key-1\", got %q", ck.Name)
+	}
+	if ck.ID != "dk1" && ck.ID != "dk2" {
+		t.Errorf("expected currentKey.ID to be \"dk1\" or \"dk2\", got %q", ck.ID)
+	}
+
+	// Verify the quota API also populates currentKeyId
+	resp := requestJSON(t, "GET", srv.URL+"/api/usage/quotas", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	var quotaBody map[string]any
+	json.Unmarshal([]byte(readBody(t, resp)), &quotaBody)
+	quotas := quotaBody["quotas"].([]any)
+	if len(quotas) == 0 {
+		t.Fatal("expected at least one quota bar")
+	}
+	found := false
+	for _, q := range quotas {
+		bar := q.(map[string]any)
+		if bar["provider"] == "DupProv" && bar["model"] == "model-x" {
+			found = true
+			if bar["currentKeyId"] == nil || bar["currentKeyId"].(string) == "" {
+				t.Error("expected non-empty currentKeyId in quota bar")
+			}
+			if bar["currentKeyName"] == nil || bar["currentKeyName"].(string) == "" {
+				t.Error("expected non-empty currentKeyName in quota bar")
+			}
+		}
+	}
+	if !found {
+		t.Error("quota bar for DupProv/model-x not found")
 	}
 }

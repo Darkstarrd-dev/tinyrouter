@@ -28,7 +28,9 @@ type QuotaBar struct {
 	OutputTokens     int        `json:"outputTokens"`
 	Keys             []KeyQuota `json:"keys"`
 	CurrentKeyName   string     `json:"currentKeyName,omitempty"`
+	CurrentKeyID     string     `json:"currentKeyId,omitempty"`
 	InFlightKeyNames []string   `json:"inFlightKeyNames"`
+	InFlightKeyIDs   []string   `json:"inFlightKeyIds"`
 }
 
 // QuotaTracker tracks quota snapshots across providers/models/keys.

@@ -431,7 +431,7 @@ function renderQuotaBars(bars) {
     // which key is being routed to without expanding.
     var currentKeyHtml = '';
     if (bar.currentKeyName) {
-      currentKeyHtml = '<span class="current-key-tag" title="' + escapeHtml(t('currentKey')) + '"><span class="current-key-dot"></span>' + escapeHtml(bar.currentKeyName) + '</span>';
+      currentKeyHtml = '<span class="current-key-tag" title="' + escapeHtml(t('currentKey')) + '" data-current-key-id="' + escapeHtml(bar.currentKeyId || '') + '"><span class="current-key-dot"></span>' + escapeHtml(bar.currentKeyName) + '</span>';
     } else {
       currentKeyHtml = '<span class="current-key-tag current-key-tag-none">' + escapeHtml(t('noCurrentKey')) + '</span>';
     }
@@ -683,7 +683,7 @@ function renderModelKeyDetail(provider, model, data) {
     // "In Use" badge removed; row highlighting + dot size indicate predicted next key
     var rowClass = 'model-key-row';
     var usable = k.isActive && k.status === 'active' && !k.modelLock;
-    if (usable && data.inUseKeyName && k.keyName === data.inUseKeyName) {
+    if (usable && ((data.inUseKeyID && k.keyId === data.inUseKeyID) || (!data.inUseKeyID && data.inUseKeyName && k.keyName === data.inUseKeyName))) {
       dotClass += ' model-color-dot-in-use';
       rowClass = 'model-key-row model-key-row-in-use';
     } else if (!usable) {
@@ -698,7 +698,8 @@ function renderModelKeyDetail(provider, model, data) {
         timerHtml = '<span class="model-key-timer model-key-timer-cooldown" data-type="cooldown" data-unlock="' + k.modelLock + '">' + formatMinutes(unlockMs) + '</span>';
       }
     } else if (k.lastUsedAt) {
-      var isCurrentlyInUse = data.inUseKeyName && k.keyName === data.inUseKeyName;
+      var isCurrentlyInUse = (data.inUseKeyID && k.keyId === data.inUseKeyID) ||
+       (!data.inUseKeyID && data.inUseKeyName && k.keyName === data.inUseKeyName);
       var isCurrentlyCalling = k.inFlight && k.inFlight > 0;
       if (!isCurrentlyInUse && !isCurrentlyCalling) {
         var idleMs = Date.now() - new Date(k.lastUsedAt).getTime();

@@ -84,10 +84,13 @@ func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 	// would pick next), so the UI can show "in-use" next to the quota progress
 	// without requiring an expand.
 	for i := range bars {
-		bars[i].CurrentKeyName = rt.currentKeyName(bars[i].Provider, bars[i].Model)
+		ck := rt.currentKey(bars[i].Provider, bars[i].Model)
+		bars[i].CurrentKeyName = ck.Name
+		bars[i].CurrentKeyID = ck.ID
 
-		// Collect key names that have in-flight requests for this provider/model.
+		// Collect key names+IDs that have in-flight requests for this provider/model.
 		names := make([]string, 0)
+		ids := make([]string, 0)
 		for _, p := range rt.reg.ListProviders() {
 			if p.Name != bars[i].Provider {
 				continue
@@ -99,11 +102,13 @@ func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 				state := rt.reg.GetKeyState(p.ID, k.ID)
 				if state != nil && state.GetInFlight() > 0 {
 					names = append(names, k.Name)
+					ids = append(ids, k.ID)
 				}
 			}
 			break
 		}
 		bars[i].InFlightKeyNames = names
+		bars[i].InFlightKeyIDs = ids
 	}
 
 	// Sort by provider + model for stable ordering
@@ -287,9 +292,11 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 
 	// Identify the in-use key (top usable entry) so the frontend can badge it.
 	inUseKeyName := ""
+	inUseKeyID := ""
 	for _, d := range sorted {
 		if d.IsActive && d.Status == "active" && d.ModelLock == nil {
 			inUseKeyName = d.KeyName
+			inUseKeyID = d.KeyID
 			break
 		}
 	}
@@ -301,6 +308,7 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 		"hasQuota":         hasQuota,
 		"keys":             sorted,
 		"inUseKeyName":     inUseKeyName,
+		"inUseKeyID":       inUseKeyID,
 		"rotationStrategy": strategy,
 	})
 }
@@ -456,11 +464,17 @@ func (rt *Router) handleShutdown(w http.ResponseWriter, r *http.Request) {
 
 // --- UI ---
 
-// currentKeyName returns the name of the key that the provider's effective
+// currentKey holds the ID+Name of the key selected by the rotation strategy.
+type currentKey struct {
+	ID   string
+	Name string
+}
+
+// currentKey returns the ID and Name of the key that the provider's effective
 // rotation strategy would pick right now for the given model. Mirrors the
 // ordering logic of getModelKeys so the value shown on the unexpanded quota
-// bar matches the top row after expand. Returns "" when no usable key exists.
-func (rt *Router) currentKeyName(providerName, model string) string {
+// bar matches the top row after expand. Returns zero value when no usable key exists.
+func (rt *Router) currentKey(providerName, model string) currentKey {
 	var provider *config.Provider
 	for _, p := range rt.reg.ListProviders() {
 		if p.Name == providerName {
@@ -470,13 +484,14 @@ func (rt *Router) currentKeyName(providerName, model string) string {
 		}
 	}
 	if provider == nil {
-		return ""
+		return currentKey{}
 	}
 	strategy := provider.RotationStrategy
 	if strategy == "" {
 		strategy = rt.selector.Settings().Strategy
 	}
 	type sk struct {
+		id        string
 		name      string
 		usable    bool
 		priority  int
@@ -486,7 +501,7 @@ func (rt *Router) currentKeyName(providerName, model string) string {
 	}
 	cands := make([]sk, 0, len(provider.Keys))
 	for idx, k := range provider.Keys {
-		entry := sk{name: k.Name, priority: k.Priority, configIdx: idx}
+		entry := sk{id: k.ID, name: k.Name, priority: k.Priority, configIdx: idx}
 		state := rt.reg.GetKeyState(provider.ID, k.ID)
 		if state != nil {
 			state.Lock()
@@ -505,7 +520,7 @@ func (rt *Router) currentKeyName(providerName, model string) string {
 		}
 	}
 	if len(cands) == 0 {
-		return ""
+		return currentKey{}
 	}
 	sort.SliceStable(cands, func(i, j int) bool {
 		switch strategy {
@@ -523,7 +538,12 @@ func (rt *Router) currentKeyName(providerName, model string) string {
 		}
 		return cands[i].configIdx < cands[j].configIdx
 	})
-	return cands[0].name
+	return currentKey{ID: cands[0].id, Name: cands[0].name}
+}
+
+// currentKeyName is a thin wrapper around currentKey that returns only the name.
+func (rt *Router) currentKeyName(providerName, model string) string {
+	return rt.currentKey(providerName, model).Name
 }
 
 func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {

@@ -100,6 +100,9 @@ func (rt *Router) createProvider(w http.ResponseWriter, r *http.Request) {
 		p.APIType = "openai-compatible"
 	}
 	p.IsActive = true
+	if p.Name == "" {
+		p.Name = "Provider-" + strconv.Itoa(len(rt.reg.ListProviders())+1)
+	}
 	rt.reg.AddProvider(p)
 	cfg := rt.reg.Config()
 	if err := config.Save(rt.configPath, &cfg); err != nil {
@@ -168,6 +171,11 @@ func (rt *Router) createKey(w http.ResponseWriter, r *http.Request) {
 		k.ID = generateID("key")
 	}
 	k.IsActive = true
+	if k.Name == "" {
+		if provider, ok := rt.reg.GetProvider(providerID); ok {
+			k.Name = "Key-" + strconv.Itoa(len(provider.Keys)+1)
+		}
+	}
 	if rt.reg.AddKey(providerID, k) {
 		cfg := rt.reg.Config()
 		config.Save(rt.configPath, &cfg)

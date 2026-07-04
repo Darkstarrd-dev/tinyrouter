@@ -32,6 +32,12 @@ func (rt *Router) bulkAddKeys(w http.ResponseWriter, r *http.Request) {
 	added := 0
 	var errors []map[string]any
 
+	// Capture current key count for auto-naming offset
+	offset := 0
+	if provider, ok := rt.reg.GetProvider(providerID); ok {
+		offset = len(provider.Keys)
+	}
+
 	for i, k := range req.Keys {
 		if k.Key == "" {
 			errors = append(errors, map[string]any{"index": i, "error": "empty key"})
@@ -39,7 +45,7 @@ func (rt *Router) bulkAddKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		name := k.Name
 		if name == "" {
-			name = "Key-" + strconv.Itoa(i+1)
+			name = "Key-" + strconv.Itoa(offset+i+1)
 		}
 		priority := k.Priority
 		if priority == 0 {
@@ -61,7 +67,10 @@ func (rt *Router) bulkAddKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := rt.reg.Config()
-	config.Save(rt.configPath, &cfg)
+	if err := config.Save(rt.configPath, &cfg); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"added":  added,
