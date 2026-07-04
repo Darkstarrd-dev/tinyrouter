@@ -65,7 +65,7 @@ function backToProviderList() {
   modelTestStatus = {};
   expandedModelDetails = new Set();
   allKeysTestResults = {};
-  renderProviders(document.getElementById('page-content'));
+  renderEndpoint(document.getElementById('page-content'));
 }
 
 function showAddProvider() {

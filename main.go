@@ -82,6 +82,7 @@ func main() {
 	// Shutdown is triggered by the UI via POST /api/shutdown.
 	shutdownCtx, triggerShutdown := context.WithCancel(context.Background())
 	apiRouter := api.New(reg, cfg, *configPath, usageBuf, quotaTracker, logger, proxyHandler, triggerShutdown, selector, comboRes)
+	proxyHandler.SetDebugModeProvider(apiRouter.DebugMode)
 
 	// Build HTTP server
 	handler := apiRouter.Routes(proxyHandler)

@@ -5,6 +5,7 @@ var lastUsageEntries = [];
 var modelColorMap = {};
 var expandedModels = new Set();
 var lockCountdownTimerStarted = false;
+var usageDebugMode = false;
 
 var TREND_PALETTE = [
   '#4fc3f7', '#10a37f', '#d97706', '#4285f4', '#a855f7', '#ff6a00',
@@ -33,12 +34,19 @@ function sanitizeId(s) {
 }
 
 function renderUsageRow(e) {
+  var statusCell;
+  if (usageDebugMode && (e.reqPayload || e.respPayload || e.respStatus)) {
+    var ts = new Date(e.timestamp).getTime();
+    statusCell = '<td><button class="btn btn-sm btn-info" onclick="showUsageEntryInfo(\'' + ts + '\')"><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></button></td>';
+  } else {
+    statusCell = '<td><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></td>';
+  }
   return '<tr>\
     <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
     <td>' + escapeHtml(e.provider) + '</td>\
     <td>' + escapeHtml(e.model) + '</td>\
     <td>' + escapeHtml(e.keyName) + '</td>\
-    <td><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></td>\
+    ' + statusCell + '\
     <td>' + e.latencyMs + 'ms</td>\
     <td>' + e.inputTokens + '/' + e.outputTokens + '</td>\
   </tr>';
@@ -264,11 +272,13 @@ function attachTrendHover(entries) {
 
 async function renderUsage(c) {
   showSkeleton(c, 4);
-  const [summary, usage, quotas] = await Promise.all([
+  const [summary, usage, quotas, settings] = await Promise.all([
     apiGet('/usage/summary'),
     apiGet('/usage?limit=500'),
-    apiGet('/usage/quotas')
+    apiGet('/usage/quotas'),
+    apiGet('/settings')
   ]);
+  usageDebugMode = !!(settings && settings.debugMode);
   lastUsageEntries = usage.entries || [];
   const quotaBars = quotas.quotas || [];
   c.innerHTML = '\
@@ -807,4 +817,60 @@ async function clearUsageFromModal() {
   toast(t('usageCleared'), 'info');
   closeRecentRequests();
   renderUsage(document.getElementById('page-content'));
+}
+
+// ===================== Usage Entry Info Modal (Debug Mode) =====================
+
+function showUsageEntryInfo(ts) {
+  var e = lastUsageEntries.find(function(x) { return String(new Date(x.timestamp).getTime()) === ts; });
+  if (!e) return;
+  var overlay = document.getElementById('info-modal-overlay');
+  var titleEl = document.getElementById('info-modal-title');
+  var bodyEl = document.getElementById('info-modal-body');
+  titleEl.textContent = e.provider + ' / ' + e.model + ' \u2014 ' + e.status + ' (' + e.latencyMs + 'ms)';
+  var html = '';
+  if (e.reqPayload) {
+    html += renderUsageInfoSection('Request', e.reqPayload);
+  }
+  if (e.respHeaders) {
+    html += renderUsageInfoSection('Response Headers', e.respHeaders);
+  }
+  if (e.respStatus) {
+    html += '<div class="info-section"><div class="info-section-title">Status: ' + e.respStatus + '</div></div>';
+  }
+  if (e.respPayload) {
+    html += renderUsageInfoSection('Response Body', e.respPayload);
+  }
+  bodyEl.innerHTML = html || '<div class="info-section">' + t('noData') + '</div>';
+  overlay.classList.add('show');
+  document.addEventListener('keydown', usageInfoModalEscapeHandler);
+}
+
+function usageInfoModalEscapeHandler(e) {
+  if (e.key === 'Escape') { closeUsageEntryInfo(); }
+}
+
+function closeUsageEntryInfo() {
+  var overlay = document.getElementById('info-modal-overlay');
+  overlay.classList.remove('show');
+  document.removeEventListener('keydown', usageInfoModalEscapeHandler);
+}
+
+function renderUsageInfoSection(title, data) {
+  var content = '';
+  if (data === null || data === undefined) {
+    content = '<pre class="info-json">' + t('noData') + '</pre>';
+  } else if (typeof data === 'string') {
+    content = '<div class="info-field"><pre class="info-json">' + escapeHtml(data) + '</pre><button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button></div>';
+  } else {
+    for (var k in data) {
+      var v = data[k];
+      var vStr;
+      if (v === null) vStr = 'null';
+      else if (typeof v === 'object') vStr = JSON.stringify(v, null, 2);
+      else vStr = String(v);
+      content += '<div class="info-field"><span class="info-field-key">' + escapeHtml(k) + '</span><pre class="info-json">' + escapeHtml(vStr) + '</pre><button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button></div>';
+    }
+  }
+  return '<div class="info-section"><div class="info-section-title">' + escapeHtml(title) + '</div>' + content + '</div>';
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -33,6 +34,7 @@ type Router struct {
 	testClient   *http.Client
 	shutdown     context.CancelFunc
 	restartFn    func(string) error
+	debugMode    atomic.Bool
 }
 
 // New creates an API Router.
@@ -61,6 +63,14 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 // server on a new address. Used by updateSettings when the port changes.
 func (rt *Router) SetRestartFunc(fn func(string) error) {
 	rt.restartFn = fn
+}
+
+func (rt *Router) DebugMode() bool {
+	return rt.debugMode.Load()
+}
+
+func (rt *Router) SetDebugMode(on bool) {
+	rt.debugMode.Store(on)
 }
 
 // Routes returns the root HTTP handler with all routes registered.

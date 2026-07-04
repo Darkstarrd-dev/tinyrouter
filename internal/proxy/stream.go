@@ -37,7 +37,7 @@ func (b *sseLineBuffer) remaining() string {
 	return ""
 }
 
-func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64) {
+func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte) {
 	defer resp.Body.Close()
 
 	streamStart := time.Now()
@@ -131,10 +131,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	totalLatencyMs := latencyMs + time.Since(streamStart).Milliseconds()
 	h.logger.Info("\U0001f4ca [stream] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", sel.Provider.Name, model, totalLatencyMs, resp.StatusCode)
-	h.recordUsage(sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "")
+	h.recordUsage(sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, nil, resp.Header, resp.StatusCode)
 }
 
-func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64) {
+func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte) {
 	defer resp.Body.Close()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -159,5 +159,5 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	}
 	h.logger.Info("\U0001f4ca [response] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
-	h.recordUsage(sel.Provider.Name, model, sel, "success", latencyMs, 0, inputTokens, outputTokens, "")
+	h.recordUsage(sel.Provider.Name, model, sel, "success", latencyMs, 0, inputTokens, outputTokens, "", reqBody, bodyBytes, resp.Header, resp.StatusCode)
 }

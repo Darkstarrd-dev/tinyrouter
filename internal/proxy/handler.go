@@ -26,6 +26,7 @@ type Handler struct {
 	UsageUpdateCh    chan struct{}
 	InflightUpdateCh chan struct{}
 	Inflight         *InflightTracker
+	debugModeProvider func() bool
 }
 
 func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, quotaTracker *usage.QuotaTracker, logger *console.Logger) *Handler {
@@ -240,9 +241,9 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		latencyMs := time.Since(startTime).Milliseconds()
 
 		if isStream {
-			h.streamResponse(w, resp, upstreamModel, sel, latencyMs)
+			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes)
 		} else {
-			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs)
+			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes)
 		}
 		// DecInFlight after the synchronous response handling completes — this
 		// key is no longer "in-use". Cannot use defer (see above).
@@ -303,8 +304,19 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string) {
-	h.usage.Add(usage.Entry{
+func (h *Handler) SetDebugModeProvider(fn func() bool) {
+	h.debugModeProvider = fn
+}
+
+func (h *Handler) debugMode() bool {
+	if h.debugModeProvider != nil {
+		return h.debugModeProvider()
+	}
+	return false
+}
+
+func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string, reqBody []byte, respBody []byte, respHeaders http.Header, respStatus int) {
+	entry := usage.Entry{
 		Timestamp:    time.Now(),
 		Provider:     sel.Provider.Name,
 		Model:        model,
@@ -316,7 +328,24 @@ func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		Error:        errMsg,
-	})
+	}
+	if h.debugMode() {
+		if len(reqBody) > 0 {
+			entry.ReqPayload = append([]byte(nil), reqBody...)
+		}
+		if len(respBody) > 0 {
+			const maxRespBody = 64 * 1024
+			if len(respBody) > maxRespBody {
+				respBody = respBody[:maxRespBody]
+			}
+			entry.RespPayload = append([]byte(nil), respBody...)
+		}
+		if len(respHeaders) > 0 {
+			entry.RespHeaders = respHeaders.Clone()
+		}
+		entry.RespStatus = respStatus
+	}
+	h.usage.Add(entry)
 	select {
 	case h.UsageUpdateCh <- struct{}{}:
 	default:

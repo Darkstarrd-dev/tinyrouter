@@ -1,8 +1,11 @@
 // ===================== Translation System =====================
 const L = {
   en: {
-    endpoint: 'Endpoint', providers: 'Providers', combos: 'Combos', usage: 'Usage', console: 'Console', playground: 'Playground',
+    endpoint: 'Settings', providers: 'Providers', combos: 'Combos', usage: 'Usage', console: 'Console', playground: 'Playground',
     shutdown: 'Shutdown',
+    debugSettings: 'Debug Settings', debugMode: 'Debug Mode',
+    debugModeDesc: 'When enabled, request/response details are cached for inspection in the Usage page.',
+    debugModeOn: 'ON', debugModeOff: 'OFF',
     listenPort: 'Listen Port', save: 'Save',
     apiEndpoint: 'API Endpoint:', noKeyRequired: 'No API key required. Any key or no key works.',
     rotationSettings: 'Rotation Settings (Global Default)',
@@ -112,8 +115,11 @@ const L = {
     // Playground keys moved to pg-i18n.js
   },
   cn: {
-    endpoint: '端点', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台', playground: '测试',
+    endpoint: '设置', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台', playground: '测试',
     shutdown: '关闭',
+    debugSettings: '调试设置', debugMode: '调试模式',
+    debugModeDesc: '开启后，请求/响应详情将缓存以供 Usage 页面查看。',
+    debugModeOn: '开', debugModeOff: '关',
     listenPort: '监听端口', save: '保存',
     apiEndpoint: 'API 地址:', noKeyRequired: '无需 API Key，任意 Key 或无 Key 均可访问。',
     rotationSettings: '轮询设置 (全局默认)',

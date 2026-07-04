@@ -25,6 +25,7 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 		"usageRingSize":      cfg.UsageRingSize,
 		"rotation":           cfg.Rotation,
 		"enablePlayground":   cfg.EnablePlayground,
+		"debugMode":          rt.DebugMode(),
 	})
 }
 
@@ -35,6 +36,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		UsageRingSize      *int                   `json:"usageRingSize"`
 		Rotation           *config.RotationConfig `json:"rotation"`
 		EnablePlayground   *bool                  `json:"enablePlayground"`
+		DebugMode          *bool                  `json:"debugMode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
@@ -69,6 +71,9 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if updates.EnablePlayground != nil {
 		cfg.EnablePlayground = *updates.EnablePlayground
+	}
+	if updates.DebugMode != nil {
+		rt.SetDebugMode(*updates.DebugMode)
 	}
 
 	if err := config.Save(rt.configPath, &cfg); err != nil {

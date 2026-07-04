@@ -1,6 +1,8 @@
 package usage
 
 import (
+	"encoding/json"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -17,7 +19,11 @@ type Entry struct {
 	TTFTMs       int64     `json:"ttftMs"`
 	InputTokens  int       `json:"inputTokens"`
 	OutputTokens int       `json:"outputTokens"`
-	Error        string    `json:"error,omitempty"`
+	Error        string          `json:"error,omitempty"`
+	ReqPayload  json.RawMessage `json:"reqPayload,omitempty"`
+	RespPayload json.RawMessage `json:"respPayload,omitempty"`
+	RespHeaders http.Header     `json:"respHeaders,omitempty"`
+	RespStatus  int             `json:"respStatus,omitempty"`
 }
 
 // UsageStore provides write access to usage entries.

@@ -733,4 +733,24 @@ tbody tr:last-child td{border-bottom:none}
 .info-copy-btn{float:right;background:none;border:1px solid var(--glass-border);color:var(--text-secondary);font-size:var(--font-badge);padding:2px 8px;border-radius:6px;cursor:pointer;transition:all .15s}
 .info-copy-btn:hover{color:var(--text);border-color:var(--glass-border-hover)}
 
+/* ===================== Settings Layout ===================== */
+.settings-layout{display:flex;gap:16px;height:calc(100vh - 64px);align-items:stretch}
+.settings-col{flex:1 1 0;min-width:0;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;display:flex;flex-direction:column}
+.settings-col::-webkit-scrollbar{display:none}
+.settings-col .card{flex-shrink:0}
+
+/* Debug Mode toggle switch */
+.toggle-switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;inset:0;background:var(--input-bg);border:1px solid var(--glass-border);border-radius:24px;transition:.25s cubic-bezier(0.4,0,0.2,1)}
+.toggle-slider::before{content:"";position:absolute;height:18px;width:18px;left:2px;top:2px;background:var(--text-muted);border-radius:50%;transition:.25s cubic-bezier(0.4,0,0.2,1)}
+.toggle-switch input:checked + .toggle-slider{background:var(--accent);border-color:var(--accent)}
+.toggle-switch input:checked + .toggle-slider::before{transform:translateX(20px);background:#fff}
+
+/* Responsive: narrow screens stack into single column */
+@media (max-width:900px){
+  .settings-layout{flex-direction:column;height:auto;gap:0}
+  .settings-col{overflow-y:visible}
+}
+
 

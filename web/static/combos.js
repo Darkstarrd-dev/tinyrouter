@@ -79,7 +79,7 @@ async function addCombo() {
   await apiPost('/combos', c);
   document.getElementById('combo-form').style.display = 'none';
   toast(t('comboCreated'), 'success');
-  renderCombos(document.getElementById('page-content'));
+  renderEndpoint(document.getElementById('page-content'));
 }
 
 async function deleteCombo(id) {
@@ -87,7 +87,7 @@ async function deleteCombo(id) {
   if (!ok) return;
   await apiDelete('/combos/' + id);
   toast(t('comboDeleted'), 'success');
-  renderCombos(document.getElementById('page-content'));
+  renderEndpoint(document.getElementById('page-content'));
 }
 
 async function showEditCombo(id) {
@@ -142,7 +142,7 @@ async function saveEditCombo(id) {
   await apiPut('/combos/' + id, c);
   document.getElementById('combo-form').style.display = 'none';
   toast(t('comboUpdated'), 'success');
-  renderCombos(document.getElementById('page-content'));
+  renderEndpoint(document.getElementById('page-content'));
 }
 
 async function importModelsFromProvider(target) {
