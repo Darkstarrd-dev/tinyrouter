@@ -1,12 +1,16 @@
 /* Playground module styling. 编译进 playground 模块才被引用。 */
 
 /* ===================== Playground ===================== */
+/* playground 全屏布局, 禁止 html/body/app 任何全局滚动.
+   滚动只应发生在 .pg-messages (消息列表) 和 .pg-side (侧栏) 内部. */
+html,body,.app{overflow:hidden !important;height:100% !important}
+.main.main-no-scroll{padding:0;overflow:hidden}
+.main.main-no-scroll > #page-content{height:100%;overflow:hidden}
 .pg-layout{height:100%;display:grid;grid-template-columns:1fr 320px;grid-template-rows:1fr auto;gap:0;overflow:hidden}
-#page-content:has(.pg-layout){height:100%}
 .pg-main{grid-row:1;grid-column:1;display:flex;flex-direction:column;min-height:0;min-width:0;padding-right:12px;overflow:hidden}
 .pg-main-inner{max-width:56rem;width:100%;margin:0 auto;padding:16px 16px;flex:1 1 0;min-height:0;display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden}
 @media (max-width:900px){.pg-main-inner{padding:8px}}
-.pg-side{grid-row:1 / span 2;grid-column:2;display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0;min-width:0;padding-left:12px;border-left:1px solid var(--glass-border)}
+.pg-side{grid-row:1 / span 2;grid-column:2;display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0;min-width:0;padding-left:12px;border-left:0}
 .pg-input-bar{grid-row:2;grid-column:1;display:flex;gap:8px;align-items:stretch;flex-shrink:0;padding-top:8px;padding-bottom:16px;padding-right:12px}
 .pg-input-card{
   flex:1;
@@ -44,7 +48,7 @@
   box-shadow:0 1px 2px rgba(0,0,0,.1);
   border-radius:8px;
 }
-.pg-input-actions{display:flex;flex-direction:column;gap:4px;align-items:stretch;flex:0 0 auto}
+.pg-input-actions{display:flex;flex-direction:column;align-items:stretch;flex:0 0 auto;justify-content:space-between}
 .pg-input-actions .pg-btn-row{align-self:stretch}
 .pg-input-actions .pg-btn-row .pg-btn{width:100%;box-sizing:border-box}
 .pg-input-bar .pg-send.stop{
@@ -108,6 +112,18 @@
 .pg-bubble summary{cursor:pointer;font-weight:600;color:var(--accent)}
 /* inline code */
 .pg-bubble code{font-family:ui-monospace,Consolas,monospace;font-size:var(--font-code);background:rgba(196,166,255,.12);border:1px solid rgba(196,166,255,.2);color:#d4c5f9;padding:1px 5px;border-radius:4px}
+/* 亮色主题: user bubble 在浅色背景下需要深色文字 + 更明显背景, 否则白色看不清 */
+[data-theme="light"] .pg-msg.user .pg-bubble{background:rgba(14,165,233,0.10) !important;border:1px solid rgba(14,165,233,0.20) !important;color:#1a1a1a !important}
+[data-theme="light"] .pg-msg.user .pg-bubble,
+[data-theme="light"] .pg-msg.user .pg-bubble p,
+[data-theme="light"] .pg-msg.user .pg-bubble li,
+[data-theme="light"] .pg-msg.user .pg-bubble span,
+[data-theme="light"] .pg-msg.user .pg-bubble div{color:#1a1a1a !important}
+[data-theme="light"] .pg-bubble code{color:#7c3aed;background:rgba(124,58,237,0.08);border-color:rgba(124,58,237,0.15)}
+[data-theme="light"] .pg-bubble pre{background:#f5f7fa;color:#1a1a1a;border-color:rgba(0,0,0,0.12)}
+[data-theme="light"] .pg-bubble pre code{color:#1a1a1a}
+[data-theme="light"] .pg-thinking{background:linear-gradient(135deg,rgba(124,58,237,0.08),rgba(79,195,247,0.05))}
+[data-theme="light"] .pg-thinking-body{color:#5a5a62;border-top-color:rgba(0,0,0,0.08)}
 /* block code: deep purple glass matching the panel */
 .pg-bubble pre{background:#1a1326;border:1px solid var(--glass-border-hover);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:8px 0;position:relative}
 .pg-bubble pre code{background:none;border:none;padding:0;font-size:var(--font-code);line-height:1.5;color:#e6def0}
@@ -183,6 +199,7 @@
 .pg-panel-title{font-size:var(--font-section-title);font-weight:600;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:1px solid var(--glass-border)}
 .pg-param{display:flex;align-items:center;gap:8px;margin-bottom:10px;transition:opacity .2s}
 .pg-param.disabled{opacity:.45;pointer-events:none}
+.pg-param.disabled .pg-toggle{pointer-events:auto}
 .pg-param label{flex:1;font-size:var(--font-badge);color:var(--text-secondary);user-select:none}
 .pg-param input[type=number],.pg-param input[type=text]{width:90px;padding:4px 6px;border-radius:6px;border:1px solid var(--glass-border);background:var(--input-bg);color:var(--text);font-size:var(--font-badge)}
 .pg-param input[type=number]:focus,.pg-param input[type=text]:focus{outline:none;border-color:var(--accent)}
@@ -191,8 +208,8 @@
 .pg-toggle{width:18px;height:18px;border-radius:50%;border:1px solid var(--glass-border-hover);background:transparent;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font-size:11px;flex-shrink:0;transition:all .15s}
 .pg-toggle:hover{border-color:var(--accent);color:var(--accent)}
 .pg-toggle.on{background:var(--accent);border-color:var(--accent);color:#1a1326}
-.pg-switch{display:flex;align-items:center;gap:6px;font-size:var(--font-badge);color:var(--text-secondary);margin-bottom:10px}
-.pg-switch input[type=checkbox]{cursor:pointer;accent-color:var(--accent)}
+.pg-switch{display:flex;align-items:center;gap:8px;font-size:var(--font-badge);color:var(--text-secondary);margin-bottom:10px}
+.pg-switch input[type=checkbox]{cursor:pointer;accent-color:var(--accent);width:18px;height:18px;flex-shrink:0}
 
 /* System prompt textarea */
 .pg-system-prompt{width:100%;min-height:54px;max-height:120px;padding:8px 10px;border-radius:8px;border:1px solid var(--glass-border);background:var(--input-bg);color:var(--text);font-size:var(--font-badge);font-family:inherit;resize:vertical}
@@ -201,6 +218,7 @@
 /* Image url input */
 .pg-image-block{margin-bottom:10px;transition:opacity .2s}
 .pg-image-block.disabled{opacity:.45;pointer-events:none}
+.pg-image-block.disabled .pg-switch input[type=checkbox]{pointer-events:auto}
 .pg-image-row-input{display:flex;align-items:center;gap:6px;margin-bottom:6px}
 .pg-image-row-input input{flex:1;padding:4px 8px;border-radius:6px;border:1px solid var(--glass-border);background:var(--input-bg);color:var(--text);font-size:var(--font-badge)}
 .pg-image-row-input input:focus{outline:none;border-color:var(--accent)}

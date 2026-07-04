@@ -49,7 +49,6 @@ var PG_ICON_EDIT = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" 
 var PG_ICON_DELETE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg>';
 var PG_ICON_RETRY = PG_ICON_REGEN;
 var PG_ICON_ROLE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><path d="M20 8v6M23 11h-6"></path></svg>';
-var PG_ICON_LOGO = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>';
 
 // =====================================================================
 // Adapter contract — 宿主可以注入 PG_HOST 来覆盖默认全局函数。
@@ -64,19 +63,22 @@ function pgEscapeHtml(s)     { return PG_HOST && PG_HOST.escapeHtml ? PG_HOST.es
 function pgCopyToClipboard(tx, lb) { return PG_HOST && PG_HOST.copyToClipboard ? PG_HOST.copyToClipboard(tx, lb) : copyToClipboard(tx, lb); }
 function pgT(k, ar) {
   if (PG_HOST && PG_HOST.t) return PG_HOST.t(k, ar);
-  // fallback: i18n.js 全局 t() (TinyRouter 宿主 main bundle 加载 i18n.js)
-  if (typeof t === 'function') return t(k, ar);
-  // 极端 fallback: 用 PG_I18N 字典直接查询
+  // 优先查 playground 自己的字典 (pg-i18n.js)
+  // 主字典 i18n.js 不含 pg* key, 全局 t() 会返回 key 本身 (带 pg 前缀),
+  // 所以必须先查 PG_I18N, 才能拿到真实译文
   if (typeof window !== 'undefined' && window.PG_I18N) {
-    var lang = ((window.PG_I18N.cn && (localStorage && localStorage.getItem('lang') === 'cn')) || (window.PG_I18N.en && !window.PG_I18N.cn)) ? 'cn' : 'en';
-    var dict = window.PG_I18N[lang] || {};
+    var lang = document.documentElement.getAttribute('data-lang') || (localStorage && localStorage.getItem('lang')) || 'en';
+    var dict = window.PG_I18N[lang] || window.PG_I18N['en'] || {};
     var s = dict[k];
-    if (s == null) return k;
-    if (ar && ar.length) {
-      return s.replace(/\{(\d+)\}/g, function(_, i) { return ar[+i] != null ? ar[+i] : ''; });
+    if (s != null) {
+      if (ar && ar.length) {
+        return s.replace(/\{(\d+)\}/g, function(_, i) { return ar[+i] != null ? ar[+i] : ''; });
+      }
+      return s;
     }
-    return s;
   }
+  // fallback: i18n.js 全局 t() (非 pg* key 才会命中)
+  if (typeof t === 'function') return t(k, ar);
   return k;
 }
 
@@ -269,9 +271,16 @@ function pgNormalizeDisplayMath(text) {
   return parts.join('');
 }
 function pgNormalizeInChunk(chunk) {
-  return chunk.replace(/\$\$([^\n$]+?)\$\$/g, function(_, inner) {
+  // 单行 $$...$$ -> 多行块格式 (匹配 marked-katex blockRule 要求 $$ 后有 \n)
+  chunk = chunk.replace(/\$\$([^\n$]+?)\$\$/g, function(_, inner) {
     return '\n$$\n' + inner.trim() + '\n$$\n';
   });
+  // 多行 $$...$$ 但 $$ 紧贴内容无换行 (如 $$\begin{align*}\n...\n$$)
+  // 在 $$ 后和 $$ 前插入 \n, 让 marked-katex blockRule 命中
+  chunk = chunk.replace(/\$\$(?!\n)([\s\S]*?)\$\$/g, function(_, inner) {
+    return '\n$$\n' + inner.trim() + '\n$$\n';
+  });
+  return chunk;
 }
 
 // Wrap raw <DOCTYPE html>, <svg...>, <?xml ...?> into ```html fenced blocks so
@@ -535,7 +544,13 @@ function pgStream(body, assistantIdx) {
     var buffer = '';
     function pump() {
       return reader.read().then(function(chunk) {
-        if (chunk.done) { pgFinish(assistantIdx); return; }
+        if (chunk.done) {
+          pgFinish(assistantIdx);
+          // 兜底: 确保 send 按钮切换回来, 某些上游不发 [DONE] 直接关连接.
+          pgState.streaming = false;
+          pgUpdateInputBar();
+          return;
+        }
         buffer += decoder.decode(chunk.value, { stream: true });
         var events = buffer.split('\n');
         buffer = events.pop();
@@ -545,7 +560,13 @@ function pgStream(body, assistantIdx) {
           pgState.sseEvents.push(line);
           var data = pgParseSSELine(line);
           if (!data) continue;
-          if (data.done) { pgFinish(assistantIdx); return; }
+          if (data.done) {
+            pgFinish(assistantIdx);
+            // 兜底: 确保 send 按钮切换回来.
+            pgState.streaming = false;
+            pgUpdateInputBar();
+            return;
+          }
           pgApplyChunk(data, assistantIdx);
         }
         pgFlushRender(assistantIdx);
@@ -558,6 +579,9 @@ function pgStream(body, assistantIdx) {
       pgFinish(assistantIdx);
     } else if (pgState.streaming) {
       pgFail(assistantIdx, err && err.message ? err.message : String(err));
+    } else {
+      // 兜底: streaming 已被复位但 inputBar 可能没刷新, 强制刷新一次.
+      pgUpdateInputBar();
     }
   });
 }
@@ -571,9 +595,11 @@ function pgApplyChunk(data, assistantIdx) {
   }
   var delta = choices[0].delta || {};
   if (delta.content) pgState.pendingContent = pgMergeChunk(pgState.pendingContent, delta.content);
-  if (delta.reasoning_content) {
+  // 兼容多种 reasoning 字段名: reasoning_content (DeepSeek/GLM), reasoning, thinking, thought
+  var reasonChunk = delta.reasoning_content || delta.reasoning || delta.thinking || delta.thought;
+  if (reasonChunk) {
     if (!pgState.reasoningStartedAt) pgState.reasoningStartedAt = Date.now();
-    pgState.pendingReasoning = pgMergeChunk(pgState.pendingReasoning, delta.reasoning_content);
+    pgState.pendingReasoning = pgMergeChunk(pgState.pendingReasoning, reasonChunk);
   }
   // Some upstreams deliver sources/citations at delta level.
   pgApplySourcesFromObject(delta, null);
@@ -612,6 +638,21 @@ function pgFlushRender(assistantIdx) {
     pgState.renderTimer = null;
     var msg = pgState.messages[assistantIdx];
     if (!msg) return;
+    // 流式期实时从 pendingContent 分流 <think> 块到 pendingReasoning.
+    // 多数上游把 <think>...</think> 塞在 delta.content 而非 delta.reasoning_content,
+    // 不分流的话 marked 会把 <think> 当未知 HTML 吃掉, 用户只看到残留汉字.
+    var split = pgExtractAllReasoning(pgState.pendingContent);
+    if (split.reasoning) {
+      pgState.pendingReasoning = pgState.pendingReasoning
+        ? pgState.pendingReasoning + '\n' + split.reasoning
+        : split.reasoning;
+      pgState.pendingContent = split.content;
+      if (!pgState.reasoningStartedAt) pgState.reasoningStartedAt = Date.now();
+    }
+    // 处理仍在 <think> 内未闭合的流式 content (split.content 为空但 pendingContent 还有 <think> 前缀)
+    if (!pgState.pendingContent && pgState.pendingReasoning) {
+      // 纯思考阶段: bubble 内容为空是正常的, 不要再回填.
+    }
     msg.content = pgState.pendingContent;
     msg.reasoning = pgState.pendingReasoning;
     msg.sources = pgState.pendingSources.slice();
@@ -760,8 +801,31 @@ function pgFail(assistantIdx, errMsg, errorCode) {
 }
 
 // ----- Module 6: Stop / Clear --------------------------------------
+// 同步复位 streaming 状态, 不依赖 fetch abort 的异步 reject 链路.
+// 之前仅调 abort(), 一旦上游 SSE 没有正确发出 [DONE] 或 reader reject
+// 未冒泡到 catch, pgState.streaming 会一直为 true, send 按钮卡死在"停止".
 function pgStop() {
-  if (pgState.abortCtrl) { try { pgState.abortCtrl.abort(); } catch (e) {} }
+  if (pgState.abortCtrl) {
+    try { pgState.abortCtrl.abort(); } catch (e) {}
+    pgState.abortCtrl = null;
+  }
+  // 找到最后一条 streaming/loading 的 assistant 消息, 主动收尾.
+  if (pgState.streaming) {
+    var last = pgState.messages.length - 1;
+    for (var i = last; i >= 0; i--) {
+      if (pgState.messages[i].role === 'assistant'
+          && (pgState.messages[i].status === 'streaming'
+              || pgState.messages[i].status === 'loading')) {
+        pgFinish(i);
+        break;
+      }
+    }
+    // 兜底: 上面循环没命中时, 强制复位, 避免 send 卡死.
+    if (pgState.streaming) {
+      pgState.streaming = false;
+      pgUpdateInputBar();
+    }
+  }
 }
 
 function pgClear() {
@@ -1070,7 +1134,8 @@ function pgMsgInnerHTML(idx, msg, isSourceVisible) {
   // Reasoning panel (collapsible) with streaming/duration status.
   if (msg.reasoning) {
     var lbl;
-    if (msg.status === 'streaming' && msg.reasoningStartedAt && !msg.reasoningCompletedAt) {
+    var streamingThink = msg.status === 'streaming' && msg.reasoningStartedAt && !msg.reasoningCompletedAt;
+    if (streamingThink) {
       lbl = '<span class="pg-thinking-spinner"></span> ' + pgEscapeHtml(pgT('pgThinkingTitle')) + '...';
     } else if (msg.reasoningDurationMs != null) {
       var dstr = pgFormatDuration(msg.reasoningDurationMs);
@@ -1078,7 +1143,9 @@ function pgMsgInnerHTML(idx, msg, isSourceVisible) {
     } else {
       lbl = '💭 ' + pgEscapeHtml(pgT('pgThinkingDone'));
     }
-    inner += '<div class="pg-thinking collapsed" onclick="this.classList.toggle(\'collapsed\')">' +
+    // 流式思考期间默认展开, 让用户看到实时增量; 完成后默认折叠.
+    var thinkCls = streamingThink ? 'pg-thinking' : 'pg-thinking collapsed';
+    inner += '<div class="' + thinkCls + '" onclick="this.classList.toggle(\'collapsed\')">' +
       '<div class="pg-thinking-head"><span class="pg-think-label">' + lbl + '</span>' +
       '<span class="pg-think-chev">▾</span></div>' +
       '<div class="pg-thinking-body">' + pgEscapeHtml(msg.reasoning) + '</div>' +
@@ -1123,18 +1190,7 @@ function pgRenderMessages() {
   var box = document.getElementById('pg-messages');
   if (!box) return;
   if (!pgState.messages.length) {
-    box.innerHTML =
-      '<div class="pg-empty">' +
-        '<div class="pg-empty-icon">' + PG_ICON_LOGO + '</div>' +
-        '<div class="pg-empty-title">' + pgEscapeHtml(pgT('pgEmptyTitle')) + '</div>' +
-        '<div class="pg-empty-desc">' + pgEscapeHtml(pgT('pgEmptyDesc')) + '</div>' +
-        '<div class="pg-empty-prompts">' +
-          pgEmptyPromptBtn(pgT('pgPromptAnalyze'), pgT('pgPromptAnalyzeBody')) +
-          pgEmptyPromptBtn(pgT('pgPromptSummary'), pgT('pgPromptSummaryBody')) +
-          pgEmptyPromptBtn(pgT('pgPromptCode'), pgT('pgPromptCodeBody')) +
-          pgEmptyPromptBtn(pgT('pgPromptAdvice'), pgT('pgPromptAdviceBody')) +
-        '</div>' +
-      '</div>';
+    box.innerHTML = '';
     return;
   }
   var html = '';
@@ -1189,14 +1245,6 @@ function pgRenderMessages() {
   pgScrollBottom();
 }
 
-function pgEmptyPromptBtn(label, body) {
-  return '<button class="pg-empty-prompt" onclick="pgFillPrompt(' + JSON.stringify(body) + ')" type="button">' +
-    pgEscapeHtml(label) + '</button>';
-}
-function pgFillPrompt(body) {
-  var ta = document.getElementById('pg-input');
-  if (ta) { ta.value = body; ta.focus(); }
-}
 
 function pgActionCopy(idx) {
   var msg = pgState.messages[idx];
@@ -1532,7 +1580,7 @@ function pgRenderSidebar() {
   var debugMeta = '<div class="pg-debug-meta">' +
     '<span>' + pgEscapeHtml(pgT('pgRespProvider').replace('{0}', pgState.lastProvider || pgT('pgNoProvider'))) + '</span>' +
     '<span>' + pgEscapeHtml(pgT('pgRespKey').replace('{0}', pgState.lastKey || pgT('pgNoProvider'))) + '</span>' +
-    '<span>' + (pgState.streaming ? '🔴 ' + pgT('pgStreaming') : '🟢 idle') + '</span></div>';
+    '<span>' + (pgState.streaming ? '🔴 ' + pgT('pgStreaming') : '🟢 ' + pgT('pgIdle')) + '</span></div>';
   var debug = debugMeta + debugTabs + '<div class="pg-tab-content" id="pg-debug-content"></div><div class="pg-debug-footer" id="pg-debug-footer"></div>';
 
   side.innerHTML =
@@ -1598,7 +1646,7 @@ function pgRenderDebug() {
       meta.innerHTML =
         '<span>' + pgEscapeHtml(pgT('pgRespProvider').replace('{0}', pgState.lastProvider || pgT('pgNoProvider'))) + '</span>' +
         '<span>' + pgEscapeHtml(pgT('pgRespKey').replace('{0}', pgState.lastKey || pgT('pgNoProvider'))) + '</span>' +
-        '<span>' + (pgState.streaming ? '🔴 ' + pgT('pgStreaming') : '🟢 idle') + '</span>';
+        '<span>' + (pgState.streaming ? '🔴 ' + pgT('pgStreaming') : '🟢 ' + pgT('pgIdle')) + '</span>';
     }
   }
   // Update response tab content + SSE badge on tab.
@@ -1714,6 +1762,9 @@ function pgNormalizeLoadedMessage(msg) {
 function renderPlayground(container) {
   pgLoad();
   pgInitMarker();
+  // 强制 #page-content 填满 .main, 防止 .pg-layout height:100% 塌陷导致整页滚动.
+  container.style.height = '100%';
+  container.style.overflow = 'hidden';
   container.innerHTML =
     '<div class="pg-layout">' +
       '<div class="pg-main">' +

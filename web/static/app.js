@@ -35,6 +35,9 @@ function navigateTo(page) {
   // Remove any per-page main modifier classes before rendering the new page.
   const mainEl = document.querySelector('.main');
   if (mainEl) mainEl.classList.remove('main-no-scroll');
+  // Clear any inline styles left by previous page (e.g., playground sets height/overflow).
+  container.style.height = '';
+  container.style.overflow = '';
   container.innerHTML = '';
   container.classList.remove('page-enter');
   const p = (() => {
