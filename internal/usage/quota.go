@@ -16,18 +16,19 @@ type KeyQuota struct {
 
 // QuotaBar represents a model's aggregate quota across all keys.
 type QuotaBar struct {
-	Provider       string     `json:"provider"`
-	Model          string     `json:"model"`
-	PerKeyLimit    int        `json:"perKeyLimit"`
-	TotalCapacity  int        `json:"totalCapacity"`
-	TotalUsed      int        `json:"totalUsed"`
-	HasQuota       bool       `json:"hasQuota"`
-	SuccessCount   int        `json:"successCount"`
-	ErrorCount     int        `json:"errorCount"`
-	InputTokens    int        `json:"inputTokens"`
-	OutputTokens   int        `json:"outputTokens"`
-	Keys           []KeyQuota `json:"keys"`
-	CurrentKeyName string     `json:"currentKeyName,omitempty"`
+	Provider         string     `json:"provider"`
+	Model            string     `json:"model"`
+	PerKeyLimit      int        `json:"perKeyLimit"`
+	TotalCapacity    int        `json:"totalCapacity"`
+	TotalUsed        int        `json:"totalUsed"`
+	HasQuota         bool       `json:"hasQuota"`
+	SuccessCount     int        `json:"successCount"`
+	ErrorCount       int        `json:"errorCount"`
+	InputTokens      int        `json:"inputTokens"`
+	OutputTokens     int        `json:"outputTokens"`
+	Keys             []KeyQuota `json:"keys"`
+	CurrentKeyName   string     `json:"currentKeyName,omitempty"`
+	InFlightKeyNames []string   `json:"inFlightKeyNames"`
 }
 
 // QuotaTracker tracks quota snapshots across providers/models/keys.

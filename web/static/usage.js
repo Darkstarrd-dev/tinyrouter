@@ -335,24 +335,53 @@ function updateRecentRequestsInline(entries) {
   if (countEl) countEl.textContent = String(entries.length);
 }
 
+// --- Quota refresh with debounce ---
+var _quotaRefreshTimer = null;
+var _quotaRefreshFallback = null;
+
+function scheduleQuotaRefresh() {
+  if (_quotaRefreshTimer) clearTimeout(_quotaRefreshTimer);
+  _quotaRefreshTimer = setTimeout(function() {
+    _quotaRefreshTimer = null;
+    _quotaRefreshFallback = null;
+    refreshQuotaData();
+  }, 300);
+  if (!_quotaRefreshFallback) {
+    _quotaRefreshFallback = setTimeout(function() {
+      if (_quotaRefreshTimer) {
+        clearTimeout(_quotaRefreshTimer);
+        _quotaRefreshTimer = null;
+      }
+      _quotaRefreshFallback = null;
+      refreshQuotaData();
+    }, 150);
+  }
+}
+
+async function refreshQuotaData() {
+  try {
+    const [summary, usage, quotas] = await Promise.all([
+      apiGet('/usage/summary'),
+      apiGet('/usage?limit=500'),
+      apiGet('/usage/quotas')
+    ]);
+    lastUsageEntries = usage.entries || [];
+    updateUsageSummary(summary);
+    updateTrendChart(lastUsageEntries);
+    updateQuotaBars(quotas.quotas || []);
+    updateRecentRequestsModal();
+    updateRecentRequestsInline(lastUsageEntries);
+  } catch(e) {}
+}
+
 function startUsageRefresh() {
   stopUsageRefresh();
   usageEventSource = new EventSource('/api/usage/events');
-  usageEventSource.onmessage = async function(ev) {
+  usageEventSource.onmessage = function(ev) {
     try {
       var data = JSON.parse(ev.data);
-      if (data.type === 'usage-updated') {
-        const [summary, usage, quotas] = await Promise.all([
-          apiGet('/usage/summary'),
-          apiGet('/usage?limit=500'),
-          apiGet('/usage/quotas')
-        ]);
-        lastUsageEntries = usage.entries || [];
-        updateUsageSummary(summary);
-        updateTrendChart(lastUsageEntries);
-        updateQuotaBars(quotas.quotas || []);
-        updateRecentRequestsModal();
-        updateRecentRequestsInline(lastUsageEntries);
+      if (data.type === 'usage-updated' || data.type === 'key-inflight') {
+        scheduleQuotaRefresh();
       }
     } catch(e) {}
   };
@@ -391,6 +420,10 @@ function renderQuotaBars(bars) {
   var html = '<div class="card"><div class="card-title">' + t('quotaMonitor') + '</div><div class="quota-section quota-section-scroll">';
   bars.forEach(function(bar) {
     var color = getModelColor(bar.provider, bar.model);
+    var barDotClass = 'model-color-dot';
+    if (bar.inFlightKeyNames && bar.inFlightKeyNames.length > 0) {
+      barDotClass += ' model-color-dot-calling';
+    }
     var itemId = 'qbi-' + sanitizeId(bar.provider) + '-' + sanitizeId(bar.model);
     var toggleCall = "toggleModelDetail('" + escapeHtml(bar.provider).replace(/'/g, "\\'") + "','" + escapeHtml(bar.model).replace(/'/g, "\\'") + "')";
 
@@ -415,7 +448,7 @@ function renderQuotaBars(bars) {
       // (C) data attributes feed the hover tooltip with exact numbers.
       html += '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
         '<div class="quota-bar-header">' +
-          '<span class="quota-bar-model"><span class="model-color-dot" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + currentKeyHtml + tokenInfo + '</span>' +
+          '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + currentKeyHtml + tokenInfo + '</span>' +
           '<span class="quota-bar-right">' + chevronDown + '</span>' +
         '</div>' +
         '<div class="quota-bar-row">' +
@@ -429,7 +462,7 @@ function renderQuotaBars(bars) {
     } else {
       html += '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
         '<div class="quota-bar-header">' +
-          '<span class="quota-bar-model"><span class="model-color-dot" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + currentKeyHtml + tokenInfo + '</span>' +
+          '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + currentKeyHtml + tokenInfo + '</span>' +
           '<span class="quota-bar-right">' + chevronDown + '</span>' +
         '</div>' +
         '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
@@ -449,6 +482,16 @@ function formatRemaining(ms) {
   return s + 's';
 }
 
+function formatMinutes(ms) {
+  if (ms < 0) ms = 0;
+  var totalMin = Math.floor(ms / 60000);
+  if (totalMin > 99) totalMin = 99;
+  if (totalMin < 0) totalMin = 0;
+  var m = String(totalMin);
+  while (m.length < 2) m = '0' + m;
+  return m;
+}
+
 function updateLockCountdowns() {
   var els = document.querySelectorAll('.model-key-countdown[data-unlock]');
   for (var i = 0; i < els.length; i++) {
@@ -465,6 +508,27 @@ function updateLockCountdowns() {
   }
 }
 
+function updateKeyTimers() {
+  var els = document.querySelectorAll('.model-key-timer');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    var type = el.getAttribute('data-type');
+    if (type === 'cooldown') {
+      var unlock = el.getAttribute('data-unlock');
+      if (!unlock) continue;
+      var remaining = new Date(unlock).getTime() - Date.now();
+      if (remaining < 0) remaining = 0;
+      el.textContent = formatMinutes(remaining);
+    } else if (type === 'idle') {
+      var usedAt = el.getAttribute('data-used-at');
+      if (!usedAt) continue;
+      var elapsed = Date.now() - new Date(usedAt).getTime();
+      if (elapsed < 0) elapsed = 0;
+      el.textContent = formatMinutes(elapsed);
+    }
+  }
+}
+
 function updateQuotaBars(bars) {
   var container = document.querySelector('.quota-monitor-card > .card');
   if (!container) return;
@@ -473,7 +537,10 @@ function updateQuotaBars(bars) {
   attachQuotaBarHover();
   if (!lockCountdownTimerStarted) {
     lockCountdownTimerStarted = true;
-    setInterval(updateLockCountdowns, 1000);
+    setInterval(function() {
+      updateLockCountdowns();
+      updateKeyTimers();
+    }, 1000);
   }
 }
 
@@ -612,16 +679,36 @@ function renderModelKeyDetail(provider, model, data) {
       quotaInfo = '<span class="model-key-quota-numbers">' + (k.modelLimit - k.modelRemaining) + '/' + k.modelLimit + '</span>';
     }
 
-    // "In Use" badge: backend already sorted keys by rotation strategy, so the
-    // first usable key matches inUseKeyName returned by the API.
-    var inUseBadge = '';
+    // Dot state classes (calling + in-use are independent)
+    var dotClass = 'model-color-dot';
+    if (k.inFlight && k.inFlight > 0) {
+      dotClass += ' model-color-dot-calling';
+    }
+
+    // "In Use" badge removed; row highlighting + dot size indicate predicted next key
     var rowClass = 'model-key-row';
     var usable = k.isActive && k.status === 'active' && !k.modelLock;
     if (usable && data.inUseKeyName && k.keyName === data.inUseKeyName) {
-      inUseBadge = '<span class="key-status-badge key-status-in-use">' + t('inUse') + '</span>';
+      dotClass += ' model-color-dot-in-use';
       rowClass = 'model-key-row model-key-row-in-use';
     } else if (!usable) {
       rowClass = 'model-key-row model-key-row-disabled';
+    }
+
+    // Timer: 2-digit circle left of dot; mutually exclusive display
+    var timerHtml = '';
+    if (k.modelLock || k.status === 'cooldown' || k.status === 'locked') {
+      if (k.modelLock) {
+        var unlockMs = new Date(k.modelLock).getTime() - Date.now();
+        timerHtml = '<span class="model-key-timer model-key-timer-cooldown" data-type="cooldown" data-unlock="' + k.modelLock + '">' + formatMinutes(unlockMs) + '</span>';
+      }
+    } else if (k.lastUsedAt) {
+      var isCurrentlyInUse = data.inUseKeyName && k.keyName === data.inUseKeyName;
+      var isCurrentlyCalling = k.inFlight && k.inFlight > 0;
+      if (!isCurrentlyInUse && !isCurrentlyCalling) {
+        var idleMs = Date.now() - new Date(k.lastUsedAt).getTime();
+        timerHtml = '<span class="model-key-timer model-key-timer-idle" data-type="idle" data-used-at="' + k.lastUsedAt + '">' + formatMinutes(idleMs) + '</span>';
+      }
     }
 
     var metricsHtml = '';
@@ -641,12 +728,12 @@ function renderModelKeyDetail(provider, model, data) {
     }
 
     html += '<div class="' + rowClass + '">' +
-      '<span class="model-color-dot" style="background:' + color + '"></span>' +
+      timerHtml +
+      '<span class="' + dotClass + '" style="background:' + color + '"></span>' +
       '<span class="model-key-name">' + escapeHtml(k.keyName) + '</span>' +
       quotaInfo +
       quotaBar +
       statusBadge +
-      inUseBadge +
       lockInfo +
       metricsHtml +
       errorInfo +

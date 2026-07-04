@@ -16,25 +16,27 @@ import (
 )
 
 type Handler struct {
-	reg           *registry.Registry
-	selector      rotation.KeySelector
-	comboRes      *combo.Resolver
-	usage         usage.UsageStore
-	quotaTracker  *usage.QuotaTracker
-	logger        *console.Logger
-	client        *http.Client
-	UsageUpdateCh chan struct{}
+	reg              *registry.Registry
+	selector         rotation.KeySelector
+	comboRes         *combo.Resolver
+	usage            usage.UsageStore
+	quotaTracker     *usage.QuotaTracker
+	logger           *console.Logger
+	client           *http.Client
+	UsageUpdateCh    chan struct{}
+	InflightUpdateCh chan struct{}
 }
 
 func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, quotaTracker *usage.QuotaTracker, logger *console.Logger) *Handler {
 	return &Handler{
-		reg:           reg,
-		selector:      selector,
-		comboRes:      comboRes,
-		usage:         usageBuf,
-		quotaTracker:  quotaTracker,
-		logger:        logger,
-		UsageUpdateCh: make(chan struct{}, 1),
+		reg:              reg,
+		selector:         selector,
+		comboRes:         comboRes,
+		usage:            usageBuf,
+		quotaTracker:     quotaTracker,
+		logger:           logger,
+		UsageUpdateCh:    make(chan struct{}, 1),
+		InflightUpdateCh: make(chan struct{}, 1),
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 		},
@@ -156,6 +158,12 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			return false
 		}
 
+		// Track in-flight: mark key as in-use immediately after selection.
+		keyState := h.reg.GetKeyState(providerID, sel.Key.ID)
+		if keyState != nil {
+			keyState.IncInFlight()
+		}
+
 		if !state.requestLogged {
 			h.logRequest(sel, logLabel, providerName, upstreamModel, msgCount, state)
 		}
@@ -177,16 +185,39 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 
 		if err != nil {
 			h.handleNetworkError(sel, providerID, upstreamModel, err, state)
+			// DecInFlight before continue — cannot use defer in for loop (would
+			// accumulate across retry iterations).
+			if keyState != nil {
+				keyState.DecInFlight()
+			}
+			select {
+			case h.InflightUpdateCh <- struct{}{}:
+			default:
+			}
 			continue
 		}
 
 		if resp.StatusCode == 429 {
 			h.handle429(resp, sel, providerID, upstreamModel, startTime, state)
+			if keyState != nil {
+				keyState.DecInFlight()
+			}
+			select {
+			case h.InflightUpdateCh <- struct{}{}:
+			default:
+			}
 			continue
 		}
 
 		if resp.StatusCode >= 500 || resp.StatusCode >= 400 {
 			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state)
+			if keyState != nil {
+				keyState.DecInFlight()
+			}
+			select {
+			case h.InflightUpdateCh <- struct{}{}:
+			default:
+			}
 			continue
 		}
 
@@ -210,6 +241,15 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			h.streamResponse(w, resp, upstreamModel, sel, latencyMs)
 		} else {
 			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs)
+		}
+		// DecInFlight after the synchronous response handling completes — this
+		// key is no longer "in-use". Cannot use defer (see above).
+		if keyState != nil {
+			keyState.DecInFlight()
+		}
+		select {
+		case h.InflightUpdateCh <- struct{}{}:
+		default:
 		}
 		return true
 	}

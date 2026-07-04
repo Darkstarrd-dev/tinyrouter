@@ -27,12 +27,30 @@ type KeyRuntimeState struct {
 	LastErrorAt  time.Time
 	ModelQuotas  map[string]*QuotaInfo
 
+	// InFlight tracks the number of in-flight requests currently using this key.
+	InFlight int
+
 	// NIM-specific fields (only used when provider.APIType == "nim").
 	NIMRequestCount  int       // Requests sent this rotation cycle
 	NIMLastSendTime  time.Time // Last successful send time, for min_interval
 	NIMCooldownLevel int       // 429 cooldown level (0=no cooldown)
 	NIMLast429Time   time.Time // Last 429 time, for 24h level reset
 }
+
+// IncInFlight atomically increments the in-flight counter.
+func (s *KeyRuntimeState) IncInFlight() { s.Lock(); s.InFlight++; s.Unlock() }
+
+// DecInFlight atomically decrements the in-flight counter (clamped at 0).
+func (s *KeyRuntimeState) DecInFlight() {
+	s.Lock()
+	if s.InFlight > 0 {
+		s.InFlight--
+	}
+	s.Unlock()
+}
+
+// GetInFlight atomically returns the current in-flight count.
+func (s *KeyRuntimeState) GetInFlight() int { s.Lock(); defer s.Unlock(); return s.InFlight }
 
 // Lock acquires the state's mutex.
 func (s *KeyRuntimeState) Lock() { s.mu.Lock() }

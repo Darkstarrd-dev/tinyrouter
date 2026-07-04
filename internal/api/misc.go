@@ -85,6 +85,25 @@ func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 	// without requiring an expand.
 	for i := range bars {
 		bars[i].CurrentKeyName = rt.currentKeyName(bars[i].Provider, bars[i].Model)
+
+		// Collect key names that have in-flight requests for this provider/model.
+		names := make([]string, 0)
+		for _, p := range rt.reg.ListProviders() {
+			if p.Name != bars[i].Provider {
+				continue
+			}
+			for _, k := range p.Keys {
+				if !k.IsActive {
+					continue
+				}
+				state := rt.reg.GetKeyState(p.ID, k.ID)
+				if state != nil && state.GetInFlight() > 0 {
+					names = append(names, k.Name)
+				}
+			}
+			break
+		}
+		bars[i].InFlightKeyNames = names
 	}
 
 	// Sort by provider + model for stable ordering
@@ -139,6 +158,7 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 		ErrorCount   int     `json:"errorCount"`
 		AvgTTFTMs    int64   `json:"avgTtftMs"`
 		AvgSpeed     float64 `json:"avgSpeed"`
+		InFlight     int     `json:"inFlight"`
 	}
 
 	hasQuota := false
@@ -164,6 +184,7 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 		if state != nil {
 			state.Lock()
 			kd.Status = state.Status
+			kd.InFlight = state.InFlight
 			if unlock, ok := state.ModelLocks[model]; ok {
 				if time.Now().Before(unlock) {
 					s := unlock.Format("2006-01-02T15:04:05Z07:00")
@@ -300,11 +321,15 @@ func (rt *Router) streamUsageEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	ch := rt.proxyHandler.UsageUpdateCh
+	infCh := rt.proxyHandler.InflightUpdateCh
 	ctx := r.Context()
 	for {
 		select {
 		case <-ch:
 			fmt.Fprintf(w, "data: {\"type\":\"usage-updated\"}\n\n")
+			flusher.Flush()
+		case <-infCh:
+			fmt.Fprintf(w, "data: {\"type\":\"key-inflight\"}\n\n")
 			flusher.Flush()
 		case <-ctx.Done():
 			return
