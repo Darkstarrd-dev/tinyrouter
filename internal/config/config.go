@@ -17,6 +17,8 @@ type RotationConfig struct {
 	MaxRetries    int    `yaml:"maxRetries" json:"maxRetries"`
 	RetryDelaySec int    `yaml:"retryDelaySec" json:"retryDelaySec"`
 	BackoffMaxSec int    `yaml:"backoffMaxSec" json:"backoffMaxSec"`
+	StatePersist  bool   `yaml:"state_persist" json:"statePersist"`
+	StatePath     string `yaml:"state_path" json:"statePath"`
 }
 
 // Key represents one API key within a provider.
@@ -127,6 +129,8 @@ func DefaultConfig() *Config {
 			MaxRetries:    5,
 			RetryDelaySec: 5,
 			BackoffMaxSec: 240,
+			StatePersist:  true,
+			StatePath:     "state.yaml",
 		},
 		EnablePlayground: true,
 		Providers:        []Provider{},

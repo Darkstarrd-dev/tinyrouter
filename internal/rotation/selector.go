@@ -25,10 +25,17 @@ type Selector struct {
 	reg        *registry.Registry
 	settings   *config.RotationConfig
 	settingsMu sync.RWMutex
+
+	onStateChange func() // injected by main.go for state persistence
 }
 
 func New(reg *registry.Registry, settings *config.RotationConfig) *Selector {
 	return &Selector{reg: reg, settings: settings}
+}
+
+// SetStateHook sets a callback that is called when key runtime state changes.
+func (s *Selector) SetStateHook(fn func()) {
+	s.onStateChange = fn
 }
 
 type SelectedKey struct {
@@ -90,6 +97,9 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 		state.ConsecCount++
 		state.Unlock()
 	}
+	if s.onStateChange != nil {
+		s.onStateChange()
+	}
 	return &SelectedKey{Provider: *provider, Key: chosen, KeyName: chosen.Name}, nil
 }
 
@@ -128,6 +138,9 @@ func (s *Selector) RotateToBack(providerID, keyID, model string, statusCode int,
 	state.Status = "active"
 	state.LastError = fmt.Sprintf("%d: %s", statusCode, truncate(body, 200))
 	state.LastErrorAt = time.Now()
+	if s.onStateChange != nil {
+		s.onStateChange()
+	}
 }
 
 func (s *Selector) Settings() config.RotationConfig {

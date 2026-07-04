@@ -1,10 +1,12 @@
 package combo
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
+	"github.com/tinyrouter/tinyrouter/internal/state"
 )
 
 // ModelTarget is a resolved provider+model pair within a combo.
@@ -25,6 +27,8 @@ type Resolver struct {
 	reg   *registry.Registry
 	mu    sync.Mutex
 	state map[string]*comboState // combo name → rotation state
+
+	onStateChange func() // injected by main.go for state persistence
 }
 
 type comboState struct {
@@ -103,12 +107,57 @@ func (r *Resolver) rotateTargets(comboName string, targets []ModelTarget) []Mode
 		st.consecCount = 1
 	}
 
+	if r.onStateChange != nil {
+		r.onStateChange()
+	}
+
 	// Rotate slice so current index is first
 	result := make([]ModelTarget, len(targets))
 	for i := range targets {
 		result[i] = targets[(st.index+i)%len(targets)]
 	}
 	return result
+}
+
+// SetStateHook sets a callback that is called when combo rotation state changes.
+func (r *Resolver) SetStateHook(fn func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onStateChange = fn
+}
+
+// SnapshotComboStates returns a map of combo snapshot data keyed by combo ID.
+func (r *Resolver) SnapshotComboStates() map[string]state.ComboSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	result := make(map[string]state.ComboSnapshot, len(r.state))
+	for id, st := range r.state {
+		result[id] = state.ComboSnapshot{
+			Index:       st.index,
+			ConsecCount: st.consecCount,
+		}
+	}
+	return result
+}
+
+// RestoreComboState restores a combo's rotation state from a snapshot. Returns
+// an error if the combo ID does not exist in the current config.
+func (r *Resolver) RestoreComboState(id string, s state.ComboSnapshot) error {
+	if _, ok := r.reg.GetComboByName(id); !ok {
+		return fmt.Errorf("combo not found: %s", id)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	st, ok := r.state[id]
+	if !ok {
+		st = &comboState{}
+		r.state[id] = st
+	}
+	st.index = s.Index
+	st.consecCount = s.ConsecCount
+	return nil
 }
 
 // splitModel parses "provider/model" into (providerID, model).

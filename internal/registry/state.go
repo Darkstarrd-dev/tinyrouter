@@ -1,8 +1,11 @@
 package registry
 
 import (
+	"fmt"
 	"sync"
 	"time"
+
+	"github.com/tinyrouter/tinyrouter/internal/state"
 )
 
 // QuotaInfo holds the latest known quota snapshot for a model.
@@ -63,6 +66,80 @@ func (r *Registry) GetKeyState(providerID, keyID string) *KeyRuntimeState {
 	r.stateMu.RLock()
 	defer r.stateMu.RUnlock()
 	return r.states[stateKey(providerID, keyID)]
+}
+
+// SnapshotKeyStates returns a map of key snapshot data for all known keys.
+// The map key is "providerID::keyID".
+func (r *Registry) SnapshotKeyStates() map[string]state.KeySnapshot {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+
+	result := make(map[string]state.KeySnapshot, len(r.states))
+	for sk, ks := range r.states {
+		ks.Lock()
+		s := state.KeySnapshot{
+			Status:           ks.Status,
+			BackoffLevel:     ks.BackoffLevel,
+			RotatedAt:        ks.RotatedAt,
+			ConsecCount:      ks.ConsecCount,
+			LastUsedAt:       ks.LastUsedAt,
+			NIMRequestCount:  ks.NIMRequestCount,
+			NIMLastSendTime:  ks.NIMLastSendTime,
+			NIMCooldownLevel: ks.NIMCooldownLevel,
+			NIMLast429Time:   ks.NIMLast429Time,
+		}
+		if len(ks.ModelLocks) > 0 {
+			s.ModelLocks = make(map[string]time.Time, len(ks.ModelLocks))
+			for k, v := range ks.ModelLocks {
+				s.ModelLocks[k] = v
+			}
+		}
+		ks.Unlock()
+
+		// Convert internal key format "providerID/keyID" to "providerID::keyID"
+		result[convertKey(sk)] = s
+	}
+	return result
+}
+
+// convertKey converts registry internal key format "a/b" to "a::b".
+func convertKey(internal string) string {
+	for i := 0; i < len(internal); i++ {
+		if internal[i] == '/' {
+			return internal[:i] + "::" + internal[i+1:]
+		}
+	}
+	return internal
+}
+
+// RestoreKeyState restores a key's runtime state from a snapshot. Returns an
+// error if the provider/key combination does not exist in the current config.
+func (r *Registry) RestoreKeyState(providerID, keyID string, s state.KeySnapshot) error {
+	state := r.GetKeyState(providerID, keyID)
+	if state == nil {
+		return fmt.Errorf("key not found: %s/%s", providerID, keyID)
+	}
+	state.Lock()
+	defer state.Unlock()
+
+	state.Status = s.Status
+	state.BackoffLevel = s.BackoffLevel
+	state.RotatedAt = s.RotatedAt
+	state.ConsecCount = s.ConsecCount
+	state.LastUsedAt = s.LastUsedAt
+	state.NIMRequestCount = s.NIMRequestCount
+	state.NIMLastSendTime = s.NIMLastSendTime
+	state.NIMCooldownLevel = s.NIMCooldownLevel
+	state.NIMLast429Time = s.NIMLast429Time
+	if len(s.ModelLocks) > 0 {
+		if state.ModelLocks == nil {
+			state.ModelLocks = make(map[string]time.Time, len(s.ModelLocks))
+		}
+		for k, v := range s.ModelLocks {
+			state.ModelLocks[k] = v
+		}
+	}
+	return nil
 }
 
 // UpdateQuota stores the latest quota snapshot for a model on this key.

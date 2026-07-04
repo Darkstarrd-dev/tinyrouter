@@ -22,6 +22,7 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/proxy"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
+	"github.com/tinyrouter/tinyrouter/internal/state"
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 )
 
@@ -46,6 +47,31 @@ func main() {
 	selector := rotation.New(reg, &cfg.Rotation)
 	comboRes := combo.New(reg)
 	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, quotaTracker, logger)
+
+	// State persistence
+	statePath := cfg.Rotation.StatePath
+	if statePath == "" {
+		statePath = "state.yaml"
+	}
+	var stateManager *state.Manager
+	if cfg.Rotation.StatePersist {
+		stateManager = state.NewManager(statePath, logger,
+			state.WithKeyStateProvider(reg.SnapshotKeyStates, reg.RestoreKeyState),
+			state.WithComboStateProvider(comboRes.SnapshotComboStates, comboRes.RestoreComboState),
+		)
+		selector.SetStateHook(stateManager.ScheduleWrite)
+		comboRes.SetStateHook(stateManager.ScheduleWrite)
+
+		// Restore persisted state
+		if snapshot, err := state.Load(statePath); err != nil {
+			logger.Warn("failed to load state: %v", err)
+		} else if len(snapshot.Keys) > 0 || len(snapshot.Combos) > 0 {
+			if err := stateManager.Restore(snapshot); err != nil {
+				logger.Warn("failed to restore state: %v", err)
+			}
+			logger.Info("restored state: %d keys, %d combos", len(snapshot.Keys), len(snapshot.Combos))
+		}
+	}
 
 	// Shutdown is triggered by the UI via POST /api/shutdown.
 	shutdownCtx, triggerShutdown := context.WithCancel(context.Background())
@@ -93,6 +119,11 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("forced shutdown: %v", err)
+	}
+	if stateManager != nil {
+		if err := stateManager.FlushSync(); err != nil {
+			logger.Warn("failed to flush state: %v", err)
+		}
 	}
 	logger.Info("stopped")
 }

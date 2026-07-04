@@ -40,6 +40,9 @@ func (s *Selector) MarkUnavailable(providerID, keyID, model string, statusCode i
 	state.Status = "cooldown"
 	state.LastError = fmt.Sprintf("%d: %s", statusCode, truncate(body, 200))
 	state.LastErrorAt = time.Now()
+	if s.onStateChange != nil {
+		s.onStateChange()
+	}
 	return unlock
 }
 
@@ -56,6 +59,9 @@ func (s *Selector) ClearError(providerID, keyID, model string) {
 		state.BackoffLevel = 0
 		state.Status = "active"
 		state.LastError = ""
+	}
+	if s.onStateChange != nil {
+		s.onStateChange()
 	}
 }
 
@@ -143,6 +149,9 @@ func (s *Selector) MarkDailyQuotaLocked(providerID, keyID, model string, body st
 	state.Status = "locked"
 	state.LastError = fmt.Sprintf("429 daily quota: %s", truncate(body, 200))
 	state.LastErrorAt = time.Now()
+	if s.onStateChange != nil {
+		s.onStateChange()
+	}
 	return unlock
 }
 
@@ -162,6 +171,9 @@ func (s *Selector) MarkRateLimited(providerID, keyID, model string, duration tim
 	state.Status = "cooldown"
 	state.LastError = fmt.Sprintf("rate limited: %s (%v)", model, duration)
 	state.LastErrorAt = time.Now()
+	if s.onStateChange != nil {
+		s.onStateChange()
+	}
 	return unlock
 }
 

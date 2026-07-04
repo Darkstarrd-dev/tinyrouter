@@ -76,6 +76,9 @@ func (s *Selector) OnNIMRequestSuccess(providerID, keyID, model string) {
 		state.NIMRequestCount = 0
 		state.RotatedAt = time.Now()
 	}
+	if s.onStateChange != nil {
+		s.onStateChange()
+	}
 }
 
 // MarkNIM429 applies the cooldown ladder for a NIM 429 response. It increments
@@ -111,6 +114,9 @@ func (s *Selector) MarkNIM429(providerID, keyID, model string) time.Time {
 	state.RotatedAt = time.Now()
 	state.LastError = fmt.Sprintf("429 NIM cooldown: %v", duration)
 	state.LastErrorAt = time.Now()
+	if s.onStateChange != nil {
+		s.onStateChange()
+	}
 	return unlock
 }
 
