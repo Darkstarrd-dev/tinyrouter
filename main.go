@@ -1,6 +1,6 @@
 package main
 
-//go:generate rsrc -ico web/static/favicon.ico -o rsrc.syso
+//go:generate rsrc -ico web/static/favicon.ico -manifest rsrc.manifest -o rsrc.syso
 
 import (
 	"context"
