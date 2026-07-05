@@ -67,7 +67,7 @@ function backToProviderList() {
   modelTestStatus = {};
   expandedModelDetails = new Set();
   allKeysTestResults = {};
-  renderEndpoint(document.getElementById('page-content'));
+  navigateTo('endpoint');
 }
 
 function showAddProvider() {
@@ -143,23 +143,27 @@ async function renderProviderDetail(c, id) {
   }
   providerDetailCache = p;
   c.innerHTML = '\
-    <div class="detail-header">\
-      <h2>' + escapeHtml(p.name) + '</h2>\
-      <div class="flex" style="gap:8px">\
-        <button type="button" class="btn btn-sm" onclick="backToProviderList()">' + t('back') + '</button>\
-        <button type="button" class="btn btn-sm" onclick="showEditProvider(\'' + p.id + '\')">' + t('edit') + '</button>\
-        <button type="button" class="btn btn-sm ' + (p.isActive ? '' : 'btn-primary') + '" onclick="toggleProvider(\'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
-        <button type="button" class="btn btn-sm btn-danger" onclick="deleteProvider(\'' + p.id + '\')">' + t('delete') + '</button>\
+    <div class="provider-detail">\
+      <div class="provider-detail-header">\
+        <h2>' + escapeHtml(p.name) + '</h2>\
+        <div class="flex" style="gap:8px">\
+          <button type="button" class="btn btn-sm" onclick="backToProviderList()">' + t('back') + '</button>\
+          <button type="button" class="btn btn-sm" onclick="showEditProvider(\'' + p.id + '\')">' + t('edit') + '</button>\
+          <button type="button" class="btn btn-sm ' + (p.isActive ? '' : 'btn-primary') + '" onclick="toggleProvider(\'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
+          <button type="button" class="btn btn-sm btn-danger" onclick="deleteProvider(\'' + p.id + '\')">' + t('delete') + '</button>\
+        </div>\
       </div>\
-    </div>\
-    <div id="detail-info">\
-      <div class="card">\
-        <p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code">' + escapeHtml(p.baseUrl) + '</span></p>\
+      <div class="provider-detail-body">\
+        <div id="detail-info">\
+          <div class="detail-block">\
+            <p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code">' + escapeHtml(p.baseUrl) + '</span></p>\
+          </div>\
+        </div>\
+        <div id="detail-keys"></div>\
+        <div id="detail-rotation"></div>\
+        <div id="detail-models"></div>\
       </div>\
-    </div>\
-    <div id="detail-keys"></div>\
-    <div id="detail-rotation"></div>\
-    <div id="detail-models"></div>';
+    </div>';
   renderDetailKeys(p);
   renderDetailRotation(p);
   renderDetailModels(p);
@@ -169,7 +173,7 @@ function renderDetailKeys(p) {
   const el = document.getElementById('detail-keys');
   const keys = p.keys || [];
   el.innerHTML = '\
-    <div class="card">\
+    <div class="detail-block">\
       <div class="section-title">' + t('keysTitle') + ' (' + keys.length + ')</div>\
       <div class="flex mb-12" style="gap:8px">\
         <button type="button" class="btn btn-sm btn-primary" onclick="showAddKeyDetail(\'' + p.id + '\')">' + t('addKey') + '</button>\
@@ -333,7 +337,7 @@ function renderDetailRotation(p) {
   const strategy = p.rotationStrategy || '';
   const sticky = p.stickyLimit || 0;
   el.innerHTML = '\
-    <div class="card">\
+    <div class="detail-block">\
       <div class="section-title">' + t('rotationSection') + '</div>\
       <p class="muted mb-12">' + t('rotationDesc') + '</p>\
       <div class="form-group">\
@@ -424,7 +428,7 @@ function renderDetailModels(p) {
     '</div>';
   }).join('');
   el.innerHTML = '\
-    <div class="card">\
+    <div class="detail-block">\
       <div class="section-title">' + t('modelsTitle') + ' (' + models.length + ')</div>\
       <div class="flex mb-12" style="gap:8px">\
         <input id="m-input" placeholder="' + t('modelPlaceholder') + '" style="flex:1">\
