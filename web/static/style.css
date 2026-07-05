@@ -28,6 +28,7 @@
   --toast-bg:rgba(30,30,40,0.92);
   --toast-border:rgba(255,255,255,0.1);
   --modal-bg:rgba(30,30,40,0.95);
+  --option-bg:#1e1e28;
   --badge-inactive-bg:rgba(255,255,255,0.04);
   --skeleton-base:rgba(255,255,255,0.03);
   --skeleton-shine:rgba(255,255,255,0.07);
@@ -88,6 +89,7 @@
   --toast-bg:rgba(255,255,255,0.95);
   --toast-border:rgba(0,0,0,0.08);
   --modal-bg:rgba(255,255,255,0.98);
+  --option-bg:#ffffff;
   --badge-inactive-bg:rgba(0,0,0,0.04);
   --skeleton-base:rgba(0,0,0,0.04);
   --skeleton-shine:rgba(0,0,0,0.08);
@@ -187,7 +189,7 @@ h3{font-size:var(--font-h3);font-weight:600;color:var(--text-secondary);margin-b
 
 /* ===================== Forms ===================== */
 input,select,textarea{background:var(--input-bg);border:1px solid var(--glass-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:var(--font-base);font-family:inherit;width:100%;transition:all .2s cubic-bezier(0.4,0,0.2,1)}
-select option,select optgroup{background:var(--bg);color:var(--text)}
+select option,select optgroup{background:var(--option-bg);color:var(--text)}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
 input::placeholder,textarea::placeholder{color:var(--text-muted)}
 label{display:block;margin-bottom:6px;color:var(--text-secondary);font-size:calc(var(--font-base) - 1.5px);font-weight:500;letter-spacing:0.2px}

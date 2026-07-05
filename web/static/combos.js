@@ -81,10 +81,18 @@ async function addCombo() {
     strategy: document.getElementById('c-strategy').value,
     models: models
   };
-  await apiPost('/combos', c);
-  closeModalOverlay();
-  toast(t('comboCreated'), 'success');
-  renderEndpoint(document.getElementById('page-content'));
+  try {
+    const result = await apiPost('/combos', c);
+    if (result.error) {
+      toast(result.error, 'error');
+      return;
+    }
+    closeModalOverlay();
+    toast(t('comboCreated'), 'success');
+    renderEndpoint(document.getElementById('page-content'));
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
 }
 
 async function deleteCombo(id) {
@@ -189,13 +197,19 @@ async function importModelsFromProvider(target) {
       <button type="button" class="btn btn-ghost" id="import-close">' + t('close') + '</button>\
       <button type="button" class="btn btn-primary" id="import-add">' + t('addSelected') + '</button>\
     </div></div>';
-  var overlay = document.getElementById('modal-overlay');
-  overlay.innerHTML = html;
-  
-  requestAnimationFrame(function() { overlay.classList.add('show'); });
-  document.getElementById('import-filter').oninput = function() {
+  var importOverlay = document.createElement('div');
+  importOverlay.className = 'modal-overlay';
+  importOverlay.innerHTML = html;
+  document.body.appendChild(importOverlay);
+  requestAnimationFrame(function() { importOverlay.classList.add('show'); });
+  function closeImport() {
+    importOverlay.classList.remove('show');
+    setTimeout(function() { if (importOverlay.parentNode) importOverlay.remove(); }, 400);
+    renderComboModelsList();
+  }
+  importOverlay.querySelector('#import-filter').oninput = function() {
     var keyword = this.value.toLowerCase().trim();
-    var groups = document.querySelectorAll('.import-provider-group');
+    var groups = importOverlay.querySelectorAll('.import-provider-group');
     for (var gi = 0; gi < groups.length; gi++) {
       var group = groups[gi];
       var items = group.querySelectorAll('.import-model-item');
@@ -212,30 +226,25 @@ async function importModelsFromProvider(target) {
       group.style.display = visibleCount > 0 ? '' : 'none';
     }
   };
-  document.getElementById('import-close').onclick = function() {
-    overlay.classList.remove('show');
-    overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
-  };
-  document.getElementById('import-select-all').onclick = function() {
-    var items = document.querySelectorAll('.import-model-item');
+  importOverlay.querySelector('#import-close').onclick = closeImport;
+  importOverlay.querySelector('#import-select-all').onclick = function() {
+    var items = importOverlay.querySelectorAll('.import-model-item');
     for (var k = 0; k < items.length; k++) { items[k].classList.add('selected'); }
   };
-  document.getElementById('import-deselect-all').onclick = function() {
-    var items = document.querySelectorAll('.import-model-item');
+  importOverlay.querySelector('#import-deselect-all').onclick = function() {
+    var items = importOverlay.querySelectorAll('.import-model-item');
     for (var k = 0; k < items.length; k++) { items[k].classList.remove('selected'); }
   };
-  document.getElementById('import-add').onclick = function() {
+  importOverlay.querySelector('#import-add').onclick = function() {
     var selected = [];
-    var items = document.querySelectorAll('.import-model-item.selected');
+    var items = importOverlay.querySelectorAll('.import-model-item.selected');
     for (var k = 0; k < items.length; k++) selected.push(items[k].getAttribute('data-value'));
     for (var k = 0; k < selected.length; k++) {
       if (comboEditingModels.indexOf(selected[k]) < 0) comboEditingModels.push(selected[k]);
     }
-    overlay.classList.remove('show');
-    overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
-    renderComboModelsList();
+    closeImport();
   };
-  overlay.onclick = function(e) { if (e.target === overlay) { overlay.classList.remove('show'); overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true }); } };
+  importOverlay.onclick = function(e) { if (e.target === importOverlay) closeImport(); };
 }
 
 function toggleImportModel(el) {

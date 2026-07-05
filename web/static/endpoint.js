@@ -17,7 +17,7 @@ async function renderEndpoint(c) {
               <button type="button" class="btn btn-primary" onclick="withLoading(this, () => savePort())">' + t('save') + '</button>\
             </div>\
           </div>\
-          <p class="muted mt-12">' + t('apiEndpoint') + ' <span class="code">http://localhost:' + settings.port + '/v1</span></p>\
+          <p class="muted mt-12">' + t('apiEndpoint') + ' <span class="code copyable" data-copy="http://localhost:' + settings.port + '/v1" onclick="copyToClipboard(this.getAttribute(\'data-copy\'))" title="' + t('clickToCopy') + '">http://localhost:' + settings.port + '/v1</span></p>\
           <p class="muted mt-12">' + t('noKeyRequired') + '</p>\
         </div>\
         <div class="settings-block">\

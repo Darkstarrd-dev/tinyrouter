@@ -156,7 +156,7 @@ async function renderProviderDetail(c, id) {
       <div class="provider-detail-body">\
         <div id="detail-info">\
           <div class="detail-block">\
-            <p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code">' + escapeHtml(p.baseUrl) + '</span></p>\
+            <p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code copyable" data-copy="' + escapeHtml(p.baseUrl) + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'))" title="' + t('clickToCopy') + '">' + escapeHtml(p.baseUrl) + '</span></p>\
           </div>\
         </div>\
         <div id="detail-keys"></div>\
