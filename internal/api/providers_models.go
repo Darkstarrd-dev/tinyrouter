@@ -258,6 +258,7 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 				"url":     chatURL,
 				"headers": headerToMap(req2.Header),
 				"body":    parsedReqBody,
+				"bodyRaw": body,
 			},
 			"responseHeaders": nil,
 			"responseBody":    nil,
@@ -330,9 +331,11 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 			"url":     chatURL,
 			"headers": headerToMap(req2.Header),
 			"body":    parsedReqBody,
+			"bodyRaw": body,
 		},
 		"responseHeaders": headerToMap(resp.Header),
 		"responseBody":    parsedRespBody,
+		"responseBodyRaw": string(respBody),
 	}
 	if quotaTotal > 0 {
 		respMap["quotaRemain"] = quotaRemain

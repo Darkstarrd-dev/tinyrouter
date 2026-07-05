@@ -9,21 +9,21 @@ import (
 
 // Entry records a single request's usage.
 type Entry struct {
-	Timestamp    time.Time `json:"timestamp"`
-	Provider     string    `json:"provider"`
-	Model        string    `json:"model"`
-	KeyID        string    `json:"keyId"`
-	KeyName      string    `json:"keyName"`
-	Status       string    `json:"status"` // "success" | "error" | "retry"
-	LatencyMs    int64     `json:"latencyMs"`
-	TTFTMs       int64     `json:"ttftMs"`
-	InputTokens  int       `json:"inputTokens"`
-	OutputTokens int       `json:"outputTokens"`
+	Timestamp    time.Time       `json:"timestamp"`
+	Provider     string          `json:"provider"`
+	Model        string          `json:"model"`
+	KeyID        string          `json:"keyId"`
+	KeyName      string          `json:"keyName"`
+	Status       string          `json:"status"` // "success" | "error" | "retry"
+	LatencyMs    int64           `json:"latencyMs"`
+	TTFTMs       int64           `json:"ttftMs"`
+	InputTokens  int             `json:"inputTokens"`
+	OutputTokens int             `json:"outputTokens"`
 	Error        string          `json:"error,omitempty"`
-	ReqPayload  json.RawMessage `json:"reqPayload,omitempty"`
-	RespPayload json.RawMessage `json:"respPayload,omitempty"`
-	RespHeaders http.Header     `json:"respHeaders,omitempty"`
-	RespStatus  int             `json:"respStatus,omitempty"`
+	ReqPayload   json.RawMessage `json:"reqPayload,omitempty"`
+	RespPayload  json.RawMessage `json:"respPayload,omitempty"`
+	RespHeaders  http.Header     `json:"respHeaders,omitempty"`
+	RespStatus   int             `json:"respStatus,omitempty"`
 }
 
 // UsageStore provides write access to usage entries.

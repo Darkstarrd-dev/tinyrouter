@@ -5,6 +5,8 @@ var lastUsageEntries = [];
 var modelColorMap = {};
 var expandedModels = new Set();
 var lockCountdownTimerStarted = false;
+var quotaBarItems = {};
+var lastQuotaSig = '';
 var usageDebugMode = false;
 
 var TREND_PALETTE = [
@@ -281,10 +283,13 @@ async function renderUsage(c) {
   usageDebugMode = !!(settings && settings.debugMode);
   lastUsageEntries = usage.entries || [];
   const quotaBars = quotas.quotas || [];
+  quotaBarItems = {};
+  lastQuotaSig = '';
+  var quotaCardHtml = '<div class="card"><div class="card-title">' + t('quotaMonitor') + '</div><div class="quota-section quota-section-scroll"></div></div>';
   c.innerHTML = '\
     <div class="usage-header usage-fullscreen">\
       <div class="charts-row usage-body-grid">\
-        <div class="quota-monitor-card">' + renderQuotaBars(quotaBars) + '\
+        <div class="quota-monitor-card">' + quotaCardHtml + '\
           <div class="stat-grid">\
             <div class="stat-card"><div class="stat-value">' + summary.total + '</div><div class="stat-label">' + t('totalRequests') + '</div></div>\
             <div class="stat-card"><div class="stat-value" style="color:var(--accent2)">' + summary.success + '</div><div class="stat-label">' + t('success') + '</div></div>\
@@ -301,9 +306,13 @@ async function renderUsage(c) {
   c.classList.remove('usage-page');
   var mainEl = document.querySelector('.main');
   if (mainEl) mainEl.classList.add('main-no-scroll');
+  var section = document.querySelector('.quota-monitor-card > .card > .quota-section');
+  if (quotaBars.length === 0) {
+    section.innerHTML = emptyState(t('noQuota'));
+  } else {
+    buildQuotaBarItems(quotaBars, section);
+  }
   attachTrendHover(lastUsageEntries);
-  attachQuotaBarHover();
-  reexpandModelDetails();
   startUsageRefresh();
 }
 
@@ -402,6 +411,18 @@ function stopUsageRefresh() {
   }
 }
 
+function computeQuotaSig(bars) {
+  if (!bars) return '';
+  try { return JSON.stringify(bars.map(function(b) { return b.provider + '|' + b.model + '|' + b.totalUsed + '|' + b.totalCapacity + '|' + (b.inFlightKeyNames ? b.inFlightKeyNames.join(',') : '') + '|' + (b.currentKeyName||'') + '|' + (b.currentKeyId||'') + '|' + b.successCount + '|' + b.errorCount + '|' + (b.hasQuota ? 1 : 0) + '|' + (b.perKeyLimit||''); })); } catch(e) { return ''; }
+}
+
+function setBarWidth(fillEl, pctStr) {
+  fillEl.style.transition = 'none';
+  fillEl.style.width = pctStr;
+  void fillEl.offsetWidth;
+  fillEl.style.transition = '';
+}
+
 function updateUsageSummary(summary) {
   var grid = document.querySelector('.stat-grid');
   if (!grid) return;
@@ -422,61 +443,143 @@ async function clearUsage() {
   renderUsage(document.getElementById('page-content'));
 }
 
+var QUOTA_CHEVRON = '<svg class="quota-bar-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
+function renderQuotaBarItem(bar) {
+  var color = getModelColor(bar.provider, bar.model);
+  var barDotClass = 'model-color-dot';
+  if (bar.inFlightKeyNames && bar.inFlightKeyNames.length > 0) {
+    barDotClass += ' model-color-dot-calling';
+  }
+  var itemId = 'qbi-' + sanitizeId(bar.provider) + '-' + sanitizeId(bar.model);
+  var toggleCall = "toggleModelDetail('" + escapeHtml(bar.provider).replace(/'/g, "\\'") + "','" + escapeHtml(bar.model).replace(/'/g, "\\'") + "')";
+  var currentKeyHtml = '';
+  if (bar.currentKeyName) {
+    currentKeyHtml = '<span class="current-key-tag" title="' + escapeHtml(t('currentKey')) + '" data-current-key-id="' + escapeHtml(bar.currentKeyId || '') + '"><span class="current-key-dot"></span>' + escapeHtml(bar.currentKeyName) + '</span>';
+  } else {
+    currentKeyHtml = '<span class="current-key-tag current-key-tag-none">' + escapeHtml(t('noCurrentKey')) + '</span>';
+  }
+  var tokenInfo = ' <span class="quota-bar-tokens">' +
+    '<span style="color:var(--accent2);font-weight:700">' + bar.successCount + '</span>' +
+    '<span style="color:var(--text-muted);font-weight:400"> / </span>' +
+    '<span style="color:var(--danger);font-weight:700">' + bar.errorCount + '</span>' +
+    '</span>';
+  if (bar.hasQuota) {
+    var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
+    var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
+    var remain = bar.totalCapacity - bar.totalUsed;
+    return '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
+      '<div class="quota-bar-header">' +
+        '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + currentKeyHtml + tokenInfo + '</span>' +
+        '<span class="quota-bar-right">' + QUOTA_CHEVRON + '</span>' +
+      '</div>' +
+      '<div class="quota-bar-row">' +
+        '<span class="quota-bar-numbers">' + bar.totalUsed + '/' + bar.totalCapacity + '</span>' +
+        '<div class="quota-bar-track" data-used="' + bar.totalUsed + '" data-total="' + bar.totalCapacity + '" data-remain="' + remain + '" data-perkey="' + bar.perKeyLimit + '">' +
+          '<div class="quota-bar-fill" style="width:' + pct + '%;background:' + fillColor + '"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
+    '</div>';
+  } else {
+    return '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
+      '<div class="quota-bar-header">' +
+        '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + currentKeyHtml + tokenInfo + '</span>' +
+        '<span class="quota-bar-right">' + QUOTA_CHEVRON + '</span>' +
+      '</div>' +
+      '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
+    '</div>';
+  }
+}
+
+function buildQuotaBarItems(bars, section) {
+  if (!bars) return;
+  for (var i = 0; i < bars.length; i++) {
+    var bar = bars[i];
+    var key = bar.provider + '/' + bar.model;
+    var html = renderQuotaBarItem(bar);
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    var el = temp.firstElementChild;
+    section.appendChild(el);
+    quotaBarItems[key] = el;
+    el._hasQuota = !!bar.hasQuota;
+    var setKey = JSON.stringify([bar.provider, bar.model]);
+    if (expandedModels.has(setKey)) {
+      toggleModelDetail(bar.provider, bar.model);
+    }
+  }
+  attachQuotaBarHover();
+}
+
+function patchQuotaBarItem(el, bar) {
+  if (!!el._hasQuota !== !!bar.hasQuota) {
+    var key = bar.provider + '/' + bar.model;
+    var temp = document.createElement('div');
+    temp.innerHTML = renderQuotaBarItem(bar);
+    var newEl = temp.firstElementChild;
+    el.parentNode.replaceChild(newEl, el);
+    quotaBarItems[key] = newEl;
+    newEl._hasQuota = !!bar.hasQuota;
+    attachQuotaBarHover();
+    var setKey = JSON.stringify([bar.provider, bar.model]);
+    if (expandedModels.has(setKey)) {
+      toggleModelDetail(bar.provider, bar.model);
+    }
+    return;
+  }
+  var dot = el.querySelector('.model-color-dot');
+  if (bar.inFlightKeyNames && bar.inFlightKeyNames.length > 0) {
+    dot.classList.add('model-color-dot-calling');
+  } else {
+    dot.classList.remove('model-color-dot-calling');
+  }
+  var tokenInfo = ' <span class="quota-bar-tokens">' +
+    '<span style="color:var(--accent2);font-weight:700">' + bar.successCount + '</span>' +
+    '<span style="color:var(--text-muted);font-weight:400"> / </span>' +
+    '<span style="color:var(--danger);font-weight:700">' + bar.errorCount + '</span>' +
+    '</span>';
+  var currentKeyHtml = '';
+  if (bar.currentKeyName) {
+    currentKeyHtml = '<span class="current-key-tag" title="' + escapeHtml(t('currentKey')) + '" data-current-key-id="' + escapeHtml(bar.currentKeyId || '') + '"><span class="current-key-dot"></span>' + escapeHtml(bar.currentKeyName) + '</span>';
+  } else {
+    currentKeyHtml = '<span class="current-key-tag current-key-tag-none">' + escapeHtml(t('noCurrentKey')) + '</span>';
+  }
+  var modelSpan = el.querySelector('.quota-bar-model');
+  var modelPrefix = escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model);
+  if (bar.hasQuota) {
+    modelPrefix += ' (' + bar.perKeyLimit + ' per/day)';
+  }
+  modelSpan.innerHTML = '<span class="' + dot.className + '" style="background:' + getModelColor(bar.provider, bar.model) + '"></span>' + modelPrefix + currentKeyHtml + tokenInfo;
+  var numSpan = el.querySelector('.quota-bar-numbers');
+  var track = el.querySelector('.quota-bar-track');
+  var fill = track ? track.querySelector('.quota-bar-fill') : null;
+  if (bar.hasQuota) {
+    var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
+    var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
+    if (numSpan) numSpan.textContent = bar.totalUsed + '/' + bar.totalCapacity;
+    if (track) {
+      var remain = bar.totalCapacity - bar.totalUsed;
+      track.setAttribute('data-used', bar.totalUsed);
+      track.setAttribute('data-total', bar.totalCapacity);
+      track.setAttribute('data-remain', remain);
+      track.setAttribute('data-perkey', bar.perKeyLimit);
+    }
+    if (fill) {
+      setBarWidth(fill, pct + '%');
+      fill.style.background = fillColor;
+    }
+  } else {
+    if (numSpan) numSpan.textContent = '';
+  }
+}
+
 function renderQuotaBars(bars) {
   if (!bars || bars.length === 0) return '<div class="card"><div class="card-title">' + t('quotaMonitor') + '</div>' + emptyState(t('noQuota')) + '</div>';
-  var chevronDown = '<svg class="quota-bar-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
   var html = '<div class="card"><div class="card-title">' + t('quotaMonitor') + '</div><div class="quota-section quota-section-scroll">';
-  bars.forEach(function(bar) {
-    var color = getModelColor(bar.provider, bar.model);
-    var barDotClass = 'model-color-dot';
-    if (bar.inFlightKeyNames && bar.inFlightKeyNames.length > 0) {
-      barDotClass += ' model-color-dot-calling';
-    }
-    var itemId = 'qbi-' + sanitizeId(bar.provider) + '-' + sanitizeId(bar.model);
-    var toggleCall = "toggleModelDetail('" + escapeHtml(bar.provider).replace(/'/g, "\\'") + "','" + escapeHtml(bar.model).replace(/'/g, "\\'") + "')";
-
-    // (A) Current in-use key label shown next to model name so the user can see
-    // which key is being routed to without expanding.
-    var currentKeyHtml = '';
-    if (bar.currentKeyName) {
-      currentKeyHtml = '<span class="current-key-tag" title="' + escapeHtml(t('currentKey')) + '" data-current-key-id="' + escapeHtml(bar.currentKeyId || '') + '"><span class="current-key-dot"></span>' + escapeHtml(bar.currentKeyName) + '</span>';
-    } else {
-      currentKeyHtml = '<span class="current-key-tag current-key-tag-none">' + escapeHtml(t('noCurrentKey')) + '</span>';
-    }
-
-    var tokenInfo = ' <span class="quota-bar-tokens">' +
-      '<span style="color:var(--accent2);font-weight:700">' + bar.successCount + '</span>' +
-      '<span style="color:var(--text-muted);font-weight:400"> / </span>' +
-      '<span style="color:var(--danger);font-weight:700">' + bar.errorCount + '</span>' +
-      '</span>';
-    if (bar.hasQuota) {
-      var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
-      var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
-      var remain = bar.totalCapacity - bar.totalUsed;
-      // (C) data attributes feed the hover tooltip with exact numbers.
-      html += '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
-        '<div class="quota-bar-header">' +
-          '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + currentKeyHtml + tokenInfo + '</span>' +
-          '<span class="quota-bar-right">' + chevronDown + '</span>' +
-        '</div>' +
-        '<div class="quota-bar-row">' +
-          '<span class="quota-bar-numbers">' + bar.totalUsed + '/' + bar.totalCapacity + '</span>' +
-          '<div class="quota-bar-track" data-used="' + bar.totalUsed + '" data-total="' + bar.totalCapacity + '" data-remain="' + remain + '" data-perkey="' + bar.perKeyLimit + '">' +
-            '<div class="quota-bar-fill" style="width:' + pct + '%;background:' + fillColor + '"></div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
-      '</div>';
-    } else {
-      html += '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
-        '<div class="quota-bar-header">' +
-          '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + currentKeyHtml + tokenInfo + '</span>' +
-          '<span class="quota-bar-right">' + chevronDown + '</span>' +
-        '</div>' +
-        '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
-      '</div>';
-    }
-  });
+  for (var i = 0; i < bars.length; i++) {
+    html += renderQuotaBarItem(bars[i]);
+  }
   html += '</div></div>';
   return html;
 }
@@ -492,6 +595,14 @@ function formatRemaining(ms) {
 
 function formatMinutes(ms) {
   if (ms < 0) ms = 0;
+  if (ms < 60000) {
+    var sec = Math.floor(ms / 1000);
+    if (sec > 59) sec = 59;
+    if (sec < 0) sec = 0;
+    var s = String(sec);
+    while (s.length < 2) s = '0' + s;
+    return s;
+  }
   var totalMin = Math.floor(ms / 60000);
   if (totalMin > 99) totalMin = 99;
   if (totalMin < 0) totalMin = 0;
@@ -538,17 +649,60 @@ function updateKeyTimers() {
 }
 
 function updateQuotaBars(bars) {
-  var container = document.querySelector('.quota-monitor-card > .card');
-  if (!container) return;
-  container.outerHTML = renderQuotaBars(bars);
-  reexpandModelDetails();
-  attachQuotaBarHover();
+  var section = document.querySelector('.quota-monitor-card > .card > .quota-section');
+  if (!section) return;
+  var sig = computeQuotaSig(bars);
+  if (sig === lastQuotaSig) return;
+  lastQuotaSig = sig;
+  if (!bars) bars = [];
   if (!lockCountdownTimerStarted) {
     lockCountdownTimerStarted = true;
     setInterval(function() {
       updateLockCountdowns();
       updateKeyTimers();
     }, 1000);
+  }
+  var seen = {};
+  var keys = [];
+  for (var i = 0; i < bars.length; i++) {
+    var bar = bars[i];
+    var key = bar.provider + '/' + bar.model;
+    seen[key] = true;
+    keys.push(key);
+    var el = quotaBarItems[key];
+    if (el) {
+      patchQuotaBarItem(el, bar);
+    } else {
+      var temp = document.createElement('div');
+      temp.innerHTML = renderQuotaBarItem(bar);
+      var newEl = temp.firstElementChild;
+      var refEl = null;
+      for (var j = i + 1; j < bars.length; j++) {
+        if (quotaBarItems[bars[j].provider + '/' + bars[j].model]) {
+          refEl = quotaBarItems[bars[j].provider + '/' + bars[j].model];
+          break;
+        }
+      }
+      if (refEl) {
+        section.insertBefore(newEl, refEl);
+      } else {
+        section.appendChild(newEl);
+      }
+      quotaBarItems[key] = newEl;
+      newEl._hasQuota = !!bar.hasQuota;
+      attachQuotaBarHover();
+      var setKey = JSON.stringify([bar.provider, bar.model]);
+      if (expandedModels.has(setKey)) {
+        toggleModelDetail(bar.provider, bar.model);
+      }
+    }
+  }
+  for (var key in quotaBarItems) {
+    if (!seen[key]) {
+      var el = quotaBarItems[key];
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      delete quotaBarItems[key];
+    }
   }
 }
 
@@ -733,15 +887,15 @@ function renderModelKeyDetail(provider, model, data) {
       metricsHtml = '<span class="model-key-metrics">' + metricsParts.join('') + '</span>';
     }
 
+    var leadHtml = timerHtml !== '' ? timerHtml : '<span class="' + dotClass + '" style="background:' + color + '"></span>';
     html += '<div class="' + rowClass + '">' +
-      '<span class="' + dotClass + '" style="background:' + color + '"></span>' +
+      leadHtml +
       '<span class="model-key-name">' + escapeHtml(k.keyName) + '</span>' +
       quotaInfo +
       quotaBar +
       statusBadge +
       metricsHtml +
       errorInfo +
-      timerHtml +
     '</div>';
   });
   html += '</div>';
@@ -828,18 +982,19 @@ function showUsageEntryInfo(ts) {
   var titleEl = document.getElementById('info-modal-title');
   var bodyEl = document.getElementById('info-modal-body');
   titleEl.textContent = e.provider + ' / ' + e.model + ' \u2014 ' + e.status + ' (' + e.latencyMs + 'ms)';
+  __infoModalSections = [];
   var html = '';
   if (e.reqPayload) {
-    html += renderUsageInfoSection('Request', e.reqPayload);
+    html += renderInfoSection('Request', e.reqPayload);
   }
   if (e.respHeaders) {
-    html += renderUsageInfoSection('Response Headers', e.respHeaders);
+    html += renderInfoSection('Response Headers', e.respHeaders);
   }
   if (e.respStatus) {
     html += '<div class="info-section"><div class="info-section-title">Status: ' + e.respStatus + '</div></div>';
   }
   if (e.respPayload) {
-    html += renderUsageInfoSection('Response Body', e.respPayload);
+    html += renderInfoSection('Response Body', e.respPayload);
   }
   bodyEl.innerHTML = html || '<div class="info-section">' + t('noData') + '</div>';
   overlay.classList.add('show');
@@ -854,23 +1009,4 @@ function closeUsageEntryInfo() {
   var overlay = document.getElementById('info-modal-overlay');
   overlay.classList.remove('show');
   document.removeEventListener('keydown', usageInfoModalEscapeHandler);
-}
-
-function renderUsageInfoSection(title, data) {
-  var content = '';
-  if (data === null || data === undefined) {
-    content = '<pre class="info-json">' + t('noData') + '</pre>';
-  } else if (typeof data === 'string') {
-    content = '<div class="info-field"><pre class="info-json">' + escapeHtml(data) + '</pre><button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button></div>';
-  } else {
-    for (var k in data) {
-      var v = data[k];
-      var vStr;
-      if (v === null) vStr = 'null';
-      else if (typeof v === 'object') vStr = JSON.stringify(v, null, 2);
-      else vStr = String(v);
-      content += '<div class="info-field"><span class="info-field-key">' + escapeHtml(k) + '</span><pre class="info-json">' + escapeHtml(vStr) + '</pre><button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button></div>';
-    }
-  }
-  return '<div class="info-section"><div class="info-section-title">' + escapeHtml(title) + '</div>' + content + '</div>';
 }

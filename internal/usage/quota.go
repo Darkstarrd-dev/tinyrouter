@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -105,6 +106,26 @@ func (qt *QuotaTracker) All() []QuotaBar {
 		result = append(result, *bar)
 	}
 	return result
+}
+
+// RenameProvider migrates all quota bars keyed by the old provider name to the
+// new name. This is called when a provider's Name field is changed at runtime.
+func (qt *QuotaTracker) RenameProvider(oldName, newName string) {
+	if oldName == "" || oldName == newName {
+		return
+	}
+	qt.mu.Lock()
+	defer qt.mu.Unlock()
+	prefix := oldName + "/"
+	for key, bar := range qt.bars {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		newKey := newName + key[len(oldName):]
+		bar.Provider = newName
+		qt.bars[newKey] = bar
+		delete(qt.bars, key)
+	}
 }
 
 // Clear resets all quota data.

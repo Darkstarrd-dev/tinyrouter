@@ -740,16 +740,21 @@ function showModelInfo(modelId) {
 
   titleEl.textContent = modelId + ' \u2014 ' + t('info');
 
+  __infoModalSections = [];
   var html = '';
 
   if (ts.request) {
-    html += renderInfoSection(t('requestInfo'), ts.request);
+    var reqRawOverrides = {};
+    if (ts.request.bodyRaw != null) reqRawOverrides.body = ts.request.bodyRaw;
+    html += renderInfoSection(t('requestInfo'), ts.request, reqRawOverrides);
   }
   if (ts.responseHeaders) {
     html += renderInfoSection(t('responseHeaders'), ts.responseHeaders);
   }
   if (ts.responseBody != null) {
-    html += renderInfoSection(t('responseBody'), ts.responseBody);
+    var respRawOverrides = {};
+    if (ts.responseBodyRaw != null) respRawOverrides.responseBody = ts.responseBodyRaw;
+    html += renderInfoSection(t('responseBody'), ts.responseBody, respRawOverrides);
   }
 
   bodyEl.innerHTML = html;
@@ -770,37 +775,10 @@ function infoModalEscapeHandler(e) {
   }
 }
 
-function renderInfoSection(title, data) {
-  var content = '';
-  if (data === null || data === undefined) {
-    content = '<pre class="info-json">' + t('noData') + '</pre>';
-  } else if (typeof data === 'string') {
-    content = '<div class="info-field"><pre class="info-json">' + escapeHtml(data) + '</pre><button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button></div>';
-  } else {
-    for (var k in data) {
-      var v = data[k];
-      var vStr;
-      if (v === null) {
-        vStr = 'null';
-      } else if (typeof v === 'object') {
-        vStr = JSON.stringify(v, null, 2);
-      } else {
-        vStr = String(v);
-      }
-      content += '<div class="info-field"><span class="info-field-key">' + escapeHtml(k) + '</span><pre class="info-json">' + escapeHtml(vStr) + '</pre><button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button></div>';
-    }
+function infoModalEscapeHandler(e) {
+  if (e.key === 'Escape') {
+    closeInfoModal();
   }
-  return '<div class="info-section"><div class="info-section-title">' + escapeHtml(title) + '</div>' + content + '</div>';
-}
-
-function copyInfoText(btn) {
-  var pre = btn.previousElementSibling;
-  var text = pre ? pre.textContent : '';
-  navigator.clipboard.writeText(text).then(function() {
-    var orig = btn.textContent;
-    btn.textContent = t('copied');
-    setTimeout(function() { btn.textContent = orig; }, 1500);
-  });
 }
 
 async function addModelDetail(pid) {
@@ -813,8 +791,6 @@ async function addModelDetail(pid) {
 }
 
 async function deleteModelDetail(pid, modelId) {
-  var ok = await confirmModal(t('confirmDeleteModel') + modelId);
-  if (!ok) return;
   var resp = await apiDelete('/providers/' + pid + '/models?model=' + encodeURIComponent(modelId));
   if (resp.error) { toast(t('modelTestFailed') + resp.error, 'error'); return; }
   delete modelTestStatus[modelId];

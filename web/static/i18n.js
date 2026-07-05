@@ -112,6 +112,11 @@ const L = {
     copy: 'Copy',
     copied: 'Copied',
     noData: 'No data',
+    copyAll: 'Copy All',
+    collapse: 'Collapse',
+    expand: 'Expand',
+    raw: 'Raw',
+    pretty: 'Pretty',
     // Playground keys moved to pg-i18n.js
   },
   cn: {
@@ -226,6 +231,11 @@ const L = {
     copy: '复制',
     copied: '已复制',
     noData: '无数据',
+    copyAll: '全部复制',
+    collapse: '折叠',
+    expand: '展开',
+    raw: '原始',
+    pretty: '格式化',
     // Playground keys moved to pg-i18n.js
   }
 };

@@ -16,16 +16,16 @@ import (
 )
 
 type Handler struct {
-	reg              *registry.Registry
-	selector         rotation.KeySelector
-	comboRes         *combo.Resolver
-	usage            usage.UsageStore
-	quotaTracker     *usage.QuotaTracker
-	logger           *console.Logger
-	client           *http.Client
-	UsageUpdateCh    chan struct{}
-	InflightUpdateCh chan struct{}
-	Inflight         *InflightTracker
+	reg               *registry.Registry
+	selector          rotation.KeySelector
+	comboRes          *combo.Resolver
+	usage             usage.UsageStore
+	quotaTracker      *usage.QuotaTracker
+	logger            *console.Logger
+	client            *http.Client
+	UsageUpdateCh     chan struct{}
+	InflightUpdateCh  chan struct{}
+	Inflight          *InflightTracker
 	debugModeProvider func() bool
 }
 

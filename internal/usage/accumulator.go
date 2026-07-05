@@ -169,6 +169,37 @@ func (a *Accumulator) KeyStatsFor(providerName, model string) []KeyStatEntry {
 	return result
 }
 
+// RenameProvider migrates all model-level and key-level statistics keyed by the
+// old provider name to the new name. Called when a provider's Name changes.
+func (a *Accumulator) RenameProvider(oldName, newName string) {
+	if oldName == "" || oldName == newName {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	prefix := oldName + "/"
+
+	for key, s := range a.modelStats {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		newKey := newName + key[len(oldName):]
+		s.Provider = newName
+		a.modelStats[newKey] = s
+		delete(a.modelStats, key)
+	}
+
+	for key, ks := range a.keyStats {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		newKey := newName + key[len(oldName):]
+		ks.Provider = newName
+		a.keyStats[newKey] = ks
+		delete(a.keyStats, key)
+	}
+}
+
 // Summary returns the cumulative summary since process start.
 func (a *Accumulator) Summary() CumulativeSummary {
 	a.mu.RLock()

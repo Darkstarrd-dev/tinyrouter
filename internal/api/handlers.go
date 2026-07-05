@@ -157,9 +157,21 @@ func (rt *Router) updateProvider(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+
+	oldName := ""
+	if p, ok := rt.reg.GetProvider(id); ok {
+		oldName = p.Name
+	}
+
 	if rt.reg.UpdateProvider(id, updates) {
 		cfg := rt.reg.Config()
 		config.Save(rt.configPath, &cfg)
+
+		if oldName != "" && oldName != updates.Name {
+			rt.quotaTracker.RenameProvider(oldName, updates.Name)
+			rt.usage.Accumulator().RenameProvider(oldName, updates.Name)
+		}
+
 		p, _ := rt.reg.GetProvider(id)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(p)
