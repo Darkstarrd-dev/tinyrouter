@@ -636,8 +636,34 @@ function updateKeyTimers() {
       var unlock = el.getAttribute('data-unlock');
       if (!unlock) continue;
       var remaining = new Date(unlock).getTime() - Date.now();
-      if (remaining < 0) remaining = 0;
-      el.textContent = formatMinutes(remaining);
+      if (remaining <= 0) {
+        // cooldown 结束：切换到 idle 正向计时
+        el.classList.remove('model-key-timer-cooldown');
+        el.classList.add('model-key-timer-idle');
+        el.setAttribute('data-type', 'idle');
+        el.removeAttribute('data-unlock');
+        var nowIso = new Date().toISOString();
+        el.setAttribute('data-used-at', nowIso);
+        el.textContent = '00';
+        // 同行 status badge: cooldown/locked -> available
+        var row = el.closest('.model-key-row');
+        if (row) {
+          var badge = row.querySelector('.key-status-badge');
+          if (badge && (badge.classList.contains('key-status-cooldown') || badge.classList.contains('key-status-locked'))) {
+            badge.classList.remove('key-status-cooldown', 'key-status-locked');
+            badge.classList.add('key-status-available');
+            badge.textContent = t('available');
+          }
+          // 同行 error 清除
+          var errEl = row.querySelector('.model-key-error');
+          if (errEl) {
+            errEl.textContent = '';
+            errEl.removeAttribute('title');
+          }
+        }
+      } else {
+        el.textContent = formatMinutes(remaining);
+      }
     } else if (type === 'idle') {
       var usedAt = el.getAttribute('data-used-at');
       if (!usedAt) continue;
@@ -796,7 +822,7 @@ function renderModelKeyDetail(provider, model, data) {
   data.keys.forEach(function(k) {
     var color = getModelColor(provider, model);
     var statusBadge = '';
-    var quotaBar = '';
+    var quotaBar = '<span class="model-key-quota-bar">';
 
     if (data.hasQuota) {
       if (k.hasQuota) {
@@ -807,7 +833,7 @@ function renderModelKeyDetail(provider, model, data) {
         }
         var pct = k.modelLimit > 0 ? ((k.modelLimit - k.modelRemaining) / k.modelLimit * 100) : 0;
         var fillColor = pct < 50 ? 'var(--accent2)' : (pct < 80 ? 'var(--warn)' : 'var(--danger)');
-        quotaBar = '<div class="model-key-quota-bar"><div class="model-key-quota-fill" style="width:' + pct + '%;background:' + fillColor + '"></div></div>';
+        quotaBar += '<div class="model-key-quota-fill" style="width:' + pct + '%;background:' + fillColor + '"></div>';
       } else {
         statusBadge = '<span class="key-status-badge key-status-untested">' + t('untestedKey') + '</span>';
       }
@@ -825,16 +851,20 @@ function renderModelKeyDetail(provider, model, data) {
       }
     }
 
-    var errorInfo = '';
+    var errorInfo = '<span class="model-key-error"';
     if (k.lastError) {
       var errStr = k.lastError.length > 60 ? k.lastError.slice(0, 60) + '…' : k.lastError;
-      errorInfo = '<span class="model-key-error" title="' + escapeHtml(k.lastError) + '">' + escapeHtml(errStr) + '</span>';
+      errorInfo += ' title="' + escapeHtml(k.lastError) + '">' + escapeHtml(errStr);
+    } else {
+      errorInfo += '>';
     }
+    errorInfo += '</span>';
 
-    var quotaInfo = '';
+    var quotaInfo = '<span class="model-key-quota-numbers">';
     if (data.hasQuota && k.hasQuota) {
-      quotaInfo = '<span class="model-key-quota-numbers">' + (k.modelLimit - k.modelRemaining) + '/' + k.modelLimit + '</span>';
+      quotaInfo += (k.modelLimit - k.modelRemaining) + '/' + k.modelLimit;
     }
+    quotaInfo += '</span>';
 
     // Dot state classes (calling + in-use are independent)
     var dotClass = 'model-color-dot';
@@ -869,7 +899,7 @@ function renderModelKeyDetail(provider, model, data) {
       }
     }
 
-    var metricsHtml = '';
+    var metricsHtml = '<span class="model-key-metrics">';
     var hasMetrics = (k.successCount != null && k.successCount > 0) || (k.errorCount != null && k.errorCount > 0) || (k.avgTtftMs != null && k.avgTtftMs > 0) || (k.avgSpeed != null && k.avgSpeed > 0) || (k.liveSpeed != null && k.liveSpeed > 0);
     if (hasMetrics) {
       var metricsParts = [];
@@ -884,8 +914,11 @@ function renderModelKeyDetail(provider, model, data) {
       } else if (k.avgSpeed != null && k.avgSpeed > 0) {
         metricsParts.push('<span class="model-key-metric">' + k.avgSpeed.toFixed(1) + ' tok/s</span>');
       }
-      metricsHtml = '<span class="model-key-metrics">' + metricsParts.join('') + '</span>';
+      metricsHtml += metricsParts.join('');
     }
+    metricsHtml += '</span>';
+
+    quotaBar += '</span>';
 
     var leadHtml = timerHtml !== '' ? timerHtml : '<span class="' + dotClass + '" style="background:' + color + '"></span>';
     html += '<div class="' + rowClass + '">' +

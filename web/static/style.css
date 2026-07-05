@@ -380,6 +380,14 @@ tbody tr:last-child td{border-bottom:none}
 .model-key-row{display:flex;align-items:center;gap:8px;padding:4px 0;flex-wrap:wrap}
 .model-key-detail-wrap .model-key-row{display:grid;grid-template-columns:24px minmax(60px,100px) auto minmax(60px,1fr) auto minmax(140px,auto) minmax(0,1fr);gap:10px;align-items:center;padding:6px 4px;flex-wrap:nowrap}
 .model-key-detail-wrap .model-key-row > *{min-width:0}
+.model-key-detail-wrap .model-key-row > .model-color-dot,
+.model-key-detail-wrap .model-key-row > .model-key-timer{grid-column:1}
+.model-key-detail-wrap .model-key-row > .model-key-name{grid-column:2}
+.model-key-detail-wrap .model-key-row > .model-key-quota-numbers{grid-column:3}
+.model-key-detail-wrap .model-key-row > .model-key-quota-bar{grid-column:4}
+.model-key-detail-wrap .model-key-row > .key-status-badge{grid-column:5}
+.model-key-detail-wrap .model-key-row > .model-key-metrics{grid-column:6}
+.model-key-detail-wrap .model-key-row > .model-key-error{grid-column:7}
 .model-key-badges{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 .model-key-quota{display:flex;align-items:center;gap:6px;min-width:0}
 .model-key-quota .model-key-quota-bar{flex:1;min-width:40px}
