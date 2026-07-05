@@ -10,27 +10,31 @@ async function renderConsole(c) {
   consoleAllLines = [];
   consoleAutoScroll = true;
   c.innerHTML = '\
-    <h2>' + t('console') + '</h2>\
-    <div class="flex-between mb-12">\
-      <div class="console-controls">\
-        <button type="button" class="btn btn-sm btn-filter active" data-level="all" onclick="toggleConsoleFilter(this,\'all\')">' + t('all') + '</button>\
-        <button type="button" class="btn btn-sm btn-filter active" data-level="error" onclick="toggleConsoleFilter(this,\'error\')">ERROR</button>\
-        <button type="button" class="btn btn-sm btn-filter active" data-level="warn" onclick="toggleConsoleFilter(this,\'warn\')">WARN</button>\
-        <button type="button" class="btn btn-sm btn-filter active" data-level="info" onclick="toggleConsoleFilter(this,\'info\')">INFO</button>\
-        <button type="button" class="btn btn-sm btn-filter active" data-level="debug" onclick="toggleConsoleFilter(this,\'debug\')">DEBUG</button>\
-        <input type="text" id="console-search" class="console-search" placeholder="' + t('searchLogs') + '" oninput="onConsoleSearch(this.value)">\
+    <div class="console-layout">\
+      <div class="console-toolbar">\
+        <div class="console-controls">\
+          <button type="button" class="btn btn-sm btn-filter active" data-level="all" onclick="toggleConsoleFilter(this,\'all\')">' + t('all') + '</button>\
+          <button type="button" class="btn btn-sm btn-filter active" data-level="error" onclick="toggleConsoleFilter(this,\'error\')">ERROR</button>\
+          <button type="button" class="btn btn-sm btn-filter active" data-level="warn" onclick="toggleConsoleFilter(this,\'warn\')">WARN</button>\
+          <button type="button" class="btn btn-sm btn-filter active" data-level="info" onclick="toggleConsoleFilter(this,\'info\')">INFO</button>\
+          <button type="button" class="btn btn-sm btn-filter active" data-level="debug" onclick="toggleConsoleFilter(this,\'debug\')">DEBUG</button>\
+          <input type="text" id="console-search" class="console-search" placeholder="' + t('searchLogs') + '" oninput="onConsoleSearch(this.value)">\
+        </div>\
+        <div class="flex" style="gap:8px">\
+          <span class="muted" id="console-status">' + t('connecting') + '</span>\
+          <button type="button" class="btn btn-danger btn-sm" onclick="clearConsole()">' + t('clear') + '</button>\
+        </div>\
       </div>\
-      <div class="flex" style="gap:8px">\
-        <span class="muted" id="console-status">' + t('connecting') + '</span>\
-        <button type="button" class="btn btn-danger btn-sm" onclick="clearConsole()">' + t('clear') + '</button>\
-      </div>\
-    </div>\
-    <div class="log-container" id="log-container"></div>';
+      <div class="log-container" id="log-container"></div>\
+    </div>';
   var container = document.getElementById('log-container');
   container.addEventListener('scroll', function() {
     var atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 30;
     consoleAutoScroll = atBottom;
   });
+  c.style.height = '100%';
+  var mainEl = document.querySelector('.main');
+  if (mainEl) mainEl.classList.add('main-no-scroll');
   startConsoleStream();
 }
 

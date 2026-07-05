@@ -290,14 +290,6 @@ async function renderUsage(c) {
     <div class="usage-header usage-fullscreen">\
       <div class="charts-row usage-body-grid">\
         <div class="quota-monitor-card">' + quotaCardHtml + '\
-          <div class="stat-grid">\
-            <div class="stat-card"><div class="stat-value">' + summary.total + '</div><div class="stat-label">' + t('totalRequests') + '</div></div>\
-            <div class="stat-card"><div class="stat-value" style="color:var(--accent2)">' + summary.success + '</div><div class="stat-label">' + t('success') + '</div></div>\
-            <div class="stat-card"><div class="stat-value" style="color:var(--danger)">' + summary.error + '</div><div class="stat-label">' + t('errors') + '</div></div>\
-            <div class="stat-card"><div class="stat-value">' + summary.avgLatencyMs + 'ms</div><div class="stat-label">' + t('avgLatency') + '</div></div>\
-            <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalInputTokens) + '</div><div class="stat-label">' + t('totalInput') + '</div></div>\
-            <div class="stat-card"><div class="stat-value">' + formatMillionTokens(summary.totalOutputTokens) + '</div><div class="stat-label">' + t('totalOutput') + '</div></div>\
-          </div>\
         </div>\
         <div class="trend-card">' + renderTrendChart(lastUsageEntries) + '</div>\
         <div class="recent-requests-section">' + renderRecentRequestsInline(lastUsageEntries) + '</div>\

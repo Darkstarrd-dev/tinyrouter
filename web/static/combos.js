@@ -1,5 +1,8 @@
 // ===================== Combos Page =====================
 
+var comboEditingModels = [];
+var comboProvidersCache = null;
+
 async function renderCombos(c) {
   showSkeleton(c, 3);
   const data = await apiGet('/combos');
@@ -31,35 +34,35 @@ async function renderCombos(c) {
 }
 
 function showAddCombo() {
-  const el = document.getElementById('combo-form');
-  el.style.display = 'block';
-  el.innerHTML = '\
-    <div class="card">\
-      <div class="card-title">' + t('newCombo') + '</div>\
-      <div class="form-group mt-12"><label for="c-name">' + t('name') + '</label><input id="c-name" placeholder="Fast + Smart"></div>\
-      <div class="form-group"><label for="c-strategy">' + t('comboStrategy') + '</label>\
-        <select id="c-strategy">\
-          <option value="fallback">' + t('fallbackDesc') + '</option>\
-          <option value="round-robin">' + t('roundRobinDesc') + '</option>\
-          <option value="greedy-squirrel">' + t('greedySquirrelDesc') + '</option>\
-        </select>\
+  var overlay = document.getElementById('modal-overlay');
+  overlay.innerHTML = '<div class="modal" style="max-width:520px">\
+    <div class="modal-title">' + t('newCombo') + '</div>\
+    <div class="form-group"><label for="c-name">' + t('name') + '</label><input id="c-name" placeholder="Fast + Smart"></div>\
+    <div class="form-group"><label for="c-strategy">' + t('comboStrategy') + '</label>\
+      <select id="c-strategy">\
+        <option value="fallback">' + t('fallbackDesc') + '</option>\
+        <option value="round-robin">' + t('roundRobinDesc') + '</option>\
+        <option value="greedy-squirrel">' + t('greedySquirrelDesc') + '</option>\
+      </select>\
+    </div>\
+    <div class="form-group"><label>' + t('comboModels') + '</label>\
+      <div style="display:flex;gap:8px;margin-bottom:8px">\
+        <button type="button" class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
       </div>\
-      <div class="form-group"><label for="c-models">' + t('comboModels') + '</label>\
-        <div style="display:flex;gap:8px;margin-bottom:8px">\
-          <button type="button" class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
-        </div>\
-        <textarea id="c-models" rows="3" placeholder="deepseek/deepseek-chat\nmy-custom/gpt-4o"></textarea>\
-      </div>\
-      <div id="greedy-squirrel-hint" class="form-group" style="display:none">\
-        <p class="muted">' + t('greedySquirrelHint') + '</p>\
-      </div>\
-      <div class="flex" style="gap:8px">\
-        <button type="button" class="btn btn-primary" onclick="withLoading(this, () => addCombo())">' + t('create') + '</button>\
-        <button type="button" class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
-      </div>\
-    </div>';
-  var sel = el.querySelector('#c-strategy');
-  var hintBox = el.querySelector('#greedy-squirrel-hint');
+      <div id="c-models-list"></div>\
+    </div>\
+    <div id="greedy-squirrel-hint" class="form-group" style="display:none">\
+      <p class="muted">' + t('greedySquirrelHint') + '</p>\
+    </div>\
+    <div class="modal-footer">\
+      <button type="button" class="btn" onclick="closeModalOverlay()">' + t('cancel') + '</button>\
+      <button type="button" class="btn btn-primary" onclick="withLoading(this, () => addCombo())">' + t('create') + '</button>\
+    </div>\
+  </div>';
+  requestAnimationFrame(function() { overlay.classList.add('show'); });
+  overlay.onclick = function(e) { if (e.target === overlay) closeModalOverlay(); };
+  var sel = overlay.querySelector('#c-strategy');
+  var hintBox = overlay.querySelector('#greedy-squirrel-hint');
   if (sel && hintBox) {
     function syncHint() {
       hintBox.style.display = (sel.value === 'greedy-squirrel') ? 'block' : 'none';
@@ -67,17 +70,19 @@ function showAddCombo() {
     sel.addEventListener('change', syncHint);
     syncHint();
   }
+  comboEditingModels = [];
+  loadComboProvidersAndRender();
 }
 
 async function addCombo() {
-  const models = document.getElementById('c-models').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+  const models = comboEditingModels.slice();
   const c = {
     name: document.getElementById('c-name').value,
     strategy: document.getElementById('c-strategy').value,
     models: models
   };
   await apiPost('/combos', c);
-  document.getElementById('combo-form').style.display = 'none';
+  closeModalOverlay();
   toast(t('comboCreated'), 'success');
   renderEndpoint(document.getElementById('page-content'));
 }
@@ -94,35 +99,35 @@ async function showEditCombo(id) {
   const data = await apiGet('/combos');
   const cb = (data.combos || []).find(function(x) { return x.id === id; });
   if (!cb) return;
-  const el = document.getElementById('combo-form');
-  el.style.display = 'block';
-  el.innerHTML = '\
-    <div class="card">\
-      <div class="card-title">' + t('comboEdit') + '</div>\
-      <div class="form-group mt-12"><label for="c-name">' + t('name') + '</label><input id="c-name" value="' + escapeHtml(cb.name) + '"></div>\
-      <div class="form-group"><label for="c-strategy">' + t('comboStrategy') + '</label>\
-        <select id="c-strategy">\
-          <option value="fallback"' + (cb.strategy === 'fallback' ? ' selected' : '') + '>' + t('fallbackDesc') + '</option>\
-          <option value="round-robin"' + (cb.strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobinDesc') + '</option>\
-          <option value="greedy-squirrel"' + (cb.strategy === 'greedy-squirrel' ? ' selected' : '') + '>' + t('greedySquirrelDesc') + '</option>\
-        </select>\
+  var overlay = document.getElementById('modal-overlay');
+  overlay.innerHTML = '<div class="modal" style="max-width:520px">\
+    <div class="modal-title">' + t('comboEdit') + '</div>\
+    <div class="form-group"><label for="c-name">' + t('name') + '</label><input id="c-name" value="' + escapeHtml(cb.name) + '"></div>\
+    <div class="form-group"><label for="c-strategy">' + t('comboStrategy') + '</label>\
+      <select id="c-strategy">\
+        <option value="fallback"' + (cb.strategy === 'fallback' ? ' selected' : '') + '>' + t('fallbackDesc') + '</option>\
+        <option value="round-robin"' + (cb.strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobinDesc') + '</option>\
+        <option value="greedy-squirrel"' + (cb.strategy === 'greedy-squirrel' ? ' selected' : '') + '>' + t('greedySquirrelDesc') + '</option>\
+      </select>\
+    </div>\
+    <div class="form-group"><label>' + t('comboModels') + '</label>\
+      <div style="display:flex;gap:8px;margin-bottom:8px">\
+        <button type="button" class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
       </div>\
-      <div class="form-group"><label for="c-models">' + t('comboModels') + '</label>\
-        <div style="display:flex;gap:8px;margin-bottom:8px">\
-          <button type="button" class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
-        </div>\
-        <textarea id="c-models" rows="3" placeholder="deepseek/deepseek-chat\nmy-custom/gpt-4o">' + escapeHtml((cb.models || []).join('\n')) + '</textarea>\
-      </div>\
-      <div id="greedy-squirrel-hint" class="form-group" style="display:none">\
-        <p class="muted">' + t('greedySquirrelHint') + '</p>\
-      </div>\
-      <div class="flex" style="gap:8px">\
-        <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditCombo(\'' + id + '\'))">' + t('saveCombo') + '</button>\
-        <button type="button" class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
-      </div>\
-    </div>';
-  var sel = el.querySelector('#c-strategy');
-  var hintBox = el.querySelector('#greedy-squirrel-hint');
+      <div id="c-models-list"></div>\
+    </div>\
+    <div id="greedy-squirrel-hint" class="form-group" style="display:none">\
+      <p class="muted">' + t('greedySquirrelHint') + '</p>\
+    </div>\
+    <div class="modal-footer">\
+      <button type="button" class="btn" onclick="closeModalOverlay()">' + t('cancel') + '</button>\
+      <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditCombo(\'' + id + '\'))">' + t('saveCombo') + '</button>\
+    </div>\
+  </div>';
+  requestAnimationFrame(function() { overlay.classList.add('show'); });
+  overlay.onclick = function(e) { if (e.target === overlay) closeModalOverlay(); };
+  var sel = overlay.querySelector('#c-strategy');
+  var hintBox = overlay.querySelector('#greedy-squirrel-hint');
   if (sel && hintBox) {
     function syncHint() {
       hintBox.style.display = (sel.value === 'greedy-squirrel') ? 'block' : 'none';
@@ -130,17 +135,19 @@ async function showEditCombo(id) {
     sel.addEventListener('change', syncHint);
     syncHint();
   }
+  comboEditingModels = (cb.models || []).slice();
+  loadComboProvidersAndRender();
 }
 
 async function saveEditCombo(id) {
-  const models = document.getElementById('c-models').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+  const models = comboEditingModels.slice();
   const c = {
     name: document.getElementById('c-name').value,
     strategy: document.getElementById('c-strategy').value,
     models: models
   };
   await apiPut('/combos/' + id, c);
-  document.getElementById('combo-form').style.display = 'none';
+  closeModalOverlay();
   toast(t('comboUpdated'), 'success');
   renderEndpoint(document.getElementById('page-content'));
 }
@@ -153,9 +160,10 @@ async function importModelsFromProvider(target) {
     toast(t('noModelsAvailable'), 'warning');
     return;
   }
-  var html = '<div class="modal" style="max-width:500px">\
+  var html = '<div class="modal" style="width:500px">\
     <div class="modal-title">' + t('selectModels') + '</div>\
     <div class="modal-body" style="max-height:400px;overflow-y:auto">\
+    <input type="text" id="import-filter" placeholder="' + t('filterModels') + '" style="width:100%;margin-bottom:8px;padding:6px 10px;box-sizing:border-box;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--text-primary)">\
     <div style="display:flex;gap:6px;margin-bottom:12px">\
       <button type="button" class="btn btn-sm" id="import-select-all">' + t('selectAll') + '</button>\
       <button type="button" class="btn btn-sm" id="import-deselect-all">' + t('deselectAll') + '</button>\
@@ -164,7 +172,8 @@ async function importModelsFromProvider(target) {
     var p = providers[i];
     if (!p.isActive) continue;
     var models = p.models || [];
-    html += '<div style="margin-bottom:12px"><strong>' + escapeHtml(p.name) + ' (' + escapeHtml(p.prefix) + ')</strong></div>';
+    html += '<div class="import-provider-group" style="margin-bottom:12px">';
+    html += '<div><strong>' + escapeHtml(p.name) + ' (' + escapeHtml(p.prefix) + ')</strong></div>';
     if (models.length === 0) {
       html += '<div class="muted" style="margin-bottom:8px">' + t('noModels') + '</div>';
     } else {
@@ -173,6 +182,7 @@ async function importModelsFromProvider(target) {
         html += '<div class="import-model-item" data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
       }
     }
+    html += '</div>';
   }
   html += '</div>\
     <div class="modal-footer">\
@@ -183,6 +193,25 @@ async function importModelsFromProvider(target) {
   overlay.innerHTML = html;
   
   requestAnimationFrame(function() { overlay.classList.add('show'); });
+  document.getElementById('import-filter').oninput = function() {
+    var keyword = this.value.toLowerCase().trim();
+    var groups = document.querySelectorAll('.import-provider-group');
+    for (var gi = 0; gi < groups.length; gi++) {
+      var group = groups[gi];
+      var items = group.querySelectorAll('.import-model-item');
+      var visibleCount = 0;
+      for (var ii = 0; ii < items.length; ii++) {
+        var val = items[ii].getAttribute('data-value') || '';
+        if (keyword === '' || val.toLowerCase().indexOf(keyword) >= 0) {
+          items[ii].style.display = '';
+          visibleCount++;
+        } else {
+          items[ii].style.display = 'none';
+        }
+      }
+      group.style.display = visibleCount > 0 ? '' : 'none';
+    }
+  };
   document.getElementById('import-close').onclick = function() {
     overlay.classList.remove('show');
     overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
@@ -199,20 +228,97 @@ async function importModelsFromProvider(target) {
     var selected = [];
     var items = document.querySelectorAll('.import-model-item.selected');
     for (var k = 0; k < items.length; k++) selected.push(items[k].getAttribute('data-value'));
-    var ta = document.getElementById('c-models');
-    if (ta && selected.length > 0) {
-      var existing = ta.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
-      for (var k = 0; k < selected.length; k++) {
-        if (existing.indexOf(selected[k]) < 0) existing.push(selected[k]);
-      }
-      ta.value = existing.join('\n');
+    for (var k = 0; k < selected.length; k++) {
+      if (comboEditingModels.indexOf(selected[k]) < 0) comboEditingModels.push(selected[k]);
     }
     overlay.classList.remove('show');
     overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
+    renderComboModelsList();
   };
   overlay.onclick = function(e) { if (e.target === overlay) { overlay.classList.remove('show'); overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true }); } };
 }
 
 function toggleImportModel(el) {
   el.classList.toggle('selected');
+}
+
+async function loadComboProvidersAndRender() {
+  if (!comboProvidersCache) {
+    var data = await apiGet('/providers');
+    comboProvidersCache = (data.providers || []);
+  }
+  renderComboModelsList();
+}
+
+function findProviderByPrefix(prefix) {
+  if (!comboProvidersCache) return null;
+  for (var i = 0; i < comboProvidersCache.length; i++) {
+    if (comboProvidersCache[i].prefix === prefix) return comboProvidersCache[i];
+  }
+  return null;
+}
+
+function renderComboModelsList() {
+  var container = document.getElementById('c-models-list');
+  if (!container) return;
+  if (comboEditingModels.length === 0) {
+    container.innerHTML = emptyState(t('noModels'));
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < comboEditingModels.length; i++) {
+    var fullId = comboEditingModels[i];
+    var slashIdx = fullId.indexOf('/');
+    var prefix = slashIdx > 0 ? fullId.substring(0, slashIdx) : '';
+    var modelId = slashIdx > 0 ? fullId.substring(slashIdx + 1) : fullId;
+    var provider = findProviderByPrefix(prefix);
+    var pid = provider ? provider.id : '';
+    var ts = modelTestStatus[modelId];
+    var fullIdEsc = escapeHtml(fullId);
+    var modelIdEsc = escapeHtml(modelId);
+    var pidEsc = escapeHtml(pid);
+    html += '<div class="model-row">' +
+      '<div class="model-row-main">' +
+        (ts
+          ? (ts.ok
+              ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">OK</span>'
+              : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
+          : '<button type="button" class="btn btn-sm" onclick="withLoading(this, () => testComboModel(' + i + '))">' + t('test') + '</button>') +
+        (ts
+          ? '<button type="button" class="btn btn-sm btn-info" onclick="showModelInfo(\'' + modelIdEsc + '\')">' + t('info') + '</button>'
+          : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
+        '<button type="button" class="btn btn-sm btn-danger" onclick="removeComboModel(' + i + ')">' + t('delete') + '</button>' +
+        '<span class="model-id copyable" onclick="copyToClipboard(\'' + fullIdEsc + '\')" title="' + t('clickToCopy') + '">' + fullIdEsc + '</span>' +
+      '</div>' +
+    '</div>';
+  }
+  container.innerHTML = html;
+}
+
+async function testComboModel(idx) {
+  var fullId = comboEditingModels[idx];
+  if (!fullId) return;
+  var slashIdx = fullId.indexOf('/');
+  var prefix = slashIdx > 0 ? fullId.substring(0, slashIdx) : '';
+  var modelId = slashIdx > 0 ? fullId.substring(slashIdx + 1) : fullId;
+  var provider = findProviderByPrefix(prefix);
+  if (!provider) {
+    toast(t('modelTestFailed') + 'provider not found', 'error');
+    return;
+  }
+  try {
+    var result = await apiPost('/providers/' + provider.id + '/models/test', { model: modelId });
+    modelTestStatus[modelId] = result;
+    if (!result.ok) {
+      toast(t('modelTestFailed') + (result.error || 'unknown error'), 'error');
+    }
+  } catch (e) {
+    toast(t('modelTestFailed') + e.message, 'error');
+  }
+  renderComboModelsList();
+}
+
+function removeComboModel(idx) {
+  comboEditingModels.splice(idx, 1);
+  renderComboModelsList();
 }

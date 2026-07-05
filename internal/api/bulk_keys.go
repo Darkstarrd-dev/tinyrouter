@@ -67,11 +67,16 @@ func (rt *Router) bulkAddKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := rt.reg.Config()
-	if err := config.Save(rt.configPath, &cfg); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+	saveErr := config.Save(rt.configPath, &cfg)
+	w.Header().Set("Content-Type", "application/json")
+	if saveErr != nil {
+		json.NewEncoder(w).Encode(map[string]any{
+			"added":   added,
+			"errors":  errors,
+			"warning": "keys added in memory but failed to persist: " + saveErr.Error(),
+		})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"added":  added,
 		"errors": errors,

@@ -40,3 +40,5 @@ NUL
 # Test artifacts
 coverage
 tests/**/results.jsonl
+
+tmp/

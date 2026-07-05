@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initFontSize();
   initLang();
+  initHeaderStats();
   document.querySelectorAll('.nav-item').forEach(el => {
     el.addEventListener('click', () => {
       const page = el.dataset.page;
@@ -165,6 +166,12 @@ function confirmModal(message) {
     var escHandler = function(e) { if (e.key === 'Escape') { close(false); document.removeEventListener('keydown', escHandler); } };
     document.addEventListener('keydown', escHandler);
   });
+}
+
+function closeModalOverlay() {
+  var overlay = document.getElementById('modal-overlay');
+  overlay.classList.remove('show');
+  overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
 }
 
 function initTheme() {

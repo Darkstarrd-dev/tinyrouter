@@ -1,0 +1,59 @@
+// headerStats.js —— 顶部 header 的 stat-grid 实时统计模块
+var headerStatsEventSource = null;
+var headerStatsRefreshScheduled = false;
+
+function initHeaderStats() {
+  var labels = ['totalRequests', 'success', 'errors', 'avgLatency', 'totalInput', 'totalOutput'];
+  var labelEls = document.querySelectorAll('#header-stat-grid .stat-label');
+  for (var i = 0; i < labelEls.length && i < labels.length; i++) {
+    labelEls[i].textContent = t(labels[i]);
+  }
+  refreshHeaderStats();
+  startHeaderStatsSSE();
+}
+
+async function refreshHeaderStats() {
+  try {
+    var summary = await apiGet('/usage/summary');
+    if (!summary || summary.error) return;
+    var cards = document.querySelectorAll('#header-stat-grid .stat-value');
+    if (cards.length >= 6) {
+      cards[0].textContent = summary.total;
+      cards[1].textContent = summary.success;
+      cards[2].textContent = summary.error;
+      cards[3].textContent = summary.avgLatencyMs + 'ms';
+      cards[4].textContent = formatMillionTokens(summary.totalInputTokens);
+      cards[5].textContent = formatMillionTokens(summary.totalOutputTokens);
+    }
+  } catch(e) {}
+}
+
+function startHeaderStatsSSE() {
+  stopHeaderStatsSSE();
+  if (typeof EventSource === 'undefined') return;
+  headerStatsEventSource = new EventSource('/api/usage/events');
+  headerStatsEventSource.onmessage = function(ev) {
+    try {
+      var data = JSON.parse(ev.data);
+      if (data.type === 'usage-updated' || data.type === 'key-inflight') {
+        scheduleHeaderStatsRefresh();
+      }
+    } catch(e) {}
+  };
+}
+
+function stopHeaderStatsSSE() {
+  if (headerStatsEventSource) {
+    headerStatsEventSource.close();
+    headerStatsEventSource = null;
+  }
+}
+
+function scheduleHeaderStatsRefresh() {
+  if (headerStatsRefreshScheduled) return;
+  headerStatsRefreshScheduled = true;
+  setTimeout(function() {
+    headerStatsRefreshScheduled = false;
+    refreshHeaderStats();
+  }, 300);
+}

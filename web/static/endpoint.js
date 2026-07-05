@@ -8,8 +8,8 @@ async function renderEndpoint(c) {
   const combos = comboData.combos || [];
   c.innerHTML = '\
     <div class="settings-layout">\
-      <div class="settings-col">\
-        <div class="card">\
+      <div class="settings-panel-left">\
+        <div class="settings-block">\
           <div class="form-group">\
             <label for="port">' + t('listenPort') + '</label>\
             <div class="flex">\
@@ -20,37 +20,34 @@ async function renderEndpoint(c) {
           <p class="muted mt-12">' + t('apiEndpoint') + ' <span class="code">http://localhost:' + settings.port + '/v1</span></p>\
           <p class="muted mt-12">' + t('noKeyRequired') + '</p>\
         </div>\
-        <div class="card">\
-          <div class="card-title">' + t('rotationSettings') + '</div>\
-          <div class="form-group mt-12">\
-            <label for="strategy">' + t('strategy') + '</label>\
-            <select id="strategy">\
-              <option value="fill-first"' + (settings.rotation && settings.rotation.strategy === 'fill-first' ? ' selected' : '') + '>' + t('fillFirst') + '</option>\
-              <option value="round-robin"' + (settings.rotation && settings.rotation.strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobin') + '</option>\
-              <option value="failover"' + (settings.rotation && settings.rotation.strategy === 'failover' ? ' selected' : '') + '>' + t('failover') + '</option>\
-            </select>\
+        <div class="settings-block">\
+          <div class="settings-block-title">' + t('rotationSettings') + '</div>\
+          <div class="settings-form-grid mt-12">\
+            <div class="form-group"><label for="strategy">' + t('strategy') + '</label>\
+              <select id="strategy">\
+                <option value="fill-first"' + (settings.rotation && settings.rotation.strategy === 'fill-first' ? ' selected' : '') + '>' + t('fillFirst') + '</option>\
+                <option value="round-robin"' + (settings.rotation && settings.rotation.strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobin') + '</option>\
+                <option value="failover"' + (settings.rotation && settings.rotation.strategy === 'failover' ? ' selected' : '') + '>' + t('failover') + '</option>\
+              </select>\
+            </div>\
+            <div class="form-group"><label for="stickyLimit">' + t('stickyLimit') + '</label>\
+              <input type="number" id="stickyLimit" value="' + ((settings.rotation && settings.rotation.stickyLimit) || 3) + '">\
+            </div>\
+            <div class="form-group"><label for="maxRetries">' + t('maxRetries') + '</label>\
+              <input type="number" id="maxRetries" value="' + ((settings.rotation && settings.rotation.maxRetries) || 5) + '">\
+            </div>\
+            <div class="form-group"><label for="retryDelaySec">' + t('retryDelay') + '</label>\
+              <input type="number" id="retryDelaySec" value="' + ((settings.rotation && settings.rotation.retryDelaySec) || 5) + '">\
+            </div>\
+            <div class="form-group"><label for="backoffMaxSec">' + t('backoffMax') + '</label>\
+              <input type="number" id="backoffMaxSec" value="' + ((settings.rotation && settings.rotation.backoffMaxSec) || 300) + '">\
+            </div>\
           </div>\
-          <div class="form-group">\
-            <label for="stickyLimit">' + t('stickyLimit') + '</label>\
-            <input type="number" id="stickyLimit" value="' + ((settings.rotation && settings.rotation.stickyLimit) || 3) + '" style="max-width:120px">\
-          </div>\
-          <div class="form-group">\
-            <label for="maxRetries">' + t('maxRetries') + '</label>\
-            <input type="number" id="maxRetries" value="' + ((settings.rotation && settings.rotation.maxRetries) || 5) + '" style="max-width:120px">\
-          </div>\
-          <div class="form-group">\
-            <label for="retryDelaySec">' + t('retryDelay') + '</label>\
-            <input type="number" id="retryDelaySec" value="' + ((settings.rotation && settings.rotation.retryDelaySec) || 5) + '" style="max-width:120px">\
-          </div>\
-          <div class="form-group">\
-            <label for="backoffMaxSec">' + t('backoffMax') + '</label>\
-            <input type="number" id="backoffMaxSec" value="' + ((settings.rotation && settings.rotation.backoffMaxSec) || 300) + '" style="max-width:120px">\
-          </div>\
-          <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
+          <button type="button" class="btn btn-primary mt-12" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
         </div>\
-        <div class="card">\
-          <div class="card-header">\
-            <span class="card-title">' + t('debugMode') + '</span>\
+        <div class="settings-block">\
+          <div class="settings-block-header">\
+            <span class="settings-block-title">' + t('debugMode') + '</span>\
             <label class="toggle-switch" for="debug-mode-toggle">\
               <input type="checkbox" id="debug-mode-toggle" ' + (settings.debugMode ? 'checked' : '') + ' onchange="toggleDebugMode(this.checked)">\
               <span class="toggle-slider"></span>\
@@ -59,22 +56,24 @@ async function renderEndpoint(c) {
           <p class="muted mt-12">' + t('debugModeDesc') + '</p>\
         </div>\
       </div>\
-      <div class="settings-col">\
-        <div class="card">\
-          <div class="card-header">\
-            <span class="card-title">' + t('providers') + '</span>\
+      <div class="settings-panel-right">\
+        <div class="settings-panel-section">\
+          <div class="settings-panel-header">\
+            <span class="settings-panel-title">' + t('providers') + '</span>\
             <button type="button" class="btn btn-primary btn-sm" onclick="showAddProvider()">' + t('addProvider') + '</button>\
           </div>\
-          <div id="provider-list"></div>\
-          <div id="provider-form" style="display:none"></div>\
+          <div class="settings-panel-body">\
+            <div id="provider-list" class="settings-card-grid"></div>\
+          </div>\
         </div>\
-        <div class="card">\
-          <div class="card-header">\
-            <span class="card-title">' + t('combos') + '</span>\
+        <div class="settings-panel-section">\
+          <div class="settings-panel-header">\
+            <span class="settings-panel-title">' + t('combos') + '</span>\
             <button type="button" class="btn btn-primary btn-sm" onclick="showAddCombo()">' + t('addCombo') + '</button>\
           </div>\
-          <div id="combo-list"></div>\
-          <div id="combo-form" style="display:none"></div>\
+          <div class="settings-panel-body">\
+            <div id="combo-list" class="settings-card-grid"></div>\
+          </div>\
         </div>\
       </div>\
     </div>';

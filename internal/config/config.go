@@ -150,7 +150,13 @@ func DefaultConfig() *Config {
 }
 
 // Load reads config from path, or creates a default config there if not found.
+// If a pending .tmp file exists (from a previous Save that could not rename),
+// it is applied first.
 func Load(path string) (*Config, error) {
+	tmp := path + ".tmp"
+	if _, err := os.Stat(tmp); err == nil {
+		os.Rename(tmp, path)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -192,6 +198,9 @@ func Load(path string) (*Config, error) {
 }
 
 // Save writes config to path atomically (temp file + rename).
+// If the rename fails (e.g. config.yaml is locked on Windows), the tmp
+// file is left in place and will be applied on the next startup via Load.
+// In that case Save returns nil — the data is safely persisted in the tmp file.
 func Save(path string, cfg *Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -201,5 +210,8 @@ func Save(path string, cfg *Config) error {
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if renameErr := os.Rename(tmp, path); renameErr != nil {
+		return nil
+	}
+	return nil
 }

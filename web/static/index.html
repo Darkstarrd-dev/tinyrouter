@@ -26,11 +26,10 @@
 </head>
 <body>
 <div class="app">
-<aside class="sidebar">
-<div class="sidebar-header">
-<div class="sidebar-brand">
+<header class="top-header">
+<div class="top-header-brand">
 <a href="https://github.com/Darkstarrd-dev/tinyrouter" target="_blank" rel="noopener noreferrer" class="sidebar-logo-link" title="Open project page">
-<img src="/logo-sm.png" alt="TinyRouter" class="sidebar-logo" width="36" height="36">
+<img src="/logo-sm.png" alt="TinyRouter" class="sidebar-logo" width="40" height="40">
 </a>
 <div class="sidebar-brand-content">
 <h1>TinyRouter</h1>
@@ -41,17 +40,26 @@
 </div>
 </div>
 </div>
-</div>
-<nav class="sidebar-nav">
+<nav class="top-header-nav">
 <button class="nav-item active" type="button" data-page="usage">Usage</button>
 <button class="nav-item" type="button" data-page="endpoint">Settings</button>
 <button class="nav-item" type="button" data-page="console">Console</button>
 <button class="nav-item" type="button" data-page="playground">Playground</button>
 </nav>
-<div class="sidebar-footer">
+<div class="top-header-stats">
+<div id="header-stat-grid" class="stat-grid">
+<div class="stat-card"><div class="stat-value">&mdash;</div><div class="stat-label" data-i18n="totalRequests"></div></div>
+<div class="stat-card"><div class="stat-value">&mdash;</div><div class="stat-label" data-i18n="success"></div></div>
+<div class="stat-card"><div class="stat-value">&mdash;</div><div class="stat-label" data-i18n="errors"></div></div>
+<div class="stat-card"><div class="stat-value">&mdash;</div><div class="stat-label" data-i18n="avgLatency"></div></div>
+<div class="stat-card"><div class="stat-value">&mdash;</div><div class="stat-label" data-i18n="totalInput"></div></div>
+<div class="stat-card"><div class="stat-value">&mdash;</div><div class="stat-label" data-i18n="totalOutput"></div></div>
+</div>
+</div>
+<div class="top-header-shutdown">
 <button class="shutdown-btn" onclick="shutdownServer()">Shutdown</button>
 </div>
-</aside>
+</header>
 <main class="main">
 <div id="page-content"></div>
 </main>
@@ -77,6 +85,7 @@
 <script src="/info_common.js"></script>
 <script src="/providers.js"></script>
 <script src="/combos.js"></script>
+<script src="/headerStats.js"></script>
 <script src="/usage.js"></script>
 <script src="/console.js"></script>
 <!-- Playground vendor deps (load order matters: katex -> marked -> ext -> purify -> hljs -> mermaid) -->

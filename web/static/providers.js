@@ -2,6 +2,8 @@
 
 var expandedModelDetails = new Set();
 var allKeysTestResults = {};
+var batchManageMode = false;
+var batchSelectedModels = new Set();
 
 async function renderProviders(c) {
   if (currentProviderId) {
@@ -69,23 +71,23 @@ function backToProviderList() {
 }
 
 function showAddProvider() {
-  const el = document.getElementById('provider-form');
-  el.style.display = 'block';
-  el.innerHTML = '\
-    <div class="card">\
-      <div class="card-title">' + t('newProvider') + '</div>\
-      <div class="form-group mt-12"><label for="p-name">' + t('name') + '</label><input id="p-name" placeholder="DeepSeek"></div>\
-      <div class="form-group"><label for="p-prefix">' + t('prefixLabel') + '</label><input id="p-prefix" placeholder="deepseek"></div>\
-      <div class="form-group"><label for="p-url">' + t('baseUrlLabel') + '</label><input id="p-url" placeholder="https://api.deepseek.com"></div>\
-      <div class="form-group"><label for="p-apikey">' + t('apiKeyLabel') + '</label><input type="password" id="p-apikey" placeholder="sk-..."></div>\
-      <div class="form-group"><label for="p-modelid">' + t('modelIdLabel') + '</label><input id="p-modelid" placeholder="deepseek-chat"></div>\
-      <div id="p-check-result" class="mt-12"></div>\
-      <div class="flex" style="gap:8px">\
-        <button type="button" class="btn" onclick="withLoading(this, () => checkProvider())">' + t('check') + '</button>\
-        <button type="button" class="btn btn-primary" onclick="withLoading(this, () => addProvider())">' + t('create') + '</button>\
-        <button type="button" class="btn" onclick="document.getElementById(\'provider-form\').style.display=\'none\'">' + t('cancel') + '</button>\
-      </div>\
-    </div>';
+  var overlay = document.getElementById('modal-overlay');
+  overlay.innerHTML = '<div class="modal" style="max-width:520px">\
+    <div class="modal-title">' + t('newProvider') + '</div>\
+    <div class="form-group"><label for="p-name">' + t('name') + '</label><input id="p-name" placeholder="DeepSeek"></div>\
+    <div class="form-group"><label for="p-prefix">' + t('prefixLabel') + '</label><input id="p-prefix" placeholder="deepseek"></div>\
+    <div class="form-group"><label for="p-url">' + t('baseUrlLabel') + '</label><input id="p-url" placeholder="https://api.deepseek.com"></div>\
+    <div class="form-group"><label for="p-apikey">' + t('apiKeyLabel') + '</label><input type="password" id="p-apikey" placeholder="sk-..."></div>\
+    <div class="form-group"><label for="p-modelid">' + t('modelIdLabel') + '</label><input id="p-modelid" placeholder="deepseek-chat"></div>\
+    <div id="p-check-result" class="mt-12"></div>\
+    <div class="modal-footer">\
+      <button type="button" class="btn" onclick="closeModalOverlay()">' + t('cancel') + '</button>\
+      <button type="button" class="btn" onclick="withLoading(this, () => checkProvider())">' + t('check') + '</button>\
+      <button type="button" class="btn btn-primary" onclick="withLoading(this, () => addProvider())">' + t('create') + '</button>\
+    </div>\
+  </div>';
+  requestAnimationFrame(function() { overlay.classList.add('show'); });
+  overlay.onclick = function(e) { if (e.target === overlay) closeModalOverlay(); };
 }
 
 async function checkProvider() {
@@ -126,7 +128,7 @@ async function addProvider() {
     return;
   }
   await apiPost('/providers', p);
-  document.getElementById('provider-form').style.display = 'none';
+  closeModalOverlay();
   toast(t('providerCreated'), 'success');
   renderProviders(document.getElementById('page-content'));
 }
@@ -221,9 +223,16 @@ async function addKeyDetail(providerId) {
   if (!k.key) { toast(t('apiKeyRequired'), 'error'); return; }
   await apiPost('/providers/' + providerId + '/keys', k);
   toast(t('keyAdded'), 'success');
-  const c = document.getElementById('page-content');
   currentProviderId = providerId;
-  renderProviders(c);
+  const data = await apiGet('/providers');
+  const p = (data.providers || []).find(function(x) { return x.id === providerId; });
+  if (p) {
+    providerDetailCache = p;
+    renderDetailKeys(p);
+    renderDetailModels(p);
+  }
+  const formEl = document.getElementById('key-form-' + providerId);
+  if (formEl) formEl.innerHTML = '';
 }
 
 function showBulkAddKeys(providerId) {
@@ -256,14 +265,26 @@ async function bulkAddKeys(providerId) {
   const resultEl = document.getElementById('bk-result');
   resultEl.innerHTML = '<span class="badge badge-testing">' + t('adding') + '</span>';
   const result = await apiPost('/providers/' + providerId + '/keys/bulk', { keys: keys });
-  if (result.errors && result.errors.length > 0) {
+  if (result.error) {
+    resultEl.innerHTML = '<span class="badge badge-invalid">' + escapeHtml(result.error) + '</span>';
+  } else if (result.warning) {
+    resultEl.innerHTML = '<span class="badge badge-valid">' + t('addedKeys', [result.added]) + '</span> <span class="badge badge-invalid">' + escapeHtml(result.warning) + '</span>';
+  } else if (result.errors && result.errors.length > 0) {
     resultEl.innerHTML = '<span class="badge badge-valid">' + t('addedKeysErrors', [result.added]) + '</span> <span class="badge badge-invalid">Errors: ' + result.errors.length + '</span>';
   } else {
     resultEl.innerHTML = '<span class="badge badge-valid">' + t('addedKeys', [result.added]) + '</span>';
   }
-  setTimeout(function() {
+  setTimeout(async function() {
     currentProviderId = providerId;
-    renderProviders(document.getElementById('page-content'));
+    const data = await apiGet('/providers');
+    const p = (data.providers || []).find(function(x) { return x.id === providerId; });
+    if (p) {
+      providerDetailCache = p;
+      renderDetailKeys(p);
+      renderDetailModels(p);
+    }
+    const formEl = document.getElementById('key-form-' + providerId);
+    if (formEl) formEl.innerHTML = '';
   }, 1000);
 }
 
@@ -283,7 +304,13 @@ async function toggleKeyDetail(pid, kid, active) {
   k.isActive = active;
   await apiPut('/providers/' + pid + '/keys/' + kid, k);
   currentProviderId = pid;
-  renderProviders(document.getElementById('page-content'));
+  const data = await apiGet('/providers');
+  const np = (data.providers || []).find(function(x) { return x.id === pid; });
+  if (np) {
+    providerDetailCache = np;
+    renderDetailKeys(np);
+    renderDetailModels(np);
+  }
 }
 
 async function deleteKeyDetail(pid, kid) {
@@ -292,9 +319,13 @@ async function deleteKeyDetail(pid, kid) {
   await apiDelete('/providers/' + pid + '/keys/' + kid);
   toast(t('keyDeleted'), 'success');
   currentProviderId = pid;
-  var scrollTop = document.getElementById('page-content').scrollTop || document.querySelector('.main').scrollTop;
-  renderProviders(document.getElementById('page-content'));
-  requestAnimationFrame(function() { (document.querySelector('.main') || document.getElementById('page-content')).scrollTop = scrollTop; });
+  const data = await apiGet('/providers');
+  const p = (data.providers || []).find(function(x) { return x.id === pid; });
+  if (p) {
+    providerDetailCache = p;
+    renderDetailKeys(p);
+    renderDetailModels(p);
+  }
 }
 
 function renderDetailRotation(p) {
@@ -332,55 +363,63 @@ async function saveProviderRotation(id) {
   toast(t('rotationStrategySaved'), 'success');
 }
 
+function buildModelRowMainInner(p, m) {
+  var ts = modelTestStatus[m.id];
+  var quotaStr = '';
+  if (ts) {
+    if (ts.quotaTotal > 0) quotaStr = ts.quotaRemain + '/' + ts.quotaTotal;
+  }
+  var midEsc = escapeHtml(m.id);
+  var pidEsc = escapeHtml(p.id);
+  var prefixEsc = escapeHtml(p.prefix);
+  var allRes = allKeysTestResults[p.id + '/' + m.id];
+  var allBadge = '';
+  if (allRes && allRes.results) {
+    var okCnt = 0, failCnt = 0;
+    allRes.results.forEach(function(r) { if (r.ok) okCnt++; else failCnt++; });
+    allBadge = '<span class="model-alltest-badge show"><span class="ok">' + okCnt + '</span>/<span class="fail">' + failCnt + '</span></span>';
+  } else {
+    allBadge = '<span class="model-alltest-badge"></span>';
+  }
+  var chevronDown = '<svg class="quota-bar-chevron model-row-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+  var rowOnclick = batchManageMode
+    ? 'batchToggleModel(\'' + midEsc + '\')'
+    : 'toggleModelDetailRow(event, \'' + pidEsc + '\', \'' + midEsc + '\')';
+  var modelIdOnclick = batchManageMode
+    ? 'event.stopPropagation(); batchToggleModel(\'' + midEsc + '\')'
+    : 'event.stopPropagation(); copyToClipboard(\'' + prefixEsc + '/' + midEsc + '\')';
+  return '<div class="model-row-main" onclick="' + rowOnclick + '">' +
+    chevronDown +
+    (ts
+      ? (ts.ok
+          ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
+          : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
+      : '<button type="button" class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midEsc + '\'))">' + t('test') + '</button>') +
+    (ts
+      ? '<button type="button" class="btn btn-sm btn-info" onclick="event.stopPropagation(); showModelInfo(\'' + midEsc + '\')">' + t('info') + '</button>'
+      : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
+    '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
+      '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
+      '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
+      '<option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>' +
+    '</select>' +
+    allBadge +
+    '<span class="model-quota-numbers"></span>' +
+    '<button type="button" class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midEsc + '\')">' + t('delete') + '</button>' +
+    '<span class="model-id copyable" onclick="' + modelIdOnclick + '" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + midEsc + '</span>' +
+  '</div>';
+}
+
 function renderDetailModels(p) {
   const el = document.getElementById('detail-models');
   const models = p.models || [];
   var modelsHtml = models.map(function(m) {
-    var ts = modelTestStatus[m.id];
-    var statusClass = 'model-pending';
-    var statusText = t('untested');
-    var quotaStr = '';
-    if (ts) {
-      if (ts.ok) { statusClass = 'model-ok'; statusText = 'OK'; }
-      else { statusClass = 'model-err'; statusText = 'FAIL'; }
-      if (ts.quotaTotal > 0) quotaStr = ts.quotaRemain + '/' + ts.quotaTotal;
-    }
-    var midEsc = escapeHtml(m.id);
-    var pidEsc = escapeHtml(p.id);
-    var prefixEsc = escapeHtml(p.prefix);
     var rowId = 'mrow-' + sanitizeId(p.id) + '-' + sanitizeId(m.id);
     var detailId = 'mdetail-' + sanitizeId(p.id) + '-' + sanitizeId(m.id);
-    var allRes = allKeysTestResults[p.id + '/' + m.id];
-    var allBadge = '';
-    if (allRes && allRes.results) {
-      var okCnt = 0, failCnt = 0;
-      allRes.results.forEach(function(r) { if (r.ok) okCnt++; else failCnt++; });
-      allBadge = '<span class="model-alltest-badge show"><span class="ok">' + okCnt + '</span>/<span class="fail">' + failCnt + '</span></span>';
-    } else {
-      allBadge = '<span class="model-alltest-badge"></span>';
-    }
-    var chevronDown = '<svg class="quota-bar-chevron model-row-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
-    return '<div class="model-row" id="' + rowId + '">' +
-      '<div class="model-row-main" onclick="toggleModelDetailRow(event, \'' + pidEsc + '\', \'' + midEsc + '\')">' +
-        chevronDown +
-        (ts
-          ? (ts.ok
-              ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
-              : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
-          : '<button type="button" class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midEsc + '\'))">' + t('test') + '</button>') +
-        (ts
-          ? '<button type="button" class="btn btn-sm btn-info" onclick="event.stopPropagation(); showModelInfo(\'' + midEsc + '\')">' + t('info') + '</button>'
-          : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
-        '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
-          '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
-          '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
-          '<option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>' +
-        '</select>' +
-        allBadge +
-        '<span class="model-quota-numbers"></span>' +
-        '<button type="button" class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midEsc + '\')">' + t('delete') + '</button>' +
-        '<span class="model-id copyable" onclick="event.stopPropagation(); copyToClipboard(\'' + prefixEsc + '/' + midEsc + '\')" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + midEsc + '</span>' +
-      '</div>' +
+    var batchSelected = batchSelectedModels.has(m.id);
+    var batchClass = (batchManageMode && batchSelected) ? ' batch-selected' : '';
+    return '<div class="model-row' + batchClass + '" id="' + rowId + '" data-batch-mid="' + escapeHtml(m.id) + '">' +
+      buildModelRowMainInner(p, m) +
       '<div class="model-key-detail-wrap" id="' + detailId + '"></div>' +
     '</div>';
   }).join('');
@@ -394,6 +433,13 @@ function renderDetailModels(p) {
       </div>\
       <div class="flex mb-12" style="gap:8px">\
         <button type="button" class="btn btn-sm" onclick="withLoading(this, () => importModels(\'' + escapeHtml(p.id) + '\'))">' + t('importModels') + '</button>\
+        <button type="button" class="btn btn-sm" id="batch-manage-btn" onclick="enterBatchManage(\'' + escapeHtml(p.id) + '\')" style="display:' + (batchManageMode ? 'none' : '') + '">' + t('batchManage') + '</button>\
+        <div id="batch-actions" style="display:' + (batchManageMode ? 'flex' : 'none') + ';gap:8px">\
+          <button type="button" class="btn btn-sm" onclick="batchSelectAll()">' + t('selectAll') + '</button>\
+          <button type="button" class="btn btn-sm" onclick="batchInvert()">' + t('invertSelection') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger" onclick="batchConfirm(\'' + escapeHtml(p.id) + '\')">' + t('confirm') + '</button>\
+          <button type="button" class="btn btn-sm" onclick="batchCancel()">' + t('cancel') + '</button>\
+        </div>\
       </div>\
       <div id="m-test-result" class="mb-12"></div>\
       <div id="model-list">' + (models.length === 0 ? emptyState(t('noModels')) : modelsHtml) + '</div>\
@@ -696,6 +742,27 @@ async function testModelDetail(pid) {
   await doTestModel(pid, modelId);
 }
 
+function updateModelRowStatus(pid, modelId) {
+  var p = providerDetailCache;
+  if (!p || p.id !== pid) return;
+  var m = (p.models || []).find(function(x) { return x.id === modelId; });
+  if (!m) return;
+  var rowId = 'mrow-' + sanitizeId(pid) + '-' + sanitizeId(modelId);
+  var row = document.getElementById(rowId);
+  if (!row) return;
+  var main = row.querySelector('.model-row-main');
+  if (!main) return;
+  var oldChevron = main.querySelector('.model-row-chevron');
+  var wasExpanded = oldChevron && oldChevron.style.transform === 'rotate(180deg)';
+  main.outerHTML = buildModelRowMainInner(p, m);
+  var newMain = row.querySelector('.model-row-main');
+  if (!newMain) return;
+  if (wasExpanded) {
+    var newChevron = newMain.querySelector('.model-row-chevron');
+    if (newChevron) newChevron.style.transform = 'rotate(180deg)';
+  }
+}
+
 async function testSingleModel(pid, modelId) {
   await doTestModel(pid, modelId);
   var ts = modelTestStatus[modelId];
@@ -703,9 +770,7 @@ async function testSingleModel(pid, modelId) {
     toast(t('modelTestFailed') + (ts.error || 'unknown error'), 'error');
   }
   currentProviderId = pid;
-  var scrollTop = document.getElementById('page-content').scrollTop || document.querySelector('.main').scrollTop;
-  renderProviders(document.getElementById('page-content'));
-  requestAnimationFrame(function() { (document.querySelector('.main') || document.getElementById('page-content')).scrollTop = scrollTop; });
+  updateModelRowStatus(pid, modelId);
 }
 
 async function doTestModel(pid, modelId) {
@@ -781,18 +846,133 @@ async function addModelDetail(pid) {
   await apiPost('/providers/' + pid + '/models', { model: modelId });
   toast(t('modelAdded'), 'success');
   currentProviderId = pid;
-  renderProviders(document.getElementById('page-content'));
+  const data = await apiGet('/providers');
+  const p = (data.providers || []).find(function(x) { return x.id === pid; });
+  if (p) {
+    providerDetailCache = p;
+    renderDetailModels(p);
+  }
+  const inputEl = document.getElementById('m-input');
+  if (inputEl) inputEl.value = '';
 }
 
 async function deleteModelDetail(pid, modelId) {
   var resp = await apiDelete('/providers/' + pid + '/models?model=' + encodeURIComponent(modelId));
-  if (resp.error) { toast(t('modelTestFailed') + resp.error, 'error'); return; }
+  if (resp.error) {
+    toast(t('modelDeleteFailed') + resp.error, 'error');
+    currentProviderId = pid;
+    const errData = await apiGet('/providers');
+    const errP = (errData.providers || []).find(function(x) { return x.id === pid; });
+    if (errP) {
+      providerDetailCache = errP;
+      renderDetailModels(errP);
+    }
+    return;
+  }
   delete modelTestStatus[modelId];
   toast(t('modelDeleted'), 'success');
   currentProviderId = pid;
-  var scrollTop = document.getElementById('page-content').scrollTop || document.querySelector('.main').scrollTop;
-  await renderProviders(document.getElementById('page-content'));
-  requestAnimationFrame(function() { (document.querySelector('.main') || document.getElementById('page-content')).scrollTop = scrollTop; });
+  const data = await apiGet('/providers');
+  const p = (data.providers || []).find(function(x) { return x.id === pid; });
+  if (p) {
+    providerDetailCache = p;
+    renderDetailModels(p);
+  }
+}
+
+function enterBatchManage(pid) {
+  batchManageMode = true;
+  batchSelectedModels.clear();
+  renderDetailModels(providerDetailCache);
+}
+
+function batchToggleModel(mid) {
+  if (batchSelectedModels.has(mid)) {
+    batchSelectedModels.delete(mid);
+  } else {
+    batchSelectedModels.add(mid);
+  }
+  var rows = document.querySelectorAll('[data-batch-mid]');
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].getAttribute('data-batch-mid') === mid) {
+      if (batchSelectedModels.has(mid)) {
+        rows[i].classList.add('batch-selected');
+      } else {
+        rows[i].classList.remove('batch-selected');
+      }
+      break;
+    }
+  }
+}
+
+function batchSelectAll() {
+  var p = providerDetailCache;
+  if (!p) return;
+  var models = p.models || [];
+  for (var i = 0; i < models.length; i++) {
+    batchSelectedModels.add(models[i].id);
+  }
+  var rows = document.querySelectorAll('[data-batch-mid]');
+  for (var j = 0; j < rows.length; j++) {
+    rows[j].classList.add('batch-selected');
+  }
+}
+
+function batchInvert() {
+  var p = providerDetailCache;
+  if (!p) return;
+  var models = p.models || [];
+  for (var i = 0; i < models.length; i++) {
+    var mid = models[i].id;
+    if (batchSelectedModels.has(mid)) {
+      batchSelectedModels.delete(mid);
+    } else {
+      batchSelectedModels.add(mid);
+    }
+  }
+  var rows = document.querySelectorAll('[data-batch-mid]');
+  for (var j = 0; j < rows.length; j++) {
+    var rmid = rows[j].getAttribute('data-batch-mid');
+    if (batchSelectedModels.has(rmid)) {
+      rows[j].classList.add('batch-selected');
+    } else {
+      rows[j].classList.remove('batch-selected');
+    }
+  }
+}
+
+async function batchConfirm(pid) {
+  if (batchSelectedModels.size === 0) {
+    toast(t('noModelsSelected'), 'warning');
+    return;
+  }
+  var ok = await confirmModal(t('confirmBatchDelete', [batchSelectedModels.size]));
+  if (!ok) return;
+  var toDelete = Array.from(batchSelectedModels);
+  var deleted = 0;
+  for (var i = 0; i < toDelete.length; i++) {
+    var resp = await apiDelete('/providers/' + pid + '/models?model=' + encodeURIComponent(toDelete[i]));
+    if (!resp.error) {
+      delete modelTestStatus[toDelete[i]];
+      deleted++;
+    }
+  }
+  batchManageMode = false;
+  batchSelectedModels.clear();
+  toast(t('batchDeleted', [deleted]), 'success');
+  currentProviderId = pid;
+  const data = await apiGet('/providers');
+  const p = (data.providers || []).find(function(x) { return x.id === pid; });
+  if (p) {
+    providerDetailCache = p;
+    renderDetailModels(p);
+  }
+}
+
+function batchCancel() {
+  batchManageMode = false;
+  batchSelectedModels.clear();
+  renderDetailModels(providerDetailCache);
 }
 
 async function importModels(pid) {
@@ -819,9 +999,14 @@ async function importModels(pid) {
       }
     }
     if (resultEl) resultEl.innerHTML = '<span class="badge badge-valid">' + t('importedModels', [added, models.length, models.length - added]) + '</span>';
-    setTimeout(function() {
+    setTimeout(async function() {
       currentProviderId = pid;
-      renderProviders(document.getElementById('page-content'));
+      const data = await apiGet('/providers');
+      const p = (data.providers || []).find(function(x) { return x.id === pid; });
+      if (p) {
+        providerDetailCache = p;
+        renderDetailModels(p);
+      }
     }, 1500);
   } catch (e) {
     if (resultEl) {
@@ -888,7 +1073,18 @@ async function saveEditProvider(id) {
   await apiPut('/providers/' + id, p);
   toast(t('providerUpdated'), 'success');
   currentProviderId = id;
-  renderProviders(document.getElementById('page-content'));
+  const data = await apiGet('/providers');
+  const np = (data.providers || []).find(function(x) { return x.id === id; });
+  if (np) {
+    providerDetailCache = np;
+    var infoEl = document.getElementById('detail-info');
+    if (infoEl) {
+      infoEl.innerHTML = '<div class="card"><p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(np.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code">' + escapeHtml(np.baseUrl) + '</span></p></div>';
+    }
+    var h2 = document.querySelector('.detail-header h2');
+    if (h2) h2.textContent = np.name;
+    renderDetailRotation(np);
+  }
 }
 
 function cancelEditProvider() {
