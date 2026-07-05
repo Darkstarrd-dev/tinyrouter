@@ -1,4 +1,4 @@
-//go:build webview && windows
+//go:build tray && webview && windows
 
 package main
 
@@ -57,9 +57,9 @@ var webviewWindowMu sync.Mutex
 // windows are allowed as long as creation itself is serialized.
 //
 // WebView2 (COM-backed) REQUIRES its message pump to run on a thread that:
-//   1) Is locked with runtime.LockOSThread so the Go scheduler won't move the
-//      goroutine mid-pump (otherwise COM vtable calls jump threads and panic).
-//   2) Has been initialized into the STA concurrency model via CoInitializeEx.
+//  1. Is locked with runtime.LockOSThread so the Go scheduler won't move the
+//     goroutine mid-pump (otherwise COM vtable calls jump threads and panic).
+//  2. Has been initialized into the STA concurrency model via CoInitializeEx.
 //
 // Without LockOSThread, systray + webview interact to corrupt COM state and the
 // process crashes the moment the WebView2 controller tries to dispatch a message.

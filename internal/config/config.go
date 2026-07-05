@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -140,7 +139,7 @@ func DefaultConfig() *Config {
 			StickyLimit:   3,
 			MaxRetries:    5,
 			RetryDelaySec: 5,
-			BackoffMaxSec: 240,
+			BackoffMaxSec: 300,
 			StatePersist:  true,
 			StatePath:     "state.yaml",
 		},
@@ -204,6 +203,3 @@ func Save(path string, cfg *Config) error {
 	}
 	return os.Rename(tmp, path)
 }
-
-// Now is a convenience alias for tests that need to mock time.
-var Now = time.Now

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
+	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
 // retryState holds mutable state across retry iterations.
@@ -49,7 +50,10 @@ func (h *Handler) handleNetworkError(sel *rotation.SelectedKey, providerID, mode
 
 // handle429 processes HTTP 429 responses. Distinguishes daily quota locks from temporary rate limits.
 func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, startTime time.Time, state *retryState) {
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		h.logger.Warn("failed to read upstream 429 body: %v", err)
+	}
 	resp.Body.Close()
 	bodyStr := string(body)
 	latencyMs := time.Since(startTime).Milliseconds()
@@ -90,7 +94,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, model, bodyStr)
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 		state.temp429Retries = 0
-		h.logger.Warn("429 quota exhausted: %s | locked Key %s until next CST day", truncStr(bodyStr, 200), sel.Key.Name)
+		h.logger.Warn("429 quota exhausted: %s | locked Key %s until next CST day", util.TruncStr(bodyStr, 200), sel.Key.Name)
 		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
 		return
 	}
@@ -102,7 +106,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 			state.temp429Retries++
 			delay := rotation.BackoffSequence(state.temp429Retries)
 			h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
-				truncStr(bodyStr, 200), delay, state.temp429Retries, maxBackoffRetries, sel.Key.Name)
+				util.TruncStr(bodyStr, 200), delay, state.temp429Retries, maxBackoffRetries, sel.Key.Name)
 			h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
 			time.Sleep(time.Duration(delay) * time.Second)
 			return
@@ -129,7 +133,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 			h.selector.MarkRateLimited(providerID, sel.Key.ID, model, 60*time.Second)
 			h.excludeSameAccountKeys(sel, state)
 			state.temp429Retries = 0
-			h.logger.Warn("429 rpm: %s | Key %s cooled 60s, switching account", truncStr(bodyStr, 200), sel.Key.Name)
+			h.logger.Warn("429 rpm: %s | Key %s cooled 60s, switching account", util.TruncStr(bodyStr, 200), sel.Key.Name)
 			h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
 		case sn429TPM:
 			// tpm exceeded: per-account. Do NOT switch keys (a large request will 429 on any
@@ -137,7 +141,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 			if state.tpmWaitRetries < 1 {
 				state.tpmWaitRetries++
 				h.logger.Warn("429 tpm: %s | Key %s waiting 15s, retrying same key (attempt %d/1)",
-					truncStr(bodyStr, 200), sel.Key.Name, state.tpmWaitRetries)
+					util.TruncStr(bodyStr, 200), sel.Key.Name, state.tpmWaitRetries)
 				h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
 				time.Sleep(15 * time.Second)
 				return
@@ -145,18 +149,45 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 			h.selector.MarkRateLimited(providerID, sel.Key.ID, model, 60*time.Second)
 			state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 			state.tpmWaitRetries = 0
-			h.logger.Warn("429 tpm: %s | Key %s cooled 60s after retry exhausted", truncStr(bodyStr, 200), sel.Key.Name)
+			h.logger.Warn("429 tpm: %s | Key %s cooled 60s after retry exhausted", util.TruncStr(bodyStr, 200), sel.Key.Name)
 			h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
 		}
 		return
 	}
 
-	// Fallback: no adapter (SenseNova/Elysiver) — use original logic
+	// Fallback: use ClassifyError for generic error classification, then original logic
+	rule := rotation.ClassifyError(429, bodyStr)
+	switch rule.Action {
+	case rotation.ActionDailyQuota:
+		h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, model, bodyStr)
+		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
+		state.temp429Retries = 0
+		h.logger.Warn("429 daily quota: %s | locked Key %s until next CST day", util.TruncStr(bodyStr, 200), sel.Key.Name)
+		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
+		return
+	case rotation.ActionCooldown:
+		h.selector.MarkRateLimited(providerID, sel.Key.ID, model, time.Duration(rule.CooldownSec)*time.Second)
+		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
+		state.temp429Retries = 0
+		h.logger.Warn("429: %s | Key %s cooled %ds", util.TruncStr(bodyStr, 200), sel.Key.Name, rule.CooldownSec)
+		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
+		return
+	case rotation.ActionTransient:
+		h.selector.MarkRateLimited(providerID, sel.Key.ID, model, time.Duration(rotation.DefaultTransientCooldownSec)*time.Second)
+		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
+		state.temp429Retries = 0
+		h.logger.Warn("429: %s | Key %s cooled %ds (transient)", util.TruncStr(bodyStr, 200), sel.Key.Name, rotation.DefaultTransientCooldownSec)
+		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
+		return
+	case rotation.ActionBackoff:
+		// fall through to existing retry logic
+	}
+
 	if rotation.IsDailyQuota429(bodyStr, model) {
 		h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, model, bodyStr)
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 		state.temp429Retries = 0
-		h.logger.Warn("429 daily quota: %s | locked Key %s until next CST day", truncStr(bodyStr, 200), sel.Key.Name)
+		h.logger.Warn("429 daily quota: %s | locked Key %s until next CST day", util.TruncStr(bodyStr, 200), sel.Key.Name)
 		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
 		return
 	}
@@ -165,7 +196,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		state.temp429Retries++
 		delay := rotation.BackoffSequence(state.temp429Retries)
 		h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
-			truncStr(bodyStr, 200), delay, state.temp429Retries, state.maxRetries, sel.Key.Name)
+			util.TruncStr(bodyStr, 200), delay, state.temp429Retries, state.maxRetries, sel.Key.Name)
 		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
 		time.Sleep(time.Duration(delay) * time.Second)
 		return
@@ -178,13 +209,30 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 	h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
 }
 
-// handleUpstreamError processes HTTP 5xx and 4xx (non-429) responses. Always switches to the next key.
+// handleUpstreamError processes HTTP 5xx and 4xx (non-429) responses.
+// Uses ClassifyError to determine the appropriate action, then switches to the next key.
 func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, state *retryState) {
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		h.logger.Warn("failed to read upstream error body: %v", err)
+	}
 	resp.Body.Close()
-	h.selector.OnKeyFailure(providerID, sel.Key.ID, model, resp.StatusCode, string(body))
+	bodyStr := string(body)
+
+	rule := rotation.ClassifyError(resp.StatusCode, bodyStr)
+	switch rule.Action {
+	case rotation.ActionBackoff:
+		h.selector.OnKeyFailure(providerID, sel.Key.ID, model, resp.StatusCode, bodyStr)
+	case rotation.ActionCooldown:
+		h.selector.MarkRateLimited(providerID, sel.Key.ID, model, time.Duration(rule.CooldownSec)*time.Second)
+	case rotation.ActionDailyQuota:
+		h.selector.MarkDailyQuotaLocked(providerID, sel.Key.ID, model, bodyStr)
+	case rotation.ActionTransient:
+		h.selector.MarkRateLimited(providerID, sel.Key.ID, model, time.Duration(rotation.DefaultTransientCooldownSec)*time.Second)
+	}
+
 	state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
-	h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, truncStr(string(body), 500))
+	h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, util.TruncStr(bodyStr, 500))
 	state.temp429Retries = 0
 	state.tpmWaitRetries = 0
 }

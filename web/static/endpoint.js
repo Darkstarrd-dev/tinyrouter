@@ -11,10 +11,10 @@ async function renderEndpoint(c) {
       <div class="settings-col">\
         <div class="card">\
           <div class="form-group">\
-            <label>' + t('listenPort') + '</label>\
+            <label for="port">' + t('listenPort') + '</label>\
             <div class="flex">\
               <input type="number" id="port" value="' + settings.port + '" style="max-width:120px">\
-              <button class="btn btn-primary" onclick="withLoading(this, () => savePort())">' + t('save') + '</button>\
+              <button type="button" class="btn btn-primary" onclick="withLoading(this, () => savePort())">' + t('save') + '</button>\
             </div>\
           </div>\
           <p class="muted mt-12">' + t('apiEndpoint') + ' <span class="code">http://localhost:' + settings.port + '/v1</span></p>\
@@ -23,7 +23,7 @@ async function renderEndpoint(c) {
         <div class="card">\
           <div class="card-title">' + t('rotationSettings') + '</div>\
           <div class="form-group mt-12">\
-            <label>' + t('strategy') + '</label>\
+            <label for="strategy">' + t('strategy') + '</label>\
             <select id="strategy">\
               <option value="fill-first"' + (settings.rotation && settings.rotation.strategy === 'fill-first' ? ' selected' : '') + '>' + t('fillFirst') + '</option>\
               <option value="round-robin"' + (settings.rotation && settings.rotation.strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobin') + '</option>\
@@ -31,27 +31,27 @@ async function renderEndpoint(c) {
             </select>\
           </div>\
           <div class="form-group">\
-            <label>' + t('stickyLimit') + '</label>\
+            <label for="stickyLimit">' + t('stickyLimit') + '</label>\
             <input type="number" id="stickyLimit" value="' + ((settings.rotation && settings.rotation.stickyLimit) || 3) + '" style="max-width:120px">\
           </div>\
           <div class="form-group">\
-            <label>' + t('maxRetries') + '</label>\
+            <label for="maxRetries">' + t('maxRetries') + '</label>\
             <input type="number" id="maxRetries" value="' + ((settings.rotation && settings.rotation.maxRetries) || 5) + '" style="max-width:120px">\
           </div>\
           <div class="form-group">\
-            <label>' + t('retryDelay') + '</label>\
+            <label for="retryDelaySec">' + t('retryDelay') + '</label>\
             <input type="number" id="retryDelaySec" value="' + ((settings.rotation && settings.rotation.retryDelaySec) || 5) + '" style="max-width:120px">\
           </div>\
           <div class="form-group">\
-            <label>' + t('backoffMax') + '</label>\
-            <input type="number" id="backoffMaxSec" value="' + ((settings.rotation && settings.rotation.backoffMaxSec) || 240) + '" style="max-width:120px">\
+            <label for="backoffMaxSec">' + t('backoffMax') + '</label>\
+            <input type="number" id="backoffMaxSec" value="' + ((settings.rotation && settings.rotation.backoffMaxSec) || 300) + '" style="max-width:120px">\
           </div>\
-          <button class="btn btn-primary" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
+          <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
         </div>\
         <div class="card">\
           <div class="card-header">\
             <span class="card-title">' + t('debugMode') + '</span>\
-            <label class="toggle-switch">\
+            <label class="toggle-switch" for="debug-mode-toggle">\
               <input type="checkbox" id="debug-mode-toggle" ' + (settings.debugMode ? 'checked' : '') + ' onchange="toggleDebugMode(this.checked)">\
               <span class="toggle-slider"></span>\
             </label>\
@@ -63,7 +63,7 @@ async function renderEndpoint(c) {
         <div class="card">\
           <div class="card-header">\
             <span class="card-title">' + t('providers') + '</span>\
-            <button class="btn btn-primary btn-sm" onclick="showAddProvider()">' + t('addProvider') + '</button>\
+            <button type="button" class="btn btn-primary btn-sm" onclick="showAddProvider()">' + t('addProvider') + '</button>\
           </div>\
           <div id="provider-list"></div>\
           <div id="provider-form" style="display:none"></div>\
@@ -71,7 +71,7 @@ async function renderEndpoint(c) {
         <div class="card">\
           <div class="card-header">\
             <span class="card-title">' + t('combos') + '</span>\
-            <button class="btn btn-primary btn-sm" onclick="showAddCombo()">' + t('addCombo') + '</button>\
+            <button type="button" class="btn btn-primary btn-sm" onclick="showAddCombo()">' + t('addCombo') + '</button>\
           </div>\
           <div id="combo-list"></div>\
           <div id="combo-form" style="display:none"></div>\
@@ -98,8 +98,8 @@ function renderComboListInline(combos) {
       </div>\
       <p class="muted">' + t('models') + ' ' + (cb.models ? cb.models.join(', ') : 'none') + '</p>\
       <div class="mt-12" style="display:flex;gap:8px">\
-        <button class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('editCombo') + '</button>\
-        <button class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
+        <button type="button" class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('editCombo') + '</button>\
+        <button type="button" class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
       </div>\
     </div>';
   }).join('');
@@ -169,7 +169,7 @@ async function pollNewPort(newPort) {
   overlay.innerHTML = '<div class="modal" style="text-align:center;min-width:280px">' +
     '<div class="modal-title">' + t('restartFailed') + '</div>' +
     '<p class="muted mt-12">' + t('restartFailedDesc') + '</p>' +
-    '<div class="modal-footer" style="justify-content:center;margin-top:16px"><button class="btn btn-primary" onclick="location.reload()">' + t('close') + '</button></div>' +
+    '<div class="modal-footer" style="justify-content:center;margin-top:16px"><button type="button" class="btn btn-primary" onclick="location.reload()">' + t('close') + '</button></div>' +
     '</div>';
 }
 async function saveRotation() {

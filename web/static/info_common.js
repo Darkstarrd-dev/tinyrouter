@@ -104,10 +104,10 @@ function buildSimpleField(key, prettyHtml, rawStr) {
       '<span class="info-field-key-name">' + escapeHtml(key) + '</span>' +
       '<span class="info-field-actions">' +
         '<span class="info-toggle-view">' +
-          '<button class="info-toggle-btn info-toggle-btn-active" data-view="pretty" onclick="toggleInfoView(this,\'pretty\')">' + t('pretty') + '</button>' +
-          '<button class="info-toggle-btn" data-view="raw" onclick="toggleInfoView(this,\'raw\')">' + t('raw') + '</button>' +
+          '<button type="button" class="info-toggle-btn info-toggle-btn-active" data-view="pretty" onclick="toggleInfoView(this,\'pretty\')">' + t('pretty') + '</button>' +
+          '<button type="button" class="info-toggle-btn" data-view="raw" onclick="toggleInfoView(this,\'raw\')">' + t('raw') + '</button>' +
         '</span>' +
-        '<button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button>' +
+        '<button type="button" class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button>' +
       '</span>' +
     '</span>' +
     '<div class="info-field-value">' +
@@ -123,7 +123,7 @@ function buildFieldWithSubFields(key, obj, rawStr) {
   var collapseBtn = '';
   var previewHtml = '';
   if (needsCollapse) {
-    collapseBtn = '<button class="info-collapse-btn" onclick="toggleInfoCollapse(this)" title="' + t('expand') + '">' +
+    collapseBtn = '<button type="button" class="info-collapse-btn" onclick="toggleInfoCollapse(this)" title="' + t('expand') + '">' +
       '<svg width="10" height="10" viewBox="0 0 10 10"><polygon points="2,2 8,5 2,8" fill="currentColor"/></svg></button>';
     previewHtml = '<div class="info-field-preview"><span class="info-preview-count">(' + n + ')</span> ' + buildPreview(obj) + '</div>';
   }
@@ -136,10 +136,10 @@ function buildFieldWithSubFields(key, obj, rawStr) {
       '<span class="info-field-actions">' +
         collapseBtn +
         '<span class="info-toggle-view">' +
-          '<button class="info-toggle-btn info-toggle-btn-active" data-view="pretty" onclick="toggleInfoView(this,\'pretty\')">' + t('pretty') + '</button>' +
-          '<button class="info-toggle-btn" data-view="raw" onclick="toggleInfoView(this,\'raw\')">' + t('raw') + '</button>' +
+          '<button type="button" class="info-toggle-btn info-toggle-btn-active" data-view="pretty" onclick="toggleInfoView(this,\'pretty\')">' + t('pretty') + '</button>' +
+          '<button type="button" class="info-toggle-btn" data-view="raw" onclick="toggleInfoView(this,\'raw\')">' + t('raw') + '</button>' +
         '</span>' +
-        '<button class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button>' +
+        '<button type="button" class="info-copy-btn" onclick="copyInfoText(this)">' + t('copy') + '</button>' +
       '</span>' +
     '</span>' +
     previewHtml +

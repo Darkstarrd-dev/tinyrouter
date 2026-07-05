@@ -26,7 +26,7 @@ import (
 // leaking platform specifics (tray/webview/console) back into main.
 type hostContext struct {
 	logger     *console.Logger
-	consoleURL string   // full URL to the admin UI (e.g. http://127.0.0.1:7700)
+	consoleURL string // full URL to the admin UI (e.g. http://127.0.0.1:7700)
 	sm         *ServerManager
 	// quit returns a channel that closes when the UI requests shutdown (POST /api/shutdown).
 	quit func() <-chan struct{}

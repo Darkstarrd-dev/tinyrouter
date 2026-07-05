@@ -5,6 +5,7 @@ import (
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
+	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
 func testRegistry(combos ...config.Combo) *registry.Registry {
@@ -219,17 +220,17 @@ func TestIsComboName(t *testing.T) {
 }
 
 func TestSplitModel(t *testing.T) {
-	provider, model := splitModel("deepseek/deepseek-chat")
+	provider, model := util.SplitModel("deepseek/deepseek-chat")
 	if provider != "deepseek" || model != "deepseek-chat" {
 		t.Errorf("expected deepseek/deepseek-chat, got %s/%s", provider, model)
 	}
 
-	provider, model = splitModel("no-slash")
+	provider, model = util.SplitModel("no-slash")
 	if provider != "" || model != "no-slash" {
 		t.Errorf("expected empty provider, got %s/%s", provider, model)
 	}
 
-	provider, model = splitModel("a/b/c")
+	provider, model = util.SplitModel("a/b/c")
 	if provider != "a" || model != "b/c" {
 		t.Errorf("expected a/b/c, got %s/%s", provider, model)
 	}

@@ -14,7 +14,7 @@ async function renderProviders(c) {
   providersCache = data.providers || [];
   c.innerHTML = '\
     <h2>' + t('providers') + '</h2>\
-    <button class="btn btn-primary mb-12" onclick="showAddProvider()">' + t('addProvider') + '</button>\
+    <button type="button" class="btn btn-primary mb-12" onclick="showAddProvider()">' + t('addProvider') + '</button>\
     <div id="provider-list"></div>\
     <div id="provider-form" style="display:none"></div>';
   renderProviderList();
@@ -35,7 +35,7 @@ function renderProviderList() {
         <span class="card-title">' + escapeHtml(p.name) + '</span>\
         <div class="flex" style="gap:8px">\
           <span class="badge ' + (p.isActive ? 'badge-active' : 'badge-inactive') + '">' + (p.isActive ? t('active') : t('inactive')) + '</span>\
-          <button class="btn btn-sm" onclick="toggleProviderList(event, \'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
+          <button type="button" class="btn btn-sm" onclick="toggleProviderList(event, \'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
         </div>\
       </div>\
       <p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code">' + escapeHtml(p.baseUrl) + '</span></p>\
@@ -74,16 +74,16 @@ function showAddProvider() {
   el.innerHTML = '\
     <div class="card">\
       <div class="card-title">' + t('newProvider') + '</div>\
-      <div class="form-group mt-12"><label>' + t('name') + '</label><input id="p-name" placeholder="DeepSeek"></div>\
-      <div class="form-group"><label>' + t('prefixLabel') + '</label><input id="p-prefix" placeholder="deepseek"></div>\
-      <div class="form-group"><label>' + t('baseUrlLabel') + '</label><input id="p-url" placeholder="https://api.deepseek.com"></div>\
-      <div class="form-group"><label>' + t('apiKeyLabel') + '</label><input type="password" id="p-apikey" placeholder="sk-..."></div>\
-      <div class="form-group"><label>' + t('modelIdLabel') + '</label><input id="p-modelid" placeholder="deepseek-chat"></div>\
+      <div class="form-group mt-12"><label for="p-name">' + t('name') + '</label><input id="p-name" placeholder="DeepSeek"></div>\
+      <div class="form-group"><label for="p-prefix">' + t('prefixLabel') + '</label><input id="p-prefix" placeholder="deepseek"></div>\
+      <div class="form-group"><label for="p-url">' + t('baseUrlLabel') + '</label><input id="p-url" placeholder="https://api.deepseek.com"></div>\
+      <div class="form-group"><label for="p-apikey">' + t('apiKeyLabel') + '</label><input type="password" id="p-apikey" placeholder="sk-..."></div>\
+      <div class="form-group"><label for="p-modelid">' + t('modelIdLabel') + '</label><input id="p-modelid" placeholder="deepseek-chat"></div>\
       <div id="p-check-result" class="mt-12"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn" onclick="withLoading(this, () => checkProvider())">' + t('check') + '</button>\
-        <button class="btn btn-primary" onclick="withLoading(this, () => addProvider())">' + t('create') + '</button>\
-        <button class="btn" onclick="document.getElementById(\'provider-form\').style.display=\'none\'">' + t('cancel') + '</button>\
+        <button type="button" class="btn" onclick="withLoading(this, () => checkProvider())">' + t('check') + '</button>\
+        <button type="button" class="btn btn-primary" onclick="withLoading(this, () => addProvider())">' + t('create') + '</button>\
+        <button type="button" class="btn" onclick="document.getElementById(\'provider-form\').style.display=\'none\'">' + t('cancel') + '</button>\
       </div>\
     </div>';
 }
@@ -144,10 +144,10 @@ async function renderProviderDetail(c, id) {
     <div class="detail-header">\
       <h2>' + escapeHtml(p.name) + '</h2>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-sm" onclick="backToProviderList()">' + t('back') + '</button>\
-        <button class="btn btn-sm" onclick="showEditProvider(\'' + p.id + '\')">' + t('edit') + '</button>\
-        <button class="btn btn-sm ' + (p.isActive ? '' : 'btn-primary') + '" onclick="toggleProvider(\'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
-        <button class="btn btn-sm btn-danger" onclick="deleteProvider(\'' + p.id + '\')">' + t('delete') + '</button>\
+        <button type="button" class="btn btn-sm" onclick="backToProviderList()">' + t('back') + '</button>\
+        <button type="button" class="btn btn-sm" onclick="showEditProvider(\'' + p.id + '\')">' + t('edit') + '</button>\
+        <button type="button" class="btn btn-sm ' + (p.isActive ? '' : 'btn-primary') + '" onclick="toggleProvider(\'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
+        <button type="button" class="btn btn-sm btn-danger" onclick="deleteProvider(\'' + p.id + '\')">' + t('delete') + '</button>\
       </div>\
     </div>\
     <div id="detail-info">\
@@ -170,8 +170,8 @@ function renderDetailKeys(p) {
     <div class="card">\
       <div class="section-title">' + t('keysTitle') + ' (' + keys.length + ')</div>\
       <div class="flex mb-12" style="gap:8px">\
-        <button class="btn btn-sm btn-primary" onclick="showAddKeyDetail(\'' + p.id + '\')">' + t('addKey') + '</button>\
-        <button class="btn btn-sm" onclick="showBulkAddKeys(\'' + p.id + '\')">' + t('bulkAdd') + '</button>\
+        <button type="button" class="btn btn-sm btn-primary" onclick="showAddKeyDetail(\'' + p.id + '\')">' + t('addKey') + '</button>\
+        <button type="button" class="btn btn-sm" onclick="showBulkAddKeys(\'' + p.id + '\')">' + t('bulkAdd') + '</button>\
       </div>\
       <div id="key-form-' + p.id + '"></div>' +
       (keys.length === 0 ? emptyState(t('noKeys')) : '\
@@ -182,9 +182,9 @@ function renderDetailKeys(p) {
             return '<tr>\
               <td>' + escapeHtml(k.name) + '</td>\
               <td>\
-                <button class="btn btn-sm" onclick="withLoading(this, () => testKeyDetail(\'' + p.id + '\',\'' + k.id + '\'))">' + t('test') + '</button>\
-                <button class="btn btn-sm" onclick="toggleKeyDetail(\'' + p.id + '\',\'' + k.id + '\',' + (!k.isActive) + ')">' + (k.isActive ? t('pause') : t('resume')) + '</button>\
-                <button class="btn btn-sm btn-danger" onclick="deleteKeyDetail(\'' + p.id + '\',\'' + k.id + '\')">' + t('delete') + '</button>\
+                <button type="button" class="btn btn-sm" onclick="withLoading(this, () => testKeyDetail(\'' + p.id + '\',\'' + k.id + '\'))">' + t('test') + '</button>\
+                <button type="button" class="btn btn-sm" onclick="toggleKeyDetail(\'' + p.id + '\',\'' + k.id + '\',' + (!k.isActive) + ')">' + (k.isActive ? t('pause') : t('resume')) + '</button>\
+                <button type="button" class="btn btn-sm btn-danger" onclick="deleteKeyDetail(\'' + p.id + '\',\'' + k.id + '\')">' + t('delete') + '</button>\
               </td>\
               <td><span class="code copyable" data-copy="' + escapeHtml(k.key) + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'), \'' + escapeHtml(k.name || 'key') + '\')" title="' + t('clickToCopy') + '">' + maskKey(k.key) + '</span></td>\
               <td>' + k.priority + '</td>\
@@ -201,12 +201,12 @@ function showAddKeyDetail(providerId) {
   el.innerHTML = '\
     <div class="card" style="background:var(--glass-bg)">\
       <div class="card-title">' + t('newKey') + '</div>\
-      <div class="form-group mt-12"><label>' + t('keyName') + '</label><input id="dk-name" placeholder="Main"></div>\
-      <div class="form-group"><label>' + t('apiKeyInput') + '</label><input type="password" id="dk-key" placeholder="sk-..."></div>\
-      <div class="form-group"><label>' + t('priorityLabel') + '</label><input type="number" id="dk-priority" value="1" style="max-width:120px"></div>\
+      <div class="form-group mt-12"><label for="dk-name">' + t('keyName') + '</label><input id="dk-name" placeholder="Main"></div>\
+      <div class="form-group"><label for="dk-key">' + t('apiKeyInput') + '</label><input type="password" id="dk-key" placeholder="sk-..."></div>\
+      <div class="form-group"><label for="dk-priority">' + t('priorityLabel') + '</label><input type="number" id="dk-priority" value="1" style="max-width:120px"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="withLoading(this, () => addKeyDetail(\'' + providerId + '\'))">' + t('create') + '</button>\
-        <button class="btn" onclick="document.getElementById(\'key-form-' + providerId + '\').innerHTML=\'\'">' + t('cancel') + '</button>\
+        <button type="button" class="btn btn-primary" onclick="withLoading(this, () => addKeyDetail(\'' + providerId + '\'))">' + t('create') + '</button>\
+        <button type="button" class="btn" onclick="document.getElementById(\'key-form-' + providerId + '\').innerHTML=\'\'">' + t('cancel') + '</button>\
       </div>\
     </div>';
 }
@@ -233,10 +233,10 @@ function showBulkAddKeys(providerId) {
       <div class="card-title">' + t('bulkAddKeys') + '</div>\
       <p class="muted mt-12">' + t('bulkFormat') + '</p>\
       <div class="form-group mt-12"><textarea id="bk-textarea" rows="8" placeholder="Main|sk-aaa\nBackup|sk-bbb\nsk-ccc"></textarea></div>\
-      <div class="form-group"><label>' + t('defaultPriority') + '</label><input type="number" id="bk-priority" value="1" style="max-width:120px"></div>\
+      <div class="form-group"><label for="bk-priority">' + t('defaultPriority') + '</label><input type="number" id="bk-priority" value="1" style="max-width:120px"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="withLoading(this, () => bulkAddKeys(\'' + providerId + '\'))">' + t('addAll') + '</button>\
-        <button class="btn" onclick="document.getElementById(\'key-form-' + providerId + '\').innerHTML=\'\'">' + t('cancel') + '</button>\
+        <button type="button" class="btn btn-primary" onclick="withLoading(this, () => bulkAddKeys(\'' + providerId + '\'))">' + t('addAll') + '</button>\
+        <button type="button" class="btn" onclick="document.getElementById(\'key-form-' + providerId + '\').innerHTML=\'\'">' + t('cancel') + '</button>\
       </div>\
       <div id="bk-result" class="mt-12"></div>\
     </div>';
@@ -306,7 +306,7 @@ function renderDetailRotation(p) {
       <div class="section-title">' + t('rotationSection') + '</div>\
       <p class="muted mb-12">' + t('rotationDesc') + '</p>\
       <div class="form-group">\
-        <label>' + t('strategy') + '</label>\
+        <label for="r-strategy">' + t('strategy') + '</label>\
         <select id="r-strategy">\
           <option value=""' + (strategy === '' ? ' selected' : '') + '>' + t('inheritGlobal') + '</option>\
           <option value="fill-first"' + (strategy === 'fill-first' ? ' selected' : '') + '>' + t('fillFirst') + '</option>\
@@ -315,10 +315,10 @@ function renderDetailRotation(p) {
         </select>\
       </div>\
       <div class="form-group">\
-        <label>' + t('stickyLabel') + '</label>\
+        <label for="r-sticky">' + t('stickyLabel') + '</label>\
         <input type="number" id="r-sticky" value="' + sticky + '" style="max-width:120px">\
       </div>\
-      <button class="btn btn-primary" onclick="withLoading(this, () => saveProviderRotation(\'' + p.id + '\'))">' + t('save') + '</button>\
+      <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveProviderRotation(\'' + p.id + '\'))">' + t('save') + '</button>\
     </div>';
 }
 
@@ -367,10 +367,10 @@ function renderDetailModels(p) {
           ? (ts.ok
               ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
               : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
-          : '<button class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midEsc + '\'))">' + t('test') + '</button>') +
+          : '<button type="button" class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midEsc + '\'))">' + t('test') + '</button>') +
         (ts
-          ? '<button class="btn btn-sm btn-info" onclick="event.stopPropagation(); showModelInfo(\'' + midEsc + '\')">' + t('info') + '</button>'
-          : '<button class="btn btn-sm" disabled>' + t('info') + '</button>') +
+          ? '<button type="button" class="btn btn-sm btn-info" onclick="event.stopPropagation(); showModelInfo(\'' + midEsc + '\')">' + t('info') + '</button>'
+          : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
         '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
           '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
           '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
@@ -378,7 +378,7 @@ function renderDetailModels(p) {
         '</select>' +
         allBadge +
         '<span class="model-quota-numbers"></span>' +
-        '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midEsc + '\')">' + t('delete') + '</button>' +
+        '<button type="button" class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midEsc + '\')">' + t('delete') + '</button>' +
         '<span class="model-id copyable" onclick="event.stopPropagation(); copyToClipboard(\'' + prefixEsc + '/' + midEsc + '\')" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + midEsc + '</span>' +
       '</div>' +
       '<div class="model-key-detail-wrap" id="' + detailId + '"></div>' +
@@ -389,11 +389,11 @@ function renderDetailModels(p) {
       <div class="section-title">' + t('modelsTitle') + ' (' + models.length + ')</div>\
       <div class="flex mb-12" style="gap:8px">\
         <input id="m-input" placeholder="' + t('modelPlaceholder') + '" style="flex:1">\
-        <button class="btn btn-sm" onclick="withLoading(this, () => testModelDetail(\'' + escapeHtml(p.id) + '\'))">' + t('test') + '</button>\
-        <button class="btn btn-sm btn-primary" onclick="withLoading(this, () => addModelDetail(\'' + escapeHtml(p.id) + '\'))">' + t('create') + '</button>\
+        <button type="button" class="btn btn-sm" onclick="withLoading(this, () => testModelDetail(\'' + escapeHtml(p.id) + '\'))">' + t('test') + '</button>\
+        <button type="button" class="btn btn-sm btn-primary" onclick="withLoading(this, () => addModelDetail(\'' + escapeHtml(p.id) + '\'))">' + t('create') + '</button>\
       </div>\
       <div class="flex mb-12" style="gap:8px">\
-        <button class="btn btn-sm" onclick="withLoading(this, () => importModels(\'' + escapeHtml(p.id) + '\'))">' + t('importModels') + '</button>\
+        <button type="button" class="btn btn-sm" onclick="withLoading(this, () => importModels(\'' + escapeHtml(p.id) + '\'))">' + t('importModels') + '</button>\
       </div>\
       <div id="m-test-result" class="mb-12"></div>\
       <div id="model-list">' + (models.length === 0 ? emptyState(t('noModels')) : modelsHtml) + '</div>\
@@ -455,7 +455,7 @@ function renderModelKeyDetailRow(pid, mid, data) {
   }
   // Actions row first (Run All-Keys Test button + status)
   var html = '<div class="model-key-detail-actions">' +
-    '<button class="btn btn-sm btn-primary" id="run-alltest-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '" onclick="runAllKeysTest(\'' + escapeHtml(pid) + '\', \'' + escapeHtml(mid) + '\')">' + t('runAllKeysTest') + '</button>' +
+    '<button type="button" class="btn btn-sm btn-primary" id="run-alltest-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '" onclick="runAllKeysTest(\'' + escapeHtml(pid) + '\', \'' + escapeHtml(mid) + '\')">' + t('runAllKeysTest') + '</button>' +
     '<span class="model-alltest-status" id="alltest-status-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '"></span>' +
   '</div>';
   // Each key on its own grid row
@@ -687,7 +687,7 @@ function reexpandModelDetailRow(pid, mid) {
 }
 
 function escapeAttr(s) {
-  return String(s).replace(/"/g, '\\"');
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 async function testModelDetail(pid) {
@@ -767,12 +767,6 @@ function closeInfoModal() {
   var overlay = document.getElementById('info-modal-overlay');
   overlay.classList.remove('show');
   document.removeEventListener('keydown', infoModalEscapeHandler);
-}
-
-function infoModalEscapeHandler(e) {
-  if (e.key === 'Escape') {
-    closeInfoModal();
-  }
 }
 
 function infoModalEscapeHandler(e) {
@@ -871,12 +865,12 @@ function showEditProvider(id) {
   el.innerHTML = '\
     <div class="card">\
       <div class="card-title">' + t('editProvider') + '</div>\
-      <div class="form-group mt-12"><label>' + t('name') + '</label><input id="ep-name" value="' + escapeHtml(p.name) + '"></div>\
-      <div class="form-group"><label>' + t('prefixLabel') + '</label><input id="ep-prefix" value="' + escapeHtml(p.prefix) + '"></div>\
-      <div class="form-group"><label>' + t('baseUrlLabel') + '</label><input id="ep-url" value="' + escapeHtml(p.baseUrl) + '"></div>\
+      <div class="form-group mt-12"><label for="ep-name">' + t('name') + '</label><input id="ep-name" value="' + escapeHtml(p.name) + '"></div>\
+      <div class="form-group"><label for="ep-prefix">' + t('prefixLabel') + '</label><input id="ep-prefix" value="' + escapeHtml(p.prefix) + '"></div>\
+      <div class="form-group"><label for="ep-url">' + t('baseUrlLabel') + '</label><input id="ep-url" value="' + escapeHtml(p.baseUrl) + '"></div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="withLoading(this, () => saveEditProvider(\'' + id + '\'))">' + t('save') + '</button>\
-        <button class="btn" onclick="cancelEditProvider()">' + t('cancel') + '</button>\
+        <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditProvider(\'' + id + '\'))">' + t('save') + '</button>\
+        <button type="button" class="btn" onclick="cancelEditProvider()">' + t('cancel') + '</button>\
       </div>\
     </div>';
 }

@@ -13,16 +13,16 @@ async function renderConsole(c) {
     <h2>' + t('console') + '</h2>\
     <div class="flex-between mb-12">\
       <div class="console-controls">\
-        <button class="btn btn-sm btn-filter active" data-level="all" onclick="toggleConsoleFilter(this,\'all\')">' + t('all') + '</button>\
-        <button class="btn btn-sm btn-filter active" data-level="error" onclick="toggleConsoleFilter(this,\'error\')">ERROR</button>\
-        <button class="btn btn-sm btn-filter active" data-level="warn" onclick="toggleConsoleFilter(this,\'warn\')">WARN</button>\
-        <button class="btn btn-sm btn-filter active" data-level="info" onclick="toggleConsoleFilter(this,\'info\')">INFO</button>\
-        <button class="btn btn-sm btn-filter active" data-level="debug" onclick="toggleConsoleFilter(this,\'debug\')">DEBUG</button>\
+        <button type="button" class="btn btn-sm btn-filter active" data-level="all" onclick="toggleConsoleFilter(this,\'all\')">' + t('all') + '</button>\
+        <button type="button" class="btn btn-sm btn-filter active" data-level="error" onclick="toggleConsoleFilter(this,\'error\')">ERROR</button>\
+        <button type="button" class="btn btn-sm btn-filter active" data-level="warn" onclick="toggleConsoleFilter(this,\'warn\')">WARN</button>\
+        <button type="button" class="btn btn-sm btn-filter active" data-level="info" onclick="toggleConsoleFilter(this,\'info\')">INFO</button>\
+        <button type="button" class="btn btn-sm btn-filter active" data-level="debug" onclick="toggleConsoleFilter(this,\'debug\')">DEBUG</button>\
         <input type="text" id="console-search" class="console-search" placeholder="' + t('searchLogs') + '" oninput="onConsoleSearch(this.value)">\
       </div>\
       <div class="flex" style="gap:8px">\
         <span class="muted" id="console-status">' + t('connecting') + '</span>\
-        <button class="btn btn-danger btn-sm" onclick="clearConsole()">' + t('clear') + '</button>\
+        <button type="button" class="btn btn-danger btn-sm" onclick="clearConsole()">' + t('clear') + '</button>\
       </div>\
     </div>\
     <div class="log-container" id="log-container"></div>';
@@ -82,6 +82,9 @@ function shouldShowLogLine(line) {
 
 function appendLogLine(container, line) {
   consoleAllLines.push(line);
+  if (consoleAllLines.length > 10000) {
+    consoleAllLines.splice(0, consoleAllLines.length - 8000);
+  }
   if (shouldShowLogLine(line)) {
     container.appendChild(createLogLineDiv(line));
     if (consoleAutoScroll) container.scrollTop = container.scrollHeight;

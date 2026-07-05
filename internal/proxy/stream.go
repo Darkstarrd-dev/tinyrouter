@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
+	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
-type sseLineBuffer struct {
+type SSELineBuffer struct {
 	buf []byte
 }
 
-func (b *sseLineBuffer) feed(data []byte) []string {
+func (b *SSELineBuffer) Feed(data []byte) []string {
 	b.buf = append(b.buf, data...)
 	var lines []string
 	for {
@@ -28,7 +29,7 @@ func (b *sseLineBuffer) feed(data []byte) []string {
 	return lines
 }
 
-func (b *sseLineBuffer) remaining() string {
+func (b *SSELineBuffer) Remaining() string {
 	if len(b.buf) > 0 {
 		s := string(b.buf)
 		b.buf = nil
@@ -70,12 +71,15 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	totalOutput := 0
 	inputTokens := 0
 	outputTokens := 0
-	sb := &sseLineBuffer{}
+	sb := &SSELineBuffer{}
 
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
-			w.Write(buf[:n])
+			if _, err := w.Write(buf[:n]); err != nil {
+				h.logger.Debug("client disconnected during SSE stream: %v", err)
+				return
+			}
 			flusher.Flush()
 			totalOutput += n
 			if reqID != 0 {
@@ -92,14 +96,14 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					lastSSEPush = time.Now()
 				}
 			}
-			for _, line := range sb.feed(buf[:n]) {
+			for _, line := range sb.Feed(buf[:n]) {
 				line = strings.TrimSpace(line)
 				if strings.HasPrefix(line, "data:") {
 					payload := strings.TrimSpace(line[5:])
 					if payload == "[DONE]" {
 						continue
 					}
-					if in, out := extractTokens([]byte(payload)); in > 0 || out > 0 {
+					if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
 						inputTokens = in
 						outputTokens = out
 					}
@@ -107,13 +111,13 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 			}
 		}
 		if err != nil {
-			remaining := sb.remaining()
+			remaining := sb.Remaining()
 			if remaining != "" {
 				line := strings.TrimSpace(remaining)
 				if strings.HasPrefix(line, "data:") {
 					payload := strings.TrimSpace(line[5:])
 					if payload != "[DONE]" {
-						if in, out := extractTokens([]byte(payload)); in > 0 || out > 0 {
+						if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
 							inputTokens = in
 							outputTokens = out
 						}
@@ -152,7 +156,7 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	}
 	w.Write(bodyBytes)
 
-	inputTokens, outputTokens := extractTokens(bodyBytes)
+	inputTokens, outputTokens := util.ExtractTokens(bodyBytes)
 	if sel == nil {
 		h.logger.Warn("pass-through response with nil selector, skipping usage recording")
 		return

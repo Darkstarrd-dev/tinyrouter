@@ -3,11 +3,13 @@ package proxy
 import (
 	"strings"
 	"testing"
+
+	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
 func TestSSELineBuffer_Normal(t *testing.T) {
-	sb := &sseLineBuffer{}
-	lines := sb.feed([]byte("line1\nline2\nline3\n"))
+	sb := &SSELineBuffer{}
+	lines := sb.Feed([]byte("line1\nline2\nline3\n"))
 	if len(lines) != 3 {
 		t.Fatalf("expected 3 lines, got %d: %v", len(lines), lines)
 	}
@@ -17,16 +19,16 @@ func TestSSELineBuffer_Normal(t *testing.T) {
 }
 
 func TestSSELineBuffer_CrossChunk(t *testing.T) {
-	sb := &sseLineBuffer{}
+	sb := &SSELineBuffer{}
 
 	// Feed first part - incomplete line
-	lines := sb.feed([]byte("line"))
+	lines := sb.Feed([]byte("line"))
 	if len(lines) != 0 {
 		t.Fatalf("expected 0 lines from incomplete chunk, got %d", len(lines))
 	}
 
 	// Feed rest - completes the first line and adds second
-	lines = sb.feed([]byte("1 end\nline2\n"))
+	lines = sb.Feed([]byte("1 end\nline2\n"))
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines, got %d: %v", len(lines), lines)
 	}
@@ -36,11 +38,11 @@ func TestSSELineBuffer_CrossChunk(t *testing.T) {
 }
 
 func TestSSELineBuffer_DataAcrossChunks(t *testing.T) {
-	sb := &sseLineBuffer{}
+	sb := &SSELineBuffer{}
 
 	// Simulate a data: line split across reads (real SSE scenario)
 	chunk1 := `data: {"id":"abc","usage":{"prompt_tokens":123`
-	lines := sb.feed([]byte(chunk1))
+	lines := sb.Feed([]byte(chunk1))
 	if len(lines) != 0 {
 		t.Fatalf("expected 0 lines from partial chunk, got %d", len(lines))
 	}
@@ -51,7 +53,7 @@ data: [DONE]
 
 `
 
-	lines = sb.feed([]byte(chunk2))
+	lines = sb.Feed([]byte(chunk2))
 	if len(lines) < 1 {
 		t.Fatalf("expected at least 1 line, got %d: %v", len(lines), lines)
 	}
@@ -67,35 +69,35 @@ data: [DONE]
 		t.Fatalf("expected usage payload, got [DONE]")
 	}
 
-	in, out := extractTokens([]byte(payload))
+	in, out := util.ExtractTokens([]byte(payload))
 	if in != 123 || out != 456 {
 		t.Fatalf("expected tokens in=123 out=456, got in=%d out=%d", in, out)
 	}
 }
 
 func TestSSELineBuffer_Remaining(t *testing.T) {
-	sb := &sseLineBuffer{}
+	sb := &SSELineBuffer{}
 
-	sb.feed([]byte("line1\nline"))
-	rem := sb.remaining()
+	sb.Feed([]byte("line1\nline"))
+	rem := sb.Remaining()
 	if rem != "line" {
 		t.Fatalf("expected remaining 'line', got %q", rem)
 	}
 
 	// Second call should be empty
-	rem = sb.remaining()
+	rem = sb.Remaining()
 	if rem != "" {
 		t.Fatalf("expected empty remaining, got %q", rem)
 	}
 }
 
 func TestSSELineBuffer_Empty(t *testing.T) {
-	sb := &sseLineBuffer{}
-	lines := sb.feed([]byte{})
+	sb := &SSELineBuffer{}
+	lines := sb.Feed([]byte{})
 	if len(lines) != 0 {
 		t.Fatalf("expected 0 lines, got %d", len(lines))
 	}
-	rem := sb.remaining()
+	rem := sb.Remaining()
 	if rem != "" {
 		t.Fatalf("expected empty remaining, got %q", rem)
 	}
@@ -112,7 +114,7 @@ func TestSSE_DataWithoutSpace(t *testing.T) {
 		t.Fatal("expected payload, got [DONE]")
 	}
 
-	in, out := extractTokens([]byte(payload))
+	in, out := util.ExtractTokens([]byte(payload))
 	if in != 100 || out != 50 {
 		t.Fatalf("expected tokens in=100 out=50, got in=%d out=%d", in, out)
 	}
@@ -126,7 +128,7 @@ func TestSSE_DataWithSpace(t *testing.T) {
 		t.Fatal("expected payload, got [DONE]")
 	}
 
-	in, out := extractTokens([]byte(payload))
+	in, out := util.ExtractTokens([]byte(payload))
 	if in != 200 || out != 300 {
 		t.Fatalf("expected tokens in=200 out=300, got in=%d out=%d", in, out)
 	}
@@ -147,7 +149,7 @@ func TestExtractTokens_MultipleChunks(t *testing.T) {
 			if payload == "[DONE]" {
 				continue
 			}
-			if in, out := extractTokens([]byte(payload)); in > 0 || out > 0 {
+			if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
 				inputTokens = in
 				outputTokens = out
 			}
@@ -174,7 +176,7 @@ func TestExtractTokens_NoUsageChunk(t *testing.T) {
 			if payload == "[DONE]" {
 				continue
 			}
-			if in, out := extractTokens([]byte(payload)); in > 0 || out > 0 {
+			if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
 				inputTokens = in
 				outputTokens = out
 			}
@@ -192,7 +194,7 @@ func TestExtractTokens_TotalTokensFallback(t *testing.T) {
 	line = strings.TrimSpace(line)
 	payload := strings.TrimSpace(line[5:])
 
-	in, out := extractTokens([]byte(payload))
+	in, out := util.ExtractTokens([]byte(payload))
 	if in != 500 || out != 0 {
 		t.Fatalf("expected in=500 (total_tokens fallback), out=0, got in=%d out=%d", in, out)
 	}

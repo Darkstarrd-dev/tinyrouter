@@ -151,7 +151,7 @@ function confirmModal(message) {
   return new Promise(function(resolve) {
     var overlay = document.getElementById('modal-overlay');
     if (overlay.classList.contains('show')) { resolve(false); return; }
-    overlay.innerHTML = '<div class="modal"><div class="modal-title">' + t('confirmTitle') + '</div><div class="modal-body">' + escapeHtml(message) + '</div><div class="modal-footer"><button class="btn btn-ghost" id="modal-cancel">' + t('cancel') + '</button><button class="btn btn-primary" id="modal-confirm">' + t('confirm') + '</button></div></div>';
+    overlay.innerHTML = '<div class="modal"><div class="modal-title">' + t('confirmTitle') + '</div><div class="modal-body">' + escapeHtml(message) + '</div><div class="modal-footer"><button type="button" class="btn btn-ghost" id="modal-cancel">' + t('cancel') + '</button><button type="button" class="btn btn-primary" id="modal-confirm">' + t('confirm') + '</button></div></div>';
     requestAnimationFrame(function() { overlay.classList.add('show'); });
     function close(result) {
       document.removeEventListener('keydown', escHandler);

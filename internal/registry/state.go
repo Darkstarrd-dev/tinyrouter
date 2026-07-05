@@ -76,30 +76,34 @@ func (r *Registry) SnapshotKeyStates() map[string]state.KeySnapshot {
 
 	result := make(map[string]state.KeySnapshot, len(r.states))
 	for sk, ks := range r.states {
-		ks.Lock()
-		s := state.KeySnapshot{
-			Status:           ks.Status,
-			BackoffLevel:     ks.BackoffLevel,
-			RotatedAt:        ks.RotatedAt,
-			ConsecCount:      ks.ConsecCount,
-			LastUsedAt:       ks.LastUsedAt,
-			NIMRequestCount:  ks.NIMRequestCount,
-			NIMLastSendTime:  ks.NIMLastSendTime,
-			NIMCooldownLevel: ks.NIMCooldownLevel,
-			NIMLast429Time:   ks.NIMLast429Time,
-		}
-		if len(ks.ModelLocks) > 0 {
-			s.ModelLocks = make(map[string]time.Time, len(ks.ModelLocks))
-			for k, v := range ks.ModelLocks {
-				s.ModelLocks[k] = v
-			}
-		}
-		ks.Unlock()
-
+		s := snapshotKeyState(ks)
 		// Convert internal key format "providerID/keyID" to "providerID::keyID"
 		result[convertKey(sk)] = s
 	}
 	return result
+}
+
+func snapshotKeyState(ks *KeyRuntimeState) state.KeySnapshot {
+	ks.Lock()
+	defer ks.Unlock()
+	s := state.KeySnapshot{
+		Status:           ks.Status,
+		BackoffLevel:     ks.BackoffLevel,
+		RotatedAt:        ks.RotatedAt,
+		ConsecCount:      ks.ConsecCount,
+		LastUsedAt:       ks.LastUsedAt,
+		NIMRequestCount:  ks.NIMRequestCount,
+		NIMLastSendTime:  ks.NIMLastSendTime,
+		NIMCooldownLevel: ks.NIMCooldownLevel,
+		NIMLast429Time:   ks.NIMLast429Time,
+	}
+	if len(ks.ModelLocks) > 0 {
+		s.ModelLocks = make(map[string]time.Time, len(ks.ModelLocks))
+		for k, v := range ks.ModelLocks {
+			s.ModelLocks[k] = v
+		}
+	}
+	return s
 }
 
 // convertKey converts registry internal key format "a/b" to "a::b".

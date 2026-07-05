@@ -51,7 +51,7 @@ func (m *ServerManager) startLocked() {
 
 // Restart gracefully shuts down the current server and starts a new one on
 // newAddr. The HTTP handler is reused; only the listening address changes.
-func (m *ServerManager) Restart(newAddr string) error {
+func (m *ServerManager) Restart(newAddr string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.srv != nil {
@@ -63,7 +63,6 @@ func (m *ServerManager) Restart(newAddr string) error {
 	}
 	m.addr = newAddr
 	m.startLocked()
-	return nil
 }
 
 // Shutdown gracefully stops the current server.

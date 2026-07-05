@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
+	"github.com/tinyrouter/tinyrouter/internal/registry"
 )
 
 // getNIMDefaults returns default NIMSettings values.
@@ -120,6 +121,18 @@ func (s *Selector) MarkNIM429(providerID, keyID, model string) time.Time {
 	return unlock
 }
 
+func isNIMCandidateAvailable(state *registry.KeyRuntimeState, reqCount int) bool {
+	state.Lock()
+	defer state.Unlock()
+	return state.NIMRequestCount < reqCount
+}
+
+func resetNIMRequestCount(state *registry.KeyRuntimeState) {
+	state.Lock()
+	defer state.Unlock()
+	state.NIMRequestCount = 0
+}
+
 // filterNIMCandidates filters the candidate key list for NIM providers: keys
 // whose NIMRequestCount has reached RequestCountPerKey are excluded (they
 // have been rotated to the back after hitting their per-round quota and must
@@ -138,11 +151,9 @@ func (s *Selector) filterNIMCandidates(providerID string, candidates []config.Ke
 		if state == nil {
 			continue
 		}
-		state.Lock()
-		if state.NIMRequestCount < reqCount {
+		if isNIMCandidateAvailable(state, reqCount) {
 			filtered = append(filtered, k)
 		}
-		state.Unlock()
 	}
 
 	if len(filtered) > 0 {
@@ -156,11 +167,7 @@ func (s *Selector) filterNIMCandidates(providerID string, candidates []config.Ke
 		if state == nil {
 			continue
 		}
-		state.Lock()
-		state.NIMRequestCount = 0
-		// Keep existing RotatedAt ordering so the next-pick respects the
-		// current queue position rather than resetting all keys to "now".
-		state.Unlock()
+		resetNIMRequestCount(state)
 	}
 	return candidates
 }

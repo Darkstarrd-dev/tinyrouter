@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -33,7 +34,7 @@ type Router struct {
 	client       *http.Client
 	testClient   *http.Client
 	shutdown     context.CancelFunc
-	restartFn    func(string) error
+	restartFn    func(string)
 	debugMode    atomic.Bool
 }
 
@@ -61,7 +62,7 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 
 // SetRestartFunc configures a callback that will gracefully restart the HTTP
 // server on a new address. Used by updateSettings when the port changes.
-func (rt *Router) SetRestartFunc(fn func(string) error) {
+func (rt *Router) SetRestartFunc(fn func(string)) {
 	rt.restartFn = fn
 }
 
@@ -71,6 +72,20 @@ func (rt *Router) DebugMode() bool {
 
 func (rt *Router) SetDebugMode(on bool) {
 	rt.debugMode.Store(on)
+}
+
+// securityHeaders applies security-related HTTP headers to all responses
+// except proxy routes (/v1/*) which transparently pass through upstream headers.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/v1/") {
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+			w.Header().Set("X-XSS-Protection", "1; mode=block")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Routes returns the root HTTP handler with all routes registered.
@@ -88,6 +103,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	})
+	r.Use(securityHeaders)
 	// Compress responses (brotli/gzip) for compressible content types.
 	// SSE responses and pre-compressed binaries are auto-skipped inside.
 	r.Use(Compress)

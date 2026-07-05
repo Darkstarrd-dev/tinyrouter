@@ -7,6 +7,7 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 	"github.com/tinyrouter/tinyrouter/internal/state"
+	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
 // ModelTarget is a resolved provider+model pair within a combo.
@@ -50,7 +51,7 @@ func (r *Resolver) Resolve(comboName string) (*ComboPlan, error) {
 
 	var targets []ModelTarget
 	for _, m := range combo.Models {
-		prefix, model := splitModel(m)
+		prefix, model := util.SplitModel(m)
 		if prefix == "" {
 			continue
 		}
@@ -158,17 +159,6 @@ func (r *Resolver) RestoreComboState(id string, s state.ComboSnapshot) error {
 	st.index = s.Index
 	st.consecCount = s.ConsecCount
 	return nil
-}
-
-// splitModel parses "provider/model" into (providerID, model).
-// If no slash, returns ("", model) which is invalid for our purposes.
-func splitModel(s string) (string, string) {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '/' {
-			return s[:i], s[i+1:]
-		}
-	}
-	return "", s
 }
 
 // sortTargetsByTier sorts targets by quota tier: unlimited → limited → paid,

@@ -26,11 +26,13 @@ func (s *Selector) MarkUnavailable(providerID, keyID, model string, statusCode i
 	state.Lock()
 	defer state.Unlock()
 
-	state.BackoffLevel++
-	backoff := time.Duration(math.Pow(2, float64(state.BackoffLevel-1))) * time.Second
+	if state.BackoffLevel < 15 {
+		state.BackoffLevel++
+	}
+	backoff := time.Duration(math.Pow(2, float64(state.BackoffLevel))) * time.Second
 	maxBackoff := time.Duration(s.Settings().BackoffMaxSec) * time.Second
 	if maxBackoff == 0 {
-		maxBackoff = 240 * time.Second
+		maxBackoff = 300 * time.Second
 	}
 	if backoff > maxBackoff {
 		backoff = maxBackoff

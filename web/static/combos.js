@@ -6,7 +6,7 @@ async function renderCombos(c) {
   const combos = data.combos || [];
   c.innerHTML = '\
     <h2>' + t('combos') + '</h2>\
-    <button class="btn btn-primary mb-12" onclick="showAddCombo()">' + t('addCombo') + '</button>\
+    <button type="button" class="btn btn-primary mb-12" onclick="showAddCombo()">' + t('addCombo') + '</button>\
     <div id="combo-list"></div>\
     <div id="combo-form" style="display:none"></div>';
   const list = document.getElementById('combo-list');
@@ -23,8 +23,8 @@ async function renderCombos(c) {
       </div>\
       <p class="muted">' + t('models') + ' ' + (cb.models ? cb.models.join(', ') : 'none') + '</p>\
       <div class="mt-12" style="display:flex;gap:8px">\
-        <button class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('editCombo') + '</button>\
-        <button class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
+        <button type="button" class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('editCombo') + '</button>\
+        <button type="button" class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
       </div>\
     </div>';
   }).join('');
@@ -36,17 +36,17 @@ function showAddCombo() {
   el.innerHTML = '\
     <div class="card">\
       <div class="card-title">' + t('newCombo') + '</div>\
-      <div class="form-group mt-12"><label>' + t('name') + '</label><input id="c-name" placeholder="Fast + Smart"></div>\
-      <div class="form-group"><label>' + t('comboStrategy') + '</label>\
+      <div class="form-group mt-12"><label for="c-name">' + t('name') + '</label><input id="c-name" placeholder="Fast + Smart"></div>\
+      <div class="form-group"><label for="c-strategy">' + t('comboStrategy') + '</label>\
         <select id="c-strategy">\
           <option value="fallback">' + t('fallbackDesc') + '</option>\
           <option value="round-robin">' + t('roundRobinDesc') + '</option>\
           <option value="greedy-squirrel">' + t('greedySquirrelDesc') + '</option>\
         </select>\
       </div>\
-      <div class="form-group"><label>' + t('comboModels') + '</label>\
+      <div class="form-group"><label for="c-models">' + t('comboModels') + '</label>\
         <div style="display:flex;gap:8px;margin-bottom:8px">\
-          <button class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
+          <button type="button" class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
         </div>\
         <textarea id="c-models" rows="3" placeholder="deepseek/deepseek-chat\nmy-custom/gpt-4o"></textarea>\
       </div>\
@@ -54,8 +54,8 @@ function showAddCombo() {
         <p class="muted">' + t('greedySquirrelHint') + '</p>\
       </div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="withLoading(this, () => addCombo())">' + t('create') + '</button>\
-        <button class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
+        <button type="button" class="btn btn-primary" onclick="withLoading(this, () => addCombo())">' + t('create') + '</button>\
+        <button type="button" class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
       </div>\
     </div>';
   var sel = el.querySelector('#c-strategy');
@@ -99,17 +99,17 @@ async function showEditCombo(id) {
   el.innerHTML = '\
     <div class="card">\
       <div class="card-title">' + t('comboEdit') + '</div>\
-      <div class="form-group mt-12"><label>' + t('name') + '</label><input id="c-name" value="' + escapeHtml(cb.name) + '"></div>\
-      <div class="form-group"><label>' + t('comboStrategy') + '</label>\
+      <div class="form-group mt-12"><label for="c-name">' + t('name') + '</label><input id="c-name" value="' + escapeHtml(cb.name) + '"></div>\
+      <div class="form-group"><label for="c-strategy">' + t('comboStrategy') + '</label>\
         <select id="c-strategy">\
           <option value="fallback"' + (cb.strategy === 'fallback' ? ' selected' : '') + '>' + t('fallbackDesc') + '</option>\
           <option value="round-robin"' + (cb.strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobinDesc') + '</option>\
           <option value="greedy-squirrel"' + (cb.strategy === 'greedy-squirrel' ? ' selected' : '') + '>' + t('greedySquirrelDesc') + '</option>\
         </select>\
       </div>\
-      <div class="form-group"><label>' + t('comboModels') + '</label>\
+      <div class="form-group"><label for="c-models">' + t('comboModels') + '</label>\
         <div style="display:flex;gap:8px;margin-bottom:8px">\
-          <button class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
+          <button type="button" class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
         </div>\
         <textarea id="c-models" rows="3" placeholder="deepseek/deepseek-chat\nmy-custom/gpt-4o">' + escapeHtml((cb.models || []).join('\n')) + '</textarea>\
       </div>\
@@ -117,8 +117,8 @@ async function showEditCombo(id) {
         <p class="muted">' + t('greedySquirrelHint') + '</p>\
       </div>\
       <div class="flex" style="gap:8px">\
-        <button class="btn btn-primary" onclick="withLoading(this, () => saveEditCombo(\'' + id + '\'))">' + t('saveCombo') + '</button>\
-        <button class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
+        <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditCombo(\'' + id + '\'))">' + t('saveCombo') + '</button>\
+        <button type="button" class="btn" onclick="document.getElementById(\'combo-form\').style.display=\'none\'">' + t('cancel') + '</button>\
       </div>\
     </div>';
   var sel = el.querySelector('#c-strategy');
@@ -157,8 +157,8 @@ async function importModelsFromProvider(target) {
     <div class="modal-title">' + t('selectModels') + '</div>\
     <div class="modal-body" style="max-height:400px;overflow-y:auto">\
     <div style="display:flex;gap:6px;margin-bottom:12px">\
-      <button class="btn btn-sm" id="import-select-all">' + t('selectAll') + '</button>\
-      <button class="btn btn-sm" id="import-deselect-all">' + t('deselectAll') + '</button>\
+      <button type="button" class="btn btn-sm" id="import-select-all">' + t('selectAll') + '</button>\
+      <button type="button" class="btn btn-sm" id="import-deselect-all">' + t('deselectAll') + '</button>\
     </div>';
   for (var i = 0; i < providers.length; i++) {
     var p = providers[i];
@@ -176,8 +176,8 @@ async function importModelsFromProvider(target) {
   }
   html += '</div>\
     <div class="modal-footer">\
-      <button class="btn btn-ghost" id="import-close">' + t('close') + '</button>\
-      <button class="btn btn-primary" id="import-add">' + t('addSelected') + '</button>\
+      <button type="button" class="btn btn-ghost" id="import-close">' + t('close') + '</button>\
+      <button type="button" class="btn btn-primary" id="import-add">' + t('addSelected') + '</button>\
     </div></div>';
   var overlay = document.getElementById('modal-overlay');
   overlay.innerHTML = html;

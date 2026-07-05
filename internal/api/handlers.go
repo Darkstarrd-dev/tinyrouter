@@ -165,7 +165,10 @@ func (rt *Router) updateProvider(w http.ResponseWriter, r *http.Request) {
 
 	if rt.reg.UpdateProvider(id, updates) {
 		cfg := rt.reg.Config()
-		config.Save(rt.configPath, &cfg)
+		if err := config.Save(rt.configPath, &cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
 
 		if oldName != "" && oldName != updates.Name {
 			rt.quotaTracker.RenameProvider(oldName, updates.Name)
@@ -184,7 +187,10 @@ func (rt *Router) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if rt.reg.DeleteProvider(id) {
 		cfg := rt.reg.Config()
-		config.Save(rt.configPath, &cfg)
+		if err := config.Save(rt.configPath, &cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -226,7 +232,10 @@ func (rt *Router) createKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if rt.reg.AddKey(providerID, k) {
 		cfg := rt.reg.Config()
-		config.Save(rt.configPath, &cfg)
+		if err := config.Save(rt.configPath, &cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(k)
@@ -245,7 +254,10 @@ func (rt *Router) updateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if rt.reg.UpdateKey(providerID, keyID, updates) {
 		cfg := rt.reg.Config()
-		config.Save(rt.configPath, &cfg)
+		if err := config.Save(rt.configPath, &cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -258,7 +270,10 @@ func (rt *Router) deleteKey(w http.ResponseWriter, r *http.Request) {
 	keyID := chi.URLParam(r, "kid")
 	if rt.reg.DeleteKey(providerID, keyID) {
 		cfg := rt.reg.Config()
-		config.Save(rt.configPath, &cfg)
+		if err := config.Save(rt.configPath, &cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -313,7 +328,10 @@ func (rt *Router) createCombo(w http.ResponseWriter, r *http.Request) {
 	}
 	rt.reg.AddCombo(c)
 	cfg := rt.reg.Config()
-	config.Save(rt.configPath, &cfg)
+	if err := config.Save(rt.configPath, &cfg); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(c)
@@ -328,7 +346,10 @@ func (rt *Router) updateCombo(w http.ResponseWriter, r *http.Request) {
 	}
 	if rt.reg.UpdateCombo(id, updates) {
 		cfg := rt.reg.Config()
-		config.Save(rt.configPath, &cfg)
+		if err := config.Save(rt.configPath, &cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
@@ -340,7 +361,10 @@ func (rt *Router) deleteCombo(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if rt.reg.DeleteCombo(id) {
 		cfg := rt.reg.Config()
-		config.Save(rt.configPath, &cfg)
+		if err := config.Save(rt.configPath, &cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {

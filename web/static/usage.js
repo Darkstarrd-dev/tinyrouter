@@ -39,7 +39,7 @@ function renderUsageRow(e) {
   var statusCell;
   if (usageDebugMode && (e.reqPayload || e.respPayload || e.respStatus)) {
     var ts = new Date(e.timestamp).getTime();
-    statusCell = '<td><button class="btn btn-sm btn-info" onclick="showUsageEntryInfo(\'' + ts + '\')"><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></button></td>';
+    statusCell = '<td><button type="button" class="btn btn-sm btn-info" onclick="showUsageEntryInfo(\'' + ts + '\')"><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></button></td>';
   } else {
     statusCell = '<td><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></td>';
   }
@@ -354,25 +354,13 @@ function updateRecentRequestsInline(entries) {
 
 // --- Quota refresh with debounce ---
 var _quotaRefreshTimer = null;
-var _quotaRefreshFallback = null;
 
 function scheduleQuotaRefresh() {
   if (_quotaRefreshTimer) clearTimeout(_quotaRefreshTimer);
   _quotaRefreshTimer = setTimeout(function() {
     _quotaRefreshTimer = null;
-    _quotaRefreshFallback = null;
     refreshQuotaData();
   }, 300);
-  if (!_quotaRefreshFallback) {
-    _quotaRefreshFallback = setTimeout(function() {
-      if (_quotaRefreshTimer) {
-        clearTimeout(_quotaRefreshTimer);
-        _quotaRefreshTimer = null;
-      }
-      _quotaRefreshFallback = null;
-      refreshQuotaData();
-    }, 150);
-  }
 }
 
 async function refreshQuotaData() {
@@ -401,6 +389,14 @@ function startUsageRefresh() {
         scheduleQuotaRefresh();
       }
     } catch(e) {}
+  };
+  usageEventSource.onerror = function() {
+    var status = document.getElementById('console-status');
+    if (status) status.textContent = t('disconnected');
+  };
+  usageEventSource.onopen = function() {
+    var status = document.getElementById('console-status');
+    if (status) status.textContent = t('connected');
   };
 }
 
@@ -970,8 +966,8 @@ function openRecentRequests() {
     '<div class="modal-title">' + t('recentRequests') + '</div>' +
     '<div class="modal-body" style="max-height:60vh;overflow-y:auto;padding:0 0 8px 0">' + tableHtml + '</div>' +
     '<div class="modal-footer">' +
-      '<button class="btn btn-danger btn-sm" onclick="clearUsageFromModal()">' + t('clear') + '</button>' +
-      '<button class="btn btn-ghost" onclick="closeRecentRequests()">' + t('close') + '</button>' +
+      '<button type="button" class="btn btn-danger btn-sm" onclick="clearUsageFromModal()">' + t('clear') + '</button>' +
+      '<button type="button" class="btn btn-ghost" onclick="closeRecentRequests()">' + t('close') + '</button>' +
     '</div>' +
   '</div>';
 

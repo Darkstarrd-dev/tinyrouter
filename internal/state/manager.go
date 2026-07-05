@@ -21,6 +21,7 @@ type Manager struct {
 	comboRestoreFn  func(id string, s ComboSnapshot) error
 
 	mu      sync.Mutex
+	writeMu sync.Mutex
 	pending bool
 	timer   *time.Timer
 	closed  bool
@@ -110,9 +111,11 @@ func (m *Manager) flushNow() {
 		}
 	}
 
+	m.writeMu.Lock()
 	if err := Save(m.path, snapshot); err != nil {
 		m.logger.Warn("failed to save state.yaml: %v", err)
 	}
+	m.writeMu.Unlock()
 }
 
 // flushNowLocked is called directly from FlushSync without the pending guard.
@@ -137,9 +140,11 @@ func (m *Manager) flushNowLocked() {
 		}
 	}
 
+	m.writeMu.Lock()
 	if err := Save(m.path, snapshot); err != nil {
 		m.logger.Warn("failed to save state.yaml: %v", err)
 	}
+	m.writeMu.Unlock()
 }
 
 // FlushSync immediately captures and writes state, stopping any pending timer.

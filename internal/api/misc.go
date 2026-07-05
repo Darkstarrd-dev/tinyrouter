@@ -194,29 +194,31 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		state := rt.reg.GetKeyState(provider.ID, k.ID)
 		if state != nil {
-			state.Lock()
-			kd.Status = state.Status
-			kd.InFlight = state.InFlight
-			if unlock, ok := state.ModelLocks[model]; ok {
-				if time.Now().Before(unlock) {
-					s := unlock.Format("2006-01-02T15:04:05Z07:00")
-					kd.ModelLock = &s
+			func() {
+				state.Lock()
+				defer state.Unlock()
+				kd.Status = state.Status
+				kd.InFlight = state.InFlight
+				if unlock, ok := state.ModelLocks[model]; ok {
+					if time.Now().Before(unlock) {
+						s := unlock.Format("2006-01-02T15:04:05Z07:00")
+						kd.ModelLock = &s
+					}
 				}
-			}
-			kd.LastError = state.LastError
-			if !state.LastUsedAt.IsZero() {
-				kd.LastUsedAt = state.LastUsedAt.Format("2006-01-02T15:04:05Z07:00")
-			}
-			if !state.RotatedAt.IsZero() {
-				kd.RotatedAt = state.RotatedAt.Format("2006-01-02T15:04:05Z07:00")
-			}
-			if q := state.ModelQuotas[model]; q != nil {
-				kd.HasQuota = true
-				kd.ModelLimit = q.ModelLimit
-				kd.ModelRemain = q.ModelRemaining
-				hasQuota = true
-			}
-			state.Unlock()
+				kd.LastError = state.LastError
+				if !state.LastUsedAt.IsZero() {
+					kd.LastUsedAt = state.LastUsedAt.Format("2006-01-02T15:04:05Z07:00")
+				}
+				if !state.RotatedAt.IsZero() {
+					kd.RotatedAt = state.RotatedAt.Format("2006-01-02T15:04:05Z07:00")
+				}
+				if q := state.ModelQuotas[model]; q != nil {
+					kd.HasQuota = true
+					kd.ModelLimit = q.ModelLimit
+					kd.ModelRemain = q.ModelRemaining
+					hasQuota = true
+				}
+			}()
 		}
 		if kse, ok := keyStatByID[k.ID]; ok {
 			kd.SuccessCount = kse.SuccessCount
@@ -514,14 +516,16 @@ func (rt *Router) currentKey(providerName, model string) currentKey {
 		entry := sk{id: k.ID, name: k.Name, priority: k.Priority, configIdx: idx}
 		state := rt.reg.GetKeyState(provider.ID, k.ID)
 		if state != nil {
-			state.Lock()
-			entry.usable = k.IsActive && state.Status == "active"
-			if unlock, ok := state.ModelLocks[model]; ok && time.Now().Before(unlock) {
-				entry.usable = false
-			}
-			entry.rotatedAt = state.RotatedAt
-			entry.lastUsed = state.LastUsedAt
-			state.Unlock()
+			func() {
+				state.Lock()
+				defer state.Unlock()
+				entry.usable = k.IsActive && state.Status == "active"
+				if unlock, ok := state.ModelLocks[model]; ok && time.Now().Before(unlock) {
+					entry.usable = false
+				}
+				entry.rotatedAt = state.RotatedAt
+				entry.lastUsed = state.LastUsedAt
+			}()
 		} else {
 			entry.usable = k.IsActive
 		}
@@ -549,11 +553,6 @@ func (rt *Router) currentKey(providerName, model string) currentKey {
 		return cands[i].configIdx < cands[j].configIdx
 	})
 	return currentKey{ID: cands[0].id, Name: cands[0].name}
-}
-
-// currentKeyName is a thin wrapper around currentKey that returns only the name.
-func (rt *Router) currentKeyName(providerName, model string) string {
-	return rt.currentKey(providerName, model).Name
 }
 
 func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {

@@ -4,7 +4,32 @@ import (
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
+	"github.com/tinyrouter/tinyrouter/internal/registry"
 )
+
+func readRotatedAt(state *registry.KeyRuntimeState) time.Time {
+	state.Lock()
+	defer state.Unlock()
+	return state.RotatedAt
+}
+
+func readKeyRoundRobinState(state *registry.KeyRuntimeState) (time.Time, int) {
+	state.Lock()
+	defer state.Unlock()
+	return state.LastUsedAt, state.ConsecCount
+}
+
+func readLastUsedAt(state *registry.KeyRuntimeState) time.Time {
+	state.Lock()
+	defer state.Unlock()
+	return state.LastUsedAt
+}
+
+func resetConsecCount(state *registry.KeyRuntimeState) {
+	state.Lock()
+	defer state.Unlock()
+	state.ConsecCount = 0
+}
 
 // selectRotation picks the key at the front of the rotation queue for the "failover"
 // strategy. Keys are ordered by RotatedAt ASC (zero value first = never failed = most
@@ -17,18 +42,14 @@ func (s *Selector) selectRotation(provider *config.Provider, keys []config.Key) 
 	var bestRotated time.Time
 	var bestPriority int
 	if bestState != nil {
-		bestState.Lock()
-		bestRotated = bestState.RotatedAt
-		bestState.Unlock()
+		bestRotated = readRotatedAt(bestState)
 	}
 	bestPriority = best.Priority
 	for _, k := range keys[1:] {
 		st := s.reg.GetKeyState(provider.ID, k.ID)
 		var kRotated time.Time
 		if st != nil {
-			st.Lock()
-			kRotated = st.RotatedAt
-			st.Unlock()
+			kRotated = readRotatedAt(st)
 		}
 		if kRotated.Before(bestRotated) || (kRotated.Equal(bestRotated) && k.Priority < bestPriority) {
 			best = k
@@ -65,14 +86,13 @@ func (s *Selector) selectRoundRobin(provider *config.Provider, keys []config.Key
 		if state == nil {
 			continue
 		}
-		state.Lock()
-		if state.LastUsedAt.After(currentLastUsed) {
-			currentLastUsed = state.LastUsedAt
+		lu, consec := readKeyRoundRobinState(state)
+		if lu.After(currentLastUsed) {
+			currentLastUsed = lu
 			k := keys[i]
 			current = &k
-			currentConsec = state.ConsecCount
+			currentConsec = consec
 		}
-		state.Unlock()
 	}
 
 	if current != nil && currentConsec < stickyLimit {
@@ -86,9 +106,7 @@ func (s *Selector) selectRoundRobin(provider *config.Provider, keys []config.Key
 		if state == nil {
 			continue
 		}
-		state.Lock()
-		lu := state.LastUsedAt
-		state.Unlock()
+		lu := readLastUsedAt(state)
 		if lu.Before(oldestTime) {
 			oldestTime = lu
 			oldest = k
@@ -97,9 +115,7 @@ func (s *Selector) selectRoundRobin(provider *config.Provider, keys []config.Key
 
 	state := s.reg.GetKeyState(providerID, oldest.ID)
 	if state != nil {
-		state.Lock()
-		state.ConsecCount = 0
-		state.Unlock()
+		resetConsecCount(state)
 	}
 	return oldest
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/combo"
@@ -13,6 +12,7 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
 	"github.com/tinyrouter/tinyrouter/internal/usage"
+	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
 type Handler struct {
@@ -55,12 +55,12 @@ func (h *Handler) Completions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path string) {
+	defer r.Body.Close()
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
-	defer r.Body.Close()
 
 	var parsed map[string]any
 	if err := json.Unmarshal(bodyBytes, &parsed); err != nil {
@@ -89,7 +89,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 		return
 	}
 
-	providerID, upstreamModel := splitModel(modelStr)
+	providerID, upstreamModel := util.SplitModel(modelStr)
 	if providerID == "" {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid model format: %s (expected provider/model)", modelStr))
 		return
@@ -180,8 +180,13 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		parsed["model"] = upstreamModel
-		upstreamBody, _ := json.Marshal(parsed)
-		h.logger.Debug("SEND %s | %s | body=%dB | %s", sel.Provider.Name, upstreamModel, len(upstreamBody), truncStr(string(upstreamBody), 500))
+		upstreamBody, err := json.Marshal(parsed)
+		if err != nil {
+			h.logger.Error("failed to marshal upstream body: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal marshalling error")
+			return false
+		}
+		h.logger.Debug("SEND %s | %s | body=%dB | %s", sel.Provider.Name, upstreamModel, len(upstreamBody), util.TruncStr(string(upstreamBody), 500))
 
 		startTime := time.Now()
 		resp, err := h.forwardUpstream(sel, upstreamBody, r.Header, isStream, path)
@@ -212,7 +217,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			continue
 		}
 
-		if resp.StatusCode >= 500 || resp.StatusCode >= 400 {
+		if resp.StatusCode >= 400 {
 			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state)
 			if keyState != nil {
 				keyState.DecInFlight()
@@ -376,14 +381,6 @@ func (h *Handler) parseAndUpdateQuota(sel *rotation.SelectedKey, providerID, mod
 	h.quotaTracker.Update(sel.Provider.Name, model, sel.Key.ID, sel.Key.Name, snap.ModelLimit, snap.ModelRemaining, activeKeyCount)
 }
 
-func splitModel(s string) (string, string) {
-	idx := strings.Index(s, "/")
-	if idx < 0 {
-		return "", s
-	}
-	return s[:idx], s[idx+1:]
-}
-
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -400,40 +397,4 @@ func maskURL(url string) string {
 		return url
 	}
 	return url[:20] + "..."
-}
-
-func truncStr(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
-
-func extractTokens(body []byte) (int, int) {
-	var resp map[string]any
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return 0, 0
-	}
-	usage, ok := resp["usage"].(map[string]any)
-	if !ok {
-		return 0, 0
-	}
-	in := tokenVal(usage, "prompt_tokens", "input_tokens")
-	out := tokenVal(usage, "completion_tokens", "output_tokens")
-	if in == 0 && out == 0 {
-		total, _ := usage["total_tokens"].(float64)
-		if total > 0 {
-			return int(total), 0
-		}
-	}
-	return int(in), int(out)
-}
-
-func tokenVal(m map[string]any, keys ...string) float64 {
-	for _, k := range keys {
-		if v, ok := m[k].(float64); ok && v > 0 {
-			return v
-		}
-	}
-	return 0
 }
