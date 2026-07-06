@@ -48,9 +48,15 @@ func (r *Resolver) Resolve(comboName string) (*ComboPlan, error) {
 	if !ok {
 		return nil, nil
 	}
+	if combo.Disabled {
+		return nil, fmt.Errorf("combo is disabled: %s", comboName)
+	}
 
 	var targets []ModelTarget
 	for _, m := range combo.Models {
+		if isModelDisabled(m, combo.DisabledModels) {
+			continue
+		}
 		prefix, model := util.SplitModel(m)
 		if prefix == "" {
 			continue
@@ -180,6 +186,15 @@ func sortTargetsByTier(targets []ModelTarget) []ModelTarget {
 	result = append(result, limited...)
 	result = append(result, paid...)
 	return result
+}
+
+func isModelDisabled(model string, disabled []string) bool {
+	for _, d := range disabled {
+		if d == model {
+			return true
+		}
+	}
+	return false
 }
 
 // IsComboName checks if the given model string matches a combo name.

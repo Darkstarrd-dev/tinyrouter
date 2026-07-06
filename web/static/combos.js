@@ -1,6 +1,7 @@
 // ===================== Combos Page =====================
 
 var comboEditingModels = [];
+var comboEditingDisabledModels = [];
 var comboProvidersCache = null;
 
 async function renderCombos(c) {
@@ -19,18 +20,34 @@ async function renderCombos(c) {
   }
   list.innerHTML = combos.map(function(cb) {
     return '\
-    <div class="card">\
+    <div class="card' + (cb.disabled ? ' combo-disabled' : '') + '">\
       <div class="card-header">\
-        <span class="card-title">' + escapeHtml(cb.name) + '</span>\
-        <span class="badge badge-active">' + escapeHtml(cb.strategy) + '</span>\
+        <span class="card-title copyable" data-name="' + escapeHtml(cb.name) + '" onclick="copyToClipboard(this.dataset.name, this.dataset.name)" title="' + t('clickToCopy') + '">' + escapeHtml(cb.name) + '</span>\
+        <div class="flex" style="gap:8px">\
+          <span class="badge ' + (cb.disabled ? 'badge-inactive' : 'badge-active') + '">' + escapeHtml(cb.strategy) + '</span>\
+          <button type="button" class="btn btn-sm" onclick="toggleComboDisabled(\'' + cb.id + '\')">' + (cb.disabled ? t('enable') : t('disable')) + '</button>\
+          <button type="button" class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('edit') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
+        </div>\
       </div>\
       <p class="muted">' + t('models') + ' ' + (cb.models ? cb.models.join(', ') : 'none') + '</p>\
-      <div class="mt-12" style="display:flex;gap:8px">\
-        <button type="button" class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('editCombo') + '</button>\
-        <button type="button" class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
-      </div>\
     </div>';
   }).join('');
+}
+
+async function toggleComboDisabled(id) {
+  const data = await apiGet('/combos');
+  const cb = (data.combos || []).find(function(x) { return x.id === id; });
+  if (!cb) return;
+  cb.disabled = !cb.disabled;
+  await apiPut('/combos/' + id, cb);
+  var settingsPanel = document.querySelector('.settings-panel-section');
+  if (settingsPanel) {
+    renderEndpoint(document.getElementById('page-content'));
+  } else {
+    renderCombos(document.getElementById('page-content'));
+  }
+  toast(cb.disabled ? t('comboDisabled') : t('comboEnabled'), 'success');
 }
 
 function showAddCombo() {
@@ -144,6 +161,7 @@ async function showEditCombo(id) {
     syncHint();
   }
   comboEditingModels = (cb.models || []).slice();
+  comboEditingDisabledModels = (cb.disabledModels || []).slice();
   loadComboProvidersAndRender();
 }
 
@@ -152,7 +170,8 @@ async function saveEditCombo(id) {
   const c = {
     name: document.getElementById('c-name').value,
     strategy: document.getElementById('c-strategy').value,
-    models: models
+    models: models,
+    disabledModels: comboEditingDisabledModels
   };
   await apiPut('/combos/' + id, c);
   closeModalOverlay();
@@ -286,13 +305,19 @@ function renderComboModelsList() {
     var fullIdEsc = escapeHtml(fullId);
     var modelIdEsc = escapeHtml(modelId);
     var pidEsc = escapeHtml(pid);
-    html += '<div class="model-row">' +
+    var isDisabled = comboEditingDisabledModels.indexOf(fullId) >= 0;
+    var disabledRowStyle = isDisabled ? ' style="opacity:0.5"' : '';
+    html += '<div class="model-row"' + disabledRowStyle + '>' +
       '<div class="model-row-main">' +
+        (isDisabled
+          ? '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('enable') + '</button>'
+          : '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('disable') + '</button>') +
         (ts
           ? (ts.ok
               ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">OK</span>'
               : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
-          : '<button type="button" class="btn btn-sm" onclick="withLoading(this, () => testComboModel(' + i + '))">' + t('test') + '</button>') +
+          : (isDisabled ? '<button type="button" class="btn btn-sm" disabled>' + t('test') + '</button>'
+            : '<button type="button" class="btn btn-sm" onclick="withLoading(this, () => testComboModel(' + i + '))">' + t('test') + '</button>')) +
         (ts
           ? '<button type="button" class="btn btn-sm btn-info" onclick="showModelInfo(\'' + modelIdEsc + '\')">' + t('info') + '</button>'
           : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
@@ -302,6 +327,17 @@ function renderComboModelsList() {
     '</div>';
   }
   container.innerHTML = html;
+}
+
+function toggleComboModelDisabled(i) {
+  var fullId = comboEditingModels[i];
+  var idx = comboEditingDisabledModels.indexOf(fullId);
+  if (idx >= 0) {
+    comboEditingDisabledModels.splice(idx, 1);
+  } else {
+    comboEditingDisabledModels.push(fullId);
+  }
+  renderComboModelsList();
 }
 
 async function testComboModel(idx) {

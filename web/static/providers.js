@@ -32,18 +32,30 @@ function renderProviderList() {
     var brand = getProviderBrand(p.name);
     var brandStyle = brand ? ' style="border-left:3px solid ' + brand + ';padding-left:18px"' : '';
     return '\
-    <div class="card provider-card"' + brandStyle + ' onclick="openProviderDetail(\'' + p.id + '\')">\
+    <div class="card provider-card"' + brandStyle + '>\
       <div class="card-header">\
         <span class="card-title">' + escapeHtml(p.name) + '</span>\
         <div class="flex" style="gap:8px">\
           <span class="badge ' + (p.isActive ? 'badge-active' : 'badge-inactive') + '">' + (p.isActive ? t('active') : t('inactive')) + '</span>\
           <button type="button" class="btn btn-sm" onclick="toggleProviderList(event, \'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
+          <button type="button" class="btn btn-sm" onclick="event.stopPropagation(); openProviderDetail(\'' + p.id + '\')">' + t('edit') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger" onclick="deleteProviderFromList(event, \'' + p.id + '\')">' + t('delete') + '</button>\
         </div>\
       </div>\
       <p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code">' + escapeHtml(p.baseUrl) + '</span></p>\
       <p class="muted mt-12">' + t('keys') + ' ' + (p.keys ? p.keys.length : 0) + ' | ' + t('models') + ' ' + (p.models ? p.models.length : 0) + '</p>\
     </div>';
   }).join('');
+}
+
+async function deleteProviderFromList(event, id) {
+  if (event) event.stopPropagation();
+  const ok = await confirmModal(t('confirmDeleteProvider'));
+  if (!ok) return;
+  await apiDelete('/providers/' + id);
+  providersCache = providersCache.filter(function(x) { return x.id !== id; });
+  renderProviderList();
+  toast(t('providerDeleted'), 'success');
 }
 
 function openProviderDetail(id) {
@@ -130,7 +142,34 @@ async function addProvider() {
   await apiPost('/providers', p);
   closeModalOverlay();
   toast(t('providerCreated'), 'success');
-  renderProviders(document.getElementById('page-content'));
+
+  const data = await apiGet('/providers');
+  providersCache = data.providers || [];
+
+  var settingsPanel = document.querySelector('.settings-panel-section');
+  if (settingsPanel) {
+    renderProviderList();
+    focusNewProviderCard(p.prefix);
+  } else {
+    renderProviders(document.getElementById('page-content'));
+  }
+}
+
+function focusNewProviderCard(prefix) {
+  var cards = document.querySelectorAll('#provider-list .provider-card');
+  for (var i = 0; i < cards.length; i++) {
+    var codeEl = cards[i].querySelector('.code');
+    if (codeEl && codeEl.textContent === prefix) {
+      var card = cards[i];
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.style.transition = 'box-shadow 0.3s';
+      card.style.boxShadow = '0 0 0 3px var(--color-primary, #4f46e5)';
+      (function(c) {
+        setTimeout(function() { c.style.boxShadow = ''; }, 2000);
+      })(card);
+      break;
+    }
+  }
 }
 
 async function renderProviderDetail(c, id) {

@@ -90,16 +90,17 @@ function renderComboListInline(combos) {
   }
   el.innerHTML = combos.map(function(cb) {
     return '\
-    <div class="card">\
+    <div class="card' + (cb.disabled ? ' combo-disabled' : '') + '">\
       <div class="card-header">\
-        <span class="card-title">' + escapeHtml(cb.name) + '</span>\
-        <span class="badge badge-active">' + escapeHtml(cb.strategy) + '</span>\
+        <span class="card-title copyable" data-name="' + escapeHtml(cb.name) + '" onclick="copyToClipboard(this.dataset.name, this.dataset.name)" title="' + t('clickToCopy') + '">' + escapeHtml(cb.name) + '</span>\
+        <div class="flex" style="gap:8px">\
+          <span class="badge ' + (cb.disabled ? 'badge-inactive' : 'badge-active') + '">' + escapeHtml(cb.strategy) + '</span>\
+          <button type="button" class="btn btn-sm" onclick="toggleComboDisabled(\'' + cb.id + '\')">' + (cb.disabled ? t('enable') : t('disable')) + '</button>\
+          <button type="button" class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('edit') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
+        </div>\
       </div>\
       <p class="muted">' + t('models') + ' ' + (cb.models ? cb.models.join(', ') : 'none') + '</p>\
-      <div class="mt-12" style="display:flex;gap:8px">\
-        <button type="button" class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('editCombo') + '</button>\
-        <button type="button" class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
-      </div>\
     </div>';
   }).join('');
 }

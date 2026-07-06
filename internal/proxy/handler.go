@@ -113,7 +113,11 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 
 func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, path string) {
 	plan, err := h.comboRes.Resolve(comboName)
-	if err != nil || plan == nil || len(plan.Targets) == 0 {
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if plan == nil || len(plan.Targets) == 0 {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("combo not found or empty: %s", comboName))
 		return
 	}
@@ -295,6 +299,9 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, c := range combos {
+		if c.Disabled {
+			continue
+		}
 		models = append(models, modelObj{
 			ID:      c.Name,
 			Object:  "model",

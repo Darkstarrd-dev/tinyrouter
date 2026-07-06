@@ -111,10 +111,12 @@ type NIMSettings struct {
 
 // Combo represents a model combination with a routing strategy.
 type Combo struct {
-	ID       string   `yaml:"id" json:"id"`
-	Name     string   `yaml:"name" json:"name"`
-	Strategy string   `yaml:"strategy" json:"strategy"`
-	Models   []string `yaml:"models" json:"models"`
+	ID             string   `yaml:"id" json:"id"`
+	Name           string   `yaml:"name" json:"name"`
+	Strategy       string   `yaml:"strategy" json:"strategy"`
+	Models         []string `yaml:"models" json:"models"`
+	Disabled       bool     `yaml:"disabled,omitempty" json:"disabled,omitempty"`
+	DisabledModels []string `yaml:"disabledModels,omitempty" json:"disabledModels,omitempty"`
 }
 
 // Config is the top-level configuration structure.
