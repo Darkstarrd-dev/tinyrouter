@@ -172,9 +172,8 @@ func (s *Selector) MarkBalanceLocked(providerID, keyID, model, body string) time
 
 	unlock := nextCSTMidnight05()
 	state.ModelLocks[model] = unlock
-	state.Status = "locked"
-	state.LastError = fmt.Sprintf("402 insufficient balance: %s", truncate(body, 200))
-	state.LastErrorAt = time.Now()
+	state.ModelStatus[model] = "locked"
+	state.ModelErrors[model] = fmt.Sprintf("402 insufficient balance: %s", truncate(body, 200))
 	if s.onStateChange != nil {
 		s.onStateChange()
 	}

@@ -20,15 +20,19 @@ type QuotaInfo struct {
 // KeyRuntimeState holds mutable per-key runtime state (not persisted to YAML).
 type KeyRuntimeState struct {
 	mu           sync.Mutex
-	Status       string // "active" | "cooldown" | "locked"
 	BackoffLevel int
-	ModelLocks   map[string]time.Time
-	LastUsedAt   time.Time
-	ConsecCount  int
-	RotatedAt    time.Time
-	LastError    string
-	LastErrorAt  time.Time
-	ModelQuotas  map[string]*QuotaInfo
+	// ModelLocks holds per-model cooldown/unlock times. A key is unavailable for
+	// a model only while ModelLocks[model] is in the future.
+	ModelLocks map[string]time.Time
+	// ModelStatus holds per-model status: "active" | "cooldown" | "locked".
+	// Status is derived per model, never shared globally.
+	ModelStatus map[string]string
+	// ModelErrors holds the last error message per model.
+	ModelErrors map[string]string
+	LastUsedAt  time.Time
+	ConsecCount int
+	RotatedAt   time.Time
+	ModelQuotas map[string]*QuotaInfo
 
 	// InFlight tracks the number of in-flight requests currently using this key.
 	InFlight int
@@ -87,7 +91,6 @@ func snapshotKeyState(ks *KeyRuntimeState) state.KeySnapshot {
 	ks.Lock()
 	defer ks.Unlock()
 	s := state.KeySnapshot{
-		Status:           ks.Status,
 		BackoffLevel:     ks.BackoffLevel,
 		RotatedAt:        ks.RotatedAt,
 		ConsecCount:      ks.ConsecCount,
@@ -101,6 +104,12 @@ func snapshotKeyState(ks *KeyRuntimeState) state.KeySnapshot {
 		s.ModelLocks = make(map[string]time.Time, len(ks.ModelLocks))
 		for k, v := range ks.ModelLocks {
 			s.ModelLocks[k] = v
+		}
+	}
+	if len(ks.ModelStatus) > 0 {
+		s.ModelStatus = make(map[string]string, len(ks.ModelStatus))
+		for k, v := range ks.ModelStatus {
+			s.ModelStatus[k] = v
 		}
 	}
 	return s
@@ -126,7 +135,6 @@ func (r *Registry) RestoreKeyState(providerID, keyID string, s state.KeySnapshot
 	state.Lock()
 	defer state.Unlock()
 
-	state.Status = s.Status
 	state.BackoffLevel = s.BackoffLevel
 	state.RotatedAt = s.RotatedAt
 	state.ConsecCount = s.ConsecCount
@@ -141,6 +149,14 @@ func (r *Registry) RestoreKeyState(providerID, keyID string, s state.KeySnapshot
 		}
 		for k, v := range s.ModelLocks {
 			state.ModelLocks[k] = v
+		}
+	}
+	if len(s.ModelStatus) > 0 {
+		if state.ModelStatus == nil {
+			state.ModelStatus = make(map[string]string, len(s.ModelStatus))
+		}
+		for k, v := range s.ModelStatus {
+			state.ModelStatus[k] = v
 		}
 	}
 	return nil

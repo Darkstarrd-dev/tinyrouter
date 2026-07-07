@@ -139,9 +139,7 @@ func (s *Selector) RotateToBack(providerID, keyID, model string, statusCode int,
 	state.Lock()
 	defer state.Unlock()
 	state.RotatedAt = time.Now()
-	state.Status = "active"
-	state.LastError = fmt.Sprintf("%d: %s", statusCode, truncate(body, 200))
-	state.LastErrorAt = time.Now()
+	state.ModelErrors[model] = fmt.Sprintf("%d: %s", statusCode, truncate(body, 200))
 	if s.onStateChange != nil {
 		s.onStateChange()
 	}

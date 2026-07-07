@@ -45,7 +45,7 @@ func TestHandle429_DailyQuota(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	keyState.Unlock()
 	if status != "locked" {
 		t.Fatalf("expected status 'locked' for daily quota, got %s", status)
@@ -79,7 +79,7 @@ func TestHandle429_RateLimited(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	hasLock := false
 	if lock, ok := keyState.ModelLocks["gpt-4"]; ok && !lock.IsZero() {
 		hasLock = true
@@ -126,7 +126,7 @@ func TestHandle429_Transient(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	hasLock := false
 	if lock, ok := keyState.ModelLocks["gpt-4"]; ok && !lock.IsZero() {
 		hasLock = true
@@ -160,7 +160,7 @@ func TestHandleUpstreamError_401(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	hasLock := false
 	if lock, ok := keyState.ModelLocks["gpt-4"]; ok && !lock.IsZero() {
 		hasLock = true
@@ -201,7 +201,7 @@ func TestHandleUpstreamError_500(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	hasLock := false
 	if lock, ok := keyState.ModelLocks["gpt-4"]; ok && !lock.IsZero() {
 		hasLock = true
@@ -242,7 +242,7 @@ func TestHandleUpstreamError_403(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	hasLock := false
 	if lock, ok := keyState.ModelLocks["gpt-4"]; ok && !lock.IsZero() {
 		hasLock = true
@@ -271,8 +271,8 @@ func TestHandleNetworkError(t *testing.T) {
 
 	keyState.Lock()
 	backoffLevel := keyState.BackoffLevel
-	status := keyState.Status
-	lastError := keyState.LastError
+	status := keyState.ModelStatus["gpt-4"]
+	lastError := keyState.ModelErrors["gpt-4"]
 	keyState.Unlock()
 
 	if backoffLevel != 1 {
@@ -466,7 +466,7 @@ func TestHandle429_DailyQuotaViaBodyText(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	keyState.Unlock()
 
 	if status != "locked" {
@@ -518,7 +518,7 @@ func TestHandleUpstreamError_402(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	keyState.Unlock()
 
 	// 402 → ActionCooldown, CooldownSec 120
@@ -546,7 +546,7 @@ func TestHandleUpstreamError_404(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	keyState.Unlock()
 
 	if status != "cooldown" {
@@ -676,7 +676,7 @@ func TestHandle429_ModelScopeExhausted(t *testing.T) {
 	}
 
 	keyState.Lock()
-	status := keyState.Status
+	status := keyState.ModelStatus["gpt-4"]
 	keyState.Unlock()
 
 	if status != "locked" {

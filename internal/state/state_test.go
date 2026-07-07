@@ -18,13 +18,13 @@ func TestLoadSaveRoundtrip(t *testing.T) {
 		SavedAt: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC),
 		Keys: map[string]*KeySnapshot{
 			"provA::key1": {
-				Status:       "active",
 				BackoffLevel: 0,
+				ModelStatus:  map[string]string{"gpt-4": "active"},
 				ConsecCount:  2,
 			},
 			"provA::key2": {
-				Status:       "cooldown",
 				BackoffLevel: 3,
+				ModelStatus:  map[string]string{"gpt-4": "cooldown"},
 				ModelLocks: map[string]time.Time{
 					"gpt-4": time.Now().Add(30 * time.Second),
 				},
@@ -51,11 +51,11 @@ func TestLoadSaveRoundtrip(t *testing.T) {
 		t.Fatalf("len(Keys) = %d, want 2", len(loaded.Keys))
 	}
 	k1 := loaded.Keys["provA::key1"]
-	if k1 == nil || k1.Status != "active" || k1.ConsecCount != 2 {
+	if k1 == nil || k1.ModelStatus["gpt-4"] != "active" || k1.ConsecCount != 2 {
 		t.Fatalf("key1 mismatch: %+v", k1)
 	}
 	k2 := loaded.Keys["provA::key2"]
-	if k2 == nil || k2.Status != "cooldown" || k2.NIMRequestCount != 10 {
+	if k2 == nil || k2.ModelStatus["gpt-4"] != "cooldown" || k2.NIMRequestCount != 10 {
 		t.Fatalf("key2 mismatch: %+v", k2)
 	}
 	if len(k2.ModelLocks) != 1 {
@@ -118,7 +118,7 @@ func TestManagerFlushSync(t *testing.T) {
 		WithKeyStateProvider(
 			func() map[string]KeySnapshot {
 				return map[string]KeySnapshot{
-					"prov::key": {Status: "active", ConsecCount: 5},
+					"prov::key": {ModelStatus: map[string]string{"gpt-4": "active"}, ConsecCount: 5},
 				}
 			},
 			func(providerID, keyID string, s KeySnapshot) error { return nil },
@@ -137,7 +137,7 @@ func TestManagerFlushSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if loaded.Keys["prov::key"] == nil || loaded.Keys["prov::key"].Status != "active" {
+	if loaded.Keys["prov::key"] == nil || loaded.Keys["prov::key"].ModelStatus["gpt-4"] != "active" {
 		t.Fatal("state not persisted correctly")
 	}
 }
@@ -151,7 +151,7 @@ func TestManagerScheduleWrite(t *testing.T) {
 		WithKeyStateProvider(
 			func() map[string]KeySnapshot {
 				return map[string]KeySnapshot{
-					"schedule::test": {Status: "active", ConsecCount: 3},
+					"schedule::test": {ModelStatus: map[string]string{"gpt-4": "active"}, ConsecCount: 3},
 				}
 			},
 			func(providerID, keyID string, s KeySnapshot) error { return nil },
@@ -186,7 +186,7 @@ func TestRestoreRoundtrip(t *testing.T) {
 		WithKeyStateProvider(
 			func() map[string]KeySnapshot {
 				return map[string]KeySnapshot{
-					"restore::test": {Status: "active", ConsecCount: 7},
+					"restore::test": {ModelStatus: map[string]string{"gpt-4": "active"}, ConsecCount: 7},
 				}
 			},
 			func(providerID, keyID string, s KeySnapshot) error {

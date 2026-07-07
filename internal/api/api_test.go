@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/combo"
 	"github.com/tinyrouter/tinyrouter/internal/config"
@@ -422,5 +423,75 @@ func TestGetQuotas_CurrentKeyID_Name(t *testing.T) {
 	}
 	if !found {
 		t.Error("quota bar for DupProv/model-x not found")
+	}
+}
+
+// TestModelKeys_PerModelStatusIsolation guards against a bug where a key's
+// cooldown/error for one model leaked into the displayed status/error of the
+// same key under a different model (e.g. ModelScope model-a rate limited
+// incorrectly showed model-b's keys as rate limited too).
+func TestModelKeys_PerModelStatusIsolation(t *testing.T) {
+	srv, reg, _, rt := setupTestServer(t)
+	defer srv.Close()
+	selector := rt.selector
+
+	// Provider with two models sharing a single key.
+	prov := &config.Provider{}
+	for _, p := range reg.ListProviders() {
+		if p.ID == "test-prov" {
+			pp := p
+			prov = &pp
+		}
+	}
+	prov.Models = []config.ModelDef{
+		{ID: "model-a"},
+		{ID: "model-b"},
+	}
+
+	// Mark the key rate-limited for model-a only.
+	selector.MarkRateLimited("test-prov", "k1", "model-a", 60*time.Second)
+
+	// model-a should report cooldown + error.
+	respA := requestJSON(t, "GET", srv.URL+"/api/usage/model-keys?provider=Test&model=model-a", "")
+	if respA.StatusCode != http.StatusOK {
+		t.Fatalf("model-a: expected 200, got %d", respA.StatusCode)
+	}
+	var bodyA map[string]any
+	json.Unmarshal([]byte(readBody(t, respA)), &bodyA)
+	keysA := bodyA["keys"].([]any)
+	if len(keysA) != 1 {
+		t.Fatalf("model-a: expected 1 key, got %d", len(keysA))
+	}
+	keyA := keysA[0].(map[string]any)
+	if keyA["status"] != "cooldown" {
+		t.Errorf("model-a: expected status 'cooldown', got %v", keyA["status"])
+	}
+	if keyA["modelLock"] == nil {
+		t.Error("model-a: expected modelLock to be set")
+	}
+	if keyA["lastError"] == "" {
+		t.Error("model-a: expected lastError to be set")
+	}
+
+	// model-b must remain active with no leaked error.
+	respB := requestJSON(t, "GET", srv.URL+"/api/usage/model-keys?provider=Test&model=model-b", "")
+	if respB.StatusCode != http.StatusOK {
+		t.Fatalf("model-b: expected 200, got %d", respB.StatusCode)
+	}
+	var bodyB map[string]any
+	json.Unmarshal([]byte(readBody(t, respB)), &bodyB)
+	keysB := bodyB["keys"].([]any)
+	if len(keysB) != 1 {
+		t.Fatalf("model-b: expected 1 key, got %d", len(keysB))
+	}
+	keyB := keysB[0].(map[string]any)
+	if keyB["status"] != "active" {
+		t.Errorf("model-b: expected status 'active', got %v (bug: leaked from model-a)", keyB["status"])
+	}
+	if keyB["modelLock"] != nil {
+		t.Error("model-b: expected no modelLock (bug: leaked from model-a)")
+	}
+	if keyB["lastError"] != "" {
+		t.Errorf("model-b: expected empty lastError, got %q (bug: leaked from model-a)", keyB["lastError"])
 	}
 }

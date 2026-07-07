@@ -62,8 +62,9 @@ func (r *Registry) AddProvider(p config.Provider) {
 	defer r.stateMu.Unlock()
 	for _, k := range p.Keys {
 		r.states[p.ID+"/"+k.ID] = &KeyRuntimeState{
-			Status:     "active",
-			ModelLocks: make(map[string]time.Time),
+			ModelLocks:  make(map[string]time.Time),
+			ModelStatus: make(map[string]string),
+			ModelErrors: make(map[string]string),
 		}
 	}
 }

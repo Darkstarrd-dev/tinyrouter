@@ -36,8 +36,9 @@ func (r *Registry) AddKey(providerID string, k config.Key) bool {
 
 		r.stateMu.Lock()
 		r.states[stateKey(providerID, k.ID)] = &KeyRuntimeState{
-			Status:     "active",
-			ModelLocks: make(map[string]time.Time),
+			ModelLocks:  make(map[string]time.Time),
+			ModelStatus: make(map[string]string),
+			ModelErrors: make(map[string]string),
 		}
 		r.stateMu.Unlock()
 

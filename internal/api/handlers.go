@@ -292,17 +292,34 @@ func (rt *Router) getKeyState(w http.ResponseWriter, r *http.Request) {
 	state.Lock()
 	defer state.Unlock()
 	locks := make(map[string]string)
+	statuses := make(map[string]string)
+	errors := make(map[string]string)
+	now := time.Now()
+	active := true
 	for m, t := range state.ModelLocks {
 		locks[m] = t.Format("2006-01-02T15:04:05Z07:00")
+		st := state.ModelStatus[m]
+		if st == "" {
+			st = "cooldown"
+		}
+		statuses[m] = st
+		if now.Before(t) {
+			active = false
+		}
+		if err, ok := state.ModelErrors[m]; ok {
+			errors[m] = err
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"status":       state.Status,
+		"status":       map[bool]string{true: "active", false: "cooldown"}[active],
 		"backoffLevel": state.BackoffLevel,
 		"modelLocks":   locks,
+		"modelStatus":  statuses,
+		"modelErrors":  errors,
 		"lastUsedAt":   state.LastUsedAt.Format("2006-01-02T15:04:05Z07:00"),
 		"consecCount":  state.ConsecCount,
-		"lastError":    state.LastError,
+		"lastError":    "",
 	})
 }
 

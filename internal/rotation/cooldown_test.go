@@ -88,8 +88,8 @@ func TestMarkUnavailable_429Backoff(t *testing.T) {
 	if state.BackoffLevel != 4 {
 		t.Fatalf("expected BackoffLevel 4, got %d", state.BackoffLevel)
 	}
-	if state.Status != "cooldown" {
-		t.Fatalf("expected status 'cooldown', got %s", state.Status)
+	if state.ModelStatus["gpt-4"] != "cooldown" {
+		t.Fatalf("expected model status 'cooldown', got %s", state.ModelStatus["gpt-4"])
 	}
 	state.Unlock()
 
@@ -126,8 +126,8 @@ func TestClearError_ClearsModelLock(t *testing.T) {
 	if state.BackoffLevel != 0 {
 		t.Fatalf("expected BackoffLevel reset to 0, got %d", state.BackoffLevel)
 	}
-	if state.Status != "active" {
-		t.Fatalf("expected status 'active', got %s", state.Status)
+	if _, ok := state.ModelStatus["gpt-4"]; ok {
+		t.Fatalf("expected model status 'gpt-4' to be removed, got %s", state.ModelStatus["gpt-4"])
 	}
 	state.Unlock()
 }
@@ -207,8 +207,8 @@ func TestMarkDailyQuotaLocked(t *testing.T) {
 	unlock := sel.MarkDailyQuotaLocked("test", "a", "gpt-4", "daily quota exceeded for gpt-4")
 
 	state.Lock()
-	if state.Status != "locked" {
-		t.Fatalf("expected status 'locked', got %s", state.Status)
+	if state.ModelStatus["gpt-4"] != "locked" {
+		t.Fatalf("expected model status 'locked', got %s", state.ModelStatus["gpt-4"])
 	}
 	if _, ok := state.ModelLocks["gpt-4"]; !ok {
 		t.Fatal("expected model lock to exist")
@@ -233,14 +233,14 @@ func TestMarkBalanceLocked(t *testing.T) {
 	unlock := sel.MarkBalanceLocked("test", "a", "gpt-4", `{"error":{"http_code":"402","message":"insufficient balance (1008)","type":"insufficient_balance_error"}}`)
 
 	state.Lock()
-	if state.Status != "locked" {
-		t.Fatalf("expected status 'locked', got %s", state.Status)
+	if state.ModelStatus["gpt-4"] != "locked" {
+		t.Fatalf("expected model status 'locked', got %s", state.ModelStatus["gpt-4"])
 	}
 	if _, ok := state.ModelLocks["gpt-4"]; !ok {
 		t.Fatal("expected model lock to exist")
 	}
-	if !strings.Contains(state.LastError, "insufficient balance") {
-		t.Fatalf("expected last error to mention insufficient balance, got %q", state.LastError)
+	if !strings.Contains(state.ModelErrors["gpt-4"], "insufficient balance") {
+		t.Fatalf("expected last error to mention insufficient balance, got %q", state.ModelErrors["gpt-4"])
 	}
 	state.Unlock()
 

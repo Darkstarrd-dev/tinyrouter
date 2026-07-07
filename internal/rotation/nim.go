@@ -110,11 +110,10 @@ func (s *Selector) MarkNIM429(providerID, keyID, model string) time.Time {
 	unlock := time.Now().Add(duration)
 
 	state.ModelLocks[model] = unlock
-	state.Status = "cooldown"
+	state.ModelStatus[model] = "cooldown"
 	state.NIMLast429Time = time.Now()
 	state.RotatedAt = time.Now()
-	state.LastError = fmt.Sprintf("429 NIM cooldown: %v", duration)
-	state.LastErrorAt = time.Now()
+	state.ModelErrors[model] = fmt.Sprintf("429 NIM cooldown: %v", duration)
 	if s.onStateChange != nil {
 		s.onStateChange()
 	}

@@ -22,10 +22,12 @@ type Snapshot struct {
 
 // KeySnapshot holds the persistable subset of a key's runtime state.
 type KeySnapshot struct {
-	Status           string               `yaml:"status"`
-	BackoffLevel     int                  `yaml:"backoff_level"`
-	ModelLocks       map[string]time.Time `yaml:"model_locks,omitempty"`
-	RotatedAt        time.Time            `yaml:"rotated_at,omitempty"`
+	BackoffLevel int                  `yaml:"backoff_level"`
+	ModelLocks   map[string]time.Time `yaml:"model_locks,omitempty"`
+	// ModelStatus persists per-model cooldown/lock status so the lock type
+	// (cooldown vs daily-locked) survives a restart.
+	ModelStatus map[string]string `yaml:"model_status,omitempty"`
+	RotatedAt   time.Time         `yaml:"rotated_at,omitempty"`
 	ConsecCount      int                  `yaml:"consec_count"`
 	LastUsedAt       time.Time            `yaml:"last_used_at,omitempty"`
 	NIMRequestCount  int                  `yaml:"nim_request_count,omitempty"`

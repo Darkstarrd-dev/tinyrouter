@@ -197,15 +197,21 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 			func() {
 				state.Lock()
 				defer state.Unlock()
-				kd.Status = state.Status
 				kd.InFlight = state.InFlight
 				if unlock, ok := state.ModelLocks[model]; ok {
 					if time.Now().Before(unlock) {
 						s := unlock.Format("2006-01-02T15:04:05Z07:00")
 						kd.ModelLock = &s
+						kd.Status = state.ModelStatus[model]
+						if kd.Status == "" {
+							kd.Status = "cooldown"
+						}
 					}
 				}
-				kd.LastError = state.LastError
+				if kd.Status == "" {
+					kd.Status = "active"
+				}
+				kd.LastError = state.ModelErrors[model]
 				if !state.LastUsedAt.IsZero() {
 					kd.LastUsedAt = state.LastUsedAt.Format("2006-01-02T15:04:05Z07:00")
 				}
@@ -261,7 +267,7 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 		if d.RotatedAt != "" {
 			rot, _ = time.Parse(time.RFC3339, d.RotatedAt)
 		}
-		usable := d.IsActive && d.Status == "active" && d.ModelLock == nil
+		usable := d.IsActive && d.ModelLock == nil
 		keys[i] = sortKey{
 			usable:    usable,
 			t1:        rot, // failover: RotatedAt asc; never-rotated = zero = front
@@ -310,7 +316,7 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 	inUseKeyName := ""
 	inUseKeyID := ""
 	for _, d := range sorted {
-		if d.IsActive && d.Status == "active" && d.ModelLock == nil {
+		if d.IsActive && d.ModelLock == nil {
 			inUseKeyName = d.KeyName
 			inUseKeyID = d.KeyID
 			break
@@ -525,7 +531,7 @@ func (rt *Router) currentKey(providerName, model string) currentKey {
 			func() {
 				state.Lock()
 				defer state.Unlock()
-				entry.usable = k.IsActive && state.Status == "active"
+				entry.usable = k.IsActive
 				if unlock, ok := state.ModelLocks[model]; ok && time.Now().Before(unlock) {
 					entry.usable = false
 				}

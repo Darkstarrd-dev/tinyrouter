@@ -29,10 +29,11 @@ func (r *Registry) reloadStatesLocked() {
 	newStates := make(map[string]*KeyRuntimeState)
 	for _, p := range r.config.Providers {
 		for _, k := range p.Keys {
-			newStates[p.ID+"/"+k.ID] = &KeyRuntimeState{
-				Status:     "active",
-				ModelLocks: make(map[string]time.Time),
-			}
+		newStates[p.ID+"/"+k.ID] = &KeyRuntimeState{
+			ModelLocks:  make(map[string]time.Time),
+			ModelStatus: make(map[string]string),
+			ModelErrors: make(map[string]string),
+		}
 		}
 	}
 	r.stateMu.Lock()

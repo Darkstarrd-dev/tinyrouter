@@ -132,8 +132,8 @@ func TestNIMMark429_CooldownLadder(t *testing.T) {
 	if state.NIMCooldownLevel != 1 {
 		t.Fatalf("expected NIMCooldownLevel=1, got %d", state.NIMCooldownLevel)
 	}
-	if state.Status != "cooldown" {
-		t.Fatalf("expected status 'cooldown', got %s", state.Status)
+	if state.ModelStatus["gpt-4"] != "cooldown" {
+		t.Fatalf("expected model status 'cooldown', got %s", state.ModelStatus["gpt-4"])
 	}
 	state.Unlock()
 
