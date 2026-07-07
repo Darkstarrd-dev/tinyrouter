@@ -239,6 +239,11 @@ tbody tr:last-child td{border-bottom:none}
 .model-quota{font-size:var(--font-model-status);padding:2px 8px;border-radius:100px;font-weight:600;color:var(--text-muted);background:var(--badge-inactive-bg);font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
 .model-row .model-row-main{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer;border-radius:8px;padding:2px 0}
 .model-row-chevron{flex-shrink:0;color:var(--text-muted);transition:transform .25s cubic-bezier(0.4,0,0.2,1)}
+.model-row .drag-handle{flex-shrink:0;cursor:grab;color:var(--text-muted);user-select:none;font-size:16px;line-height:1;padding:0 2px}
+.model-row .drag-handle:active{cursor:grabbing}
+.model-row.dragging{opacity:.4}
+.model-row.drag-over{border-color:var(--accent);background:var(--glass-hover)}
+#c-models-list .model-row-main{cursor:default}
 .model-row .model-quota-select{flex-shrink:0;width:auto;height:calc(var(--font-base) + 11px);box-sizing:border-box;max-width:120px;font-size:var(--font-badge);padding:3px 8px;border-radius:6px;background:var(--input-bg);border:1px solid var(--glass-border);color:var(--text)}
 .model-alltest-badge{font-size:var(--font-badge);padding:2px 8px;border-radius:100px;font-weight:600;display:none;font-variant-numeric:tabular-nums;background:var(--badge-inactive-bg);font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;flex-shrink:0}
 .model-alltest-badge.show{display:inline-flex;gap:3px;align-items:center}
@@ -782,9 +787,9 @@ tbody tr:last-child td{border-bottom:none}
 /* ===================== Settings Layout ===================== */
 .settings-layout{display:flex;gap:0;height:100%;align-items:stretch;overflow:hidden}
 
-/* Left panel: 1/3 width, pure rectangle, scrollable */
+/* Left panel: 25% width, pure rectangle, scrollable */
 .settings-panel-left{
-  flex:1;
+  flex:0 0 25%;
   min-width:0;
   overflow-y:auto;
   scrollbar-width:none;
@@ -809,9 +814,9 @@ tbody tr:last-child td{border-bottom:none}
 .settings-block-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .settings-block-title{font-weight:600;font-size:var(--font-card-title);color:var(--text)}
 
-/* Right panel: 2/3 width, split into two sections */
+/* Right panel: 75% width, split into two sections */
 .settings-panel-right{
-  flex:2;
+  flex:1;
   min-width:0;
   overflow:hidden;
   display:flex;
@@ -890,7 +895,7 @@ tbody tr:last-child td{border-bottom:none}
   .settings-panel-right{overflow:visible}
   .settings-panel-section{flex:none;overflow-y:visible;border-bottom:1px solid var(--glass-border)}
   .settings-panel-body{overflow-y:visible}
-  .settings-card-grid{grid-template-columns:1f r}
+  .settings-card-grid{grid-template-columns:1fr}
 }
 
 

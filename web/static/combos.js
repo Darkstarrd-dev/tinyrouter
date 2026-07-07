@@ -125,7 +125,7 @@ async function showEditCombo(id) {
   const cb = (data.combos || []).find(function(x) { return x.id === id; });
   if (!cb) return;
   var overlay = document.getElementById('modal-overlay');
-  overlay.innerHTML = '<div class="modal" style="max-width:520px">\
+  overlay.innerHTML = '<div class="modal" style="max-width:70vw;width:70vw">\
     <div class="modal-title">' + t('comboEdit') + '</div>\
     <div class="form-group"><label for="c-name">' + t('name') + '</label><input id="c-name" value="' + escapeHtml(cb.name) + '"></div>\
     <div class="form-group"><label for="c-strategy">' + t('comboStrategy') + '</label>\
@@ -221,6 +221,8 @@ async function importModelsFromProvider(target) {
   importOverlay.innerHTML = html;
   document.body.appendChild(importOverlay);
   requestAnimationFrame(function() { importOverlay.classList.add('show'); });
+  var filterInput = importOverlay.querySelector('#import-filter');
+  if (filterInput) filterInput.focus();
   function closeImport() {
     importOverlay.classList.remove('show');
     setTimeout(function() { if (importOverlay.parentNode) importOverlay.remove(); }, 400);
@@ -307,8 +309,11 @@ function renderComboModelsList() {
     var pidEsc = escapeHtml(pid);
     var isDisabled = comboEditingDisabledModels.indexOf(fullId) >= 0;
     var disabledRowStyle = isDisabled ? ' style="opacity:0.5"' : '';
-    html += '<div class="model-row"' + disabledRowStyle + '>' +
+    var isFirst = i === 0;
+    var isLast = i === comboEditingModels.length - 1;
+    html += '<div class="model-row" data-index="' + i + '" draggable="true"' + disabledRowStyle + '>' +
       '<div class="model-row-main">' +
+        '<span class="drag-handle" title="' + t('dragToReorder') + '" draggable="false">⠿</span>' +
         (isDisabled
           ? '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('enable') + '</button>'
           : '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('disable') + '</button>') +
@@ -321,12 +326,61 @@ function renderComboModelsList() {
         (ts
           ? '<button type="button" class="btn btn-sm btn-info" onclick="showModelInfo(\'' + modelIdEsc + '\')">' + t('info') + '</button>'
           : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
+        '<button type="button" class="btn btn-sm" ' + (isFirst ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
+        '<button type="button" class="btn btn-sm" ' + (isLast ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeComboModel(' + i + ')">' + t('delete') + '</button>' +
         '<span class="model-id copyable" onclick="copyToClipboard(\'' + fullIdEsc + '\')" title="' + t('clickToCopy') + '">' + fullIdEsc + '</span>' +
       '</div>' +
     '</div>';
   }
   container.innerHTML = html;
+  attachComboRowDragHandlers(container);
+}
+
+var comboDragFromIndex = -1;
+
+function attachComboRowDragHandlers(container) {
+  var rows = container.querySelectorAll('.model-row');
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    row.addEventListener('dragstart', function(e) {
+      comboDragFromIndex = parseInt(this.getAttribute('data-index'), 10);
+      this.classList.add('dragging');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', String(comboDragFromIndex)); } catch (err) {}
+      }
+    });
+    row.addEventListener('dragend', function() {
+      this.classList.remove('dragging');
+      comboDragFromIndex = -1;
+    });
+    row.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      this.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', function() {
+      this.classList.remove('drag-over');
+    });
+    row.addEventListener('drop', function(e) {
+      e.preventDefault();
+      this.classList.remove('drag-over');
+      var to = parseInt(this.getAttribute('data-index'), 10);
+      if (comboDragFromIndex >= 0 && comboDragFromIndex !== to) {
+        moveComboModel(comboDragFromIndex, to);
+      }
+    });
+  }
+}
+
+function moveComboModel(from, to) {
+  if (from < 0 || from >= comboEditingModels.length) return;
+  if (to < 0 || to >= comboEditingModels.length) return;
+  if (from === to) return;
+  var m = comboEditingModels.splice(from, 1)[0];
+  comboEditingModels.splice(to, 0, m);
+  renderComboModelsList();
 }
 
 function toggleComboModelDisabled(i) {
