@@ -179,10 +179,18 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	if web.PlaygroundCompiled() {
 		if pgStatic, err := fs.Sub(web.PlaygroundStatic, "playground/static-pg"); err == nil {
 			pgFSRoot := http.FileServer(http.FS(pgStatic))
-			r.Get("/playground.js", pgFSRoot.ServeHTTP)
 			r.Get("/playground.css", pgFSRoot.ServeHTTP)
-			r.Get("/pg-i18n.js", pgFSRoot.ServeHTTP)
 			r.Get("/vendor/*", pgFSRoot.ServeHTTP)
+			pgJSFiles := []string{
+				"playground.js", "pg-i18n.js",
+				"pg-core.js", "pg-state.js", "pg-markdown.js",
+				"pg-request.js", "pg-stream.js", "pg-render.js",
+				"pg-ui.js", "pg-modal.js", "pg-lifecycle.js",
+				"pg-autochat.js",
+			}
+			for _, f := range pgJSFiles {
+				r.Get("/"+f, pgFSRoot.ServeHTTP)
+			}
 		}
 	}
 	r.Get("/*", rt.serveUI)
