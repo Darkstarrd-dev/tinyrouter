@@ -1022,6 +1022,21 @@ function pgRenderBubble(idx) {
   var isSourceVisible = !!msg.sourceVisible;
   var html = pgMsgInnerHTML(idx, msg, isSourceVisible);
   wrap.innerHTML = html;
+  // Streaming re-render only rewrote the bubble slot above; refresh the meta
+  // row (time + action buttons) so buttons appear as soon as status leaves 'loading'.
+  var metaWrap = document.getElementById('pg-msg-' + idx);
+  if (metaWrap) {
+    var metaEl = metaWrap.querySelector('.pg-msg-meta');
+    if (metaEl) {
+      metaEl.innerHTML = pgMsgMetaInnerHTML(idx, msg);
+    } else if (msg.role !== 'loading') {
+      // meta 尚未生成(曾为 loading), 补建一个.
+      var meta = document.createElement('div');
+      meta.className = 'pg-msg-meta' + (msg.role === 'assistant' && idx === pgState.messages.length - 1 ? ' always-show' : '');
+      meta.innerHTML = pgMsgMetaInnerHTML(idx, msg);
+      metaWrap.appendChild(meta);
+    }
+  }
   // Source/preview re-render won't touch <pre>; only highlight if showing source.
   if (isSourceVisible) {
     pgHighlight(wrap);
@@ -1186,6 +1201,49 @@ function pgMsgInnerHTML(idx, msg, isSourceVisible) {
   return inner;
 }
 
+// Build the inner content of a message's meta row (time + action buttons).
+// Extracted so both pgRenderMessages (full rebuild) and pgRenderBubble
+// (streaming re-render) can refresh the actions once a message leaves 'loading'.
+function pgMsgMetaInnerHTML(idx, msg) {
+  var metaTime = pgFormatTime(msg.createdAt || msg.completedAt || msg.startedAt);
+  var metaLines = '';
+  if (msg.role === 'assistant' && msg.durationMs != null) {
+    var dur = pgFormatDuration(msg.durationMs);
+    if (metaTime && dur) {
+      metaLines = pgEscapeHtml(metaTime) + ' · ' + pgEscapeHtml(pgT('pgMetaResponse', [dur]));
+    } else if (dur) {
+      metaLines = pgEscapeHtml(pgT('pgMetaResponse', [dur]));
+    } else {
+      metaLines = pgEscapeHtml(metaTime);
+    }
+  } else if (metaTime) {
+    metaLines = pgEscapeHtml(metaTime);
+  }
+  var html = '<span>' + metaLines + '</span>';
+  html += '<div class="pg-msg-actions">';
+  if (msg.role === 'assistant' && msg.status !== 'loading') {
+    html += '<button class="pg-action" onclick="pgActionCopy(' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
+    html += '<button class="pg-action" onclick="pgToggleSource(' + idx + ')" title="' + pgEscapeHtml(msg.sourceVisible ? pgT('pgShowPreview') : pgT('pgShowSource')) + '">' + PG_ICON_SRC + '</button>';
+    html += '<button class="pg-action" onclick="pgRegenerate(' + idx + ')" title="' + pgEscapeHtml(pgT('pgRegenerate')) + '">' + PG_ICON_REGEN + '</button>';
+    if (msg.status === 'error') {
+      html += '<button class="pg-action" onclick="pgRetryError(' + idx + ')" title="' + pgEscapeHtml(pgT('pgRetry')) + '">' + PG_ICON_RETRY + '</button>';
+      html += '<button class="pg-action" onclick="pgEditPromptForError(' + idx + ')" title="' + pgEscapeHtml(pgT('pgEditPrompt')) + '">' + PG_ICON_EDIT + '</button>';
+    }
+    html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
+  } else if (msg.role === 'user') {
+    html += '<button class="pg-action" onclick="pgActionCopy(' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
+    html += '<button class="pg-action" onclick="pgToggleRole(' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
+    html += '<button class="pg-action" onclick="pgBeginEdit(' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
+    html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
+  } else if (msg.role === 'system') {
+    html += '<button class="pg-action" onclick="pgToggleRole(' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
+    html += '<button class="pg-action" onclick="pgBeginEdit(' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
+    html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
+  }
+  html += '</div>';
+  return html;
+}
+
 function pgRenderMessages() {
   var box = document.getElementById('pg-messages');
   if (!box) return;
@@ -1199,44 +1257,8 @@ function pgRenderMessages() {
     var errCls = msg.status === 'error' ? ' error' : '';
     html += '<div class="pg-msg ' + side + errCls + '" id="pg-msg-' + idx + '">';
     html += '<div class="pg-bubble-slot" id="pg-bubble-' + idx + '">' + pgMsgInnerHTML(idx, msg, !!msg.sourceVisible) + '</div>';
-    // Metadata: time + response duration.
-    var metaTime = pgFormatTime(msg.createdAt || msg.completedAt || msg.startedAt);
-    var metaLines = '';
-    if (msg.role === 'assistant' && msg.durationMs != null) {
-      var dur = pgFormatDuration(msg.durationMs);
-      if (metaTime && dur) {
-        metaLines = pgEscapeHtml(metaTime) + ' · ' + pgEscapeHtml(pgT('pgMetaResponse', [dur]));
-      } else if (dur) {
-        metaLines = pgEscapeHtml(pgT('pgMetaResponse', [dur]));
-      } else {
-        metaLines = pgEscapeHtml(metaTime);
-      }
-    } else if (metaTime) {
-      metaLines = pgEscapeHtml(metaTime);
-    }
     if (msg.role !== 'loading') {
-      html += '<div class="pg-msg-meta' + (msg.role === 'assistant' && idx === pgState.messages.length - 1 ? ' always-show' : '') + '"><span>' + metaLines + '</span>';
-      html += '<div class="pg-msg-actions">';
-      if (msg.role === 'assistant' && msg.status !== 'loading') {
-        html += '<button class="pg-action" onclick="pgActionCopy(' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
-        html += '<button class="pg-action" onclick="pgToggleSource(' + idx + ')" title="' + pgEscapeHtml(msg.sourceVisible ? pgT('pgShowPreview') : pgT('pgShowSource')) + '">' + PG_ICON_SRC + '</button>';
-        html += '<button class="pg-action" onclick="pgRegenerate(' + idx + ')" title="' + pgEscapeHtml(pgT('pgRegenerate')) + '">' + PG_ICON_REGEN + '</button>';
-        if (msg.status === 'error') {
-          html += '<button class="pg-action" onclick="pgRetryError(' + idx + ')" title="' + pgEscapeHtml(pgT('pgRetry')) + '">' + PG_ICON_RETRY + '</button>';
-          html += '<button class="pg-action" onclick="pgEditPromptForError(' + idx + ')" title="' + pgEscapeHtml(pgT('pgEditPrompt')) + '">' + PG_ICON_EDIT + '</button>';
-        }
-        html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
-      } else if (msg.role === 'user') {
-        html += '<button class="pg-action" onclick="pgActionCopy(' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
-        html += '<button class="pg-action" onclick="pgToggleRole(' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
-        html += '<button class="pg-action" onclick="pgBeginEdit(' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
-        html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
-      } else if (msg.role === 'system') {
-        html += '<button class="pg-action" onclick="pgToggleRole(' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
-        html += '<button class="pg-action" onclick="pgBeginEdit(' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
-        html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
-      }
-      html += '</div></div>';
+      html += '<div class="pg-msg-meta' + (msg.role === 'assistant' && idx === pgState.messages.length - 1 ? ' always-show' : '') + '">' + pgMsgMetaInnerHTML(idx, msg) + '</div>';
     }
     html += '</div>';
   });
