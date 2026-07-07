@@ -316,14 +316,18 @@ function pgFail(i, assistantIdx, errMsg, errorCode) {
   pgRenderBubble(i, assistantIdx);
   pgRenderDebug();
   pgUpdateInputBar();
-  // Auto chat: a failed window still counts as "replied" so the round can complete.
-  if (typeof pgAutoChatOnFinish === 'function' && pgState.autoChat && pgState.autoChat.isRunning && !w.autoChatReplied) {
+  // Auto chat: a failed window still counts as a completed reply.
+  if (typeof pgAutoChatOnFinish === 'function' && pgState.autoChat && pgState.autoChat.isRunning) {
     pgAutoChatOnFinish(i);
   }
 }
 
 // ----- Module 6: Stop / Clear / Global controls --------------------
 function pgStop() {
+  // Signal auto chat to suppress finish hooks during shutdown.
+  if (pgState.autoChat && pgState.autoChat.isRunning) {
+    pgState.autoChat.abortFlag = true;
+  }
   for (var i = 0; i < pgState.windows.length; i++) {
     var w = pgWinAt(i);
     if (w.abortCtrl) {

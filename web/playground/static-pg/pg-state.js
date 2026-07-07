@@ -24,7 +24,8 @@ function makeWin() {
     // Auto chat (group-chat) state
     agentName: '',             // Agent nickname in group chat
     inbox: [],                 // pending inbound messages [{sender, content, timestamp}]
-    autoChatReplied: false,    // whether this window finished its reply this round
+    replyCount: 0,             // how many replies this window has completed
+    autoChatDone: false,       // whether this window reached its iteration limit
   };
 }
 

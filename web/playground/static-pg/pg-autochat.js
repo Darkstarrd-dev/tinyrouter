@@ -1,11 +1,15 @@
 // pg-autochat.js
 // =====================================================================
-// Auto Chat (群聊) mode — multi-window conversational loop.
-// A user message is broadcast to every window that has a model; each
-// window replies concurrently. The first finishers broadcast their reply
-// into the inboxes of the other windows. A round completes when every
-// window has replied; if there was new inbox content it triggers another
-// round, until the iteration limit is reached or no new content exists.
+// Auto Chat (群聊) mode — multi-window independent-iteration conversation.
+//
+// Each window has its OWN reply counter. When a window finishes a reply,
+// it immediately broadcasts to other windows' inboxes and checks its own
+// inbox. If it has pending messages and hasn't hit the iteration limit,
+// it starts a new reply right away — without waiting for slower windows.
+//
+// A fast model may reply 10 times while a slow one replies 2 times.
+// The conversation ends when ALL windows are either done (hit iteration
+// limit) or idle with empty inboxes.
 // =====================================================================
 
 // ----- Toggle / config setters --------------------------------------
@@ -13,7 +17,6 @@
 function pgAutoChatToggle(enabled) {
   if (enabled && pgState.splitCount < 2) {
     pgToast(pgT('pgAutoChatNeedMinWindows'), 'warning');
-    // revert checkbox visually on next sidebar render
     pgRenderSidebar();
     return;
   }
@@ -28,14 +31,7 @@ function pgAutoChatToggle(enabled) {
 function pgAutoChatSetIterations(v) {
   pgState.autoChat.iterations = Math.max(0, parseInt(v, 10) || 0);
   pgSaveAutoChat();
-  var hint = document.getElementById('pg-autochat-iterations-hint');
-  if (hint) {
-    if (pgState.autoChat.iterations === 0) {
-      hint.textContent = pgT('pgAutoChatInfiniteWarn');
-    } else {
-      hint.textContent = pgT('pgAutoChatRound', ['0', pgState.autoChat.iterations]);
-    }
-  }
+  pgUpdateAutoChatUI();
 }
 
 function pgAutoChatSetUserName(v) {
@@ -48,6 +44,7 @@ function pgOnAgentName(v) {
   if (w) {
     w.config.agentName = v || '';
     pgSave();
+    pgRenderPanes();
   }
 }
 
@@ -68,7 +65,18 @@ function pgAutoChatModelWindows() {
   return idx;
 }
 
-// ----- Start / round orchestration ----------------------------------
+// Can this window still reply in auto-chat?
+function pgAutoChatCanReply(winIdx) {
+  var w = pgWinAt(winIdx);
+  if (!w || !w.config.model) return false;
+  if (w.streaming) return false;
+  if (w.autoChatDone) return false;
+  var iters = pgState.autoChat.iterations;
+  if (iters > 0 && w.replyCount >= iters) return false;
+  return true;
+}
+
+// ----- Start ---------------------------------------------------------
 
 function pgAutoChatStart(text) {
   var modelWins = pgAutoChatModelWindows();
@@ -78,90 +86,116 @@ function pgAutoChatStart(text) {
   }
   pgState.autoChat.isRunning = true;
   pgState.autoChat.abortFlag = false;
-  pgState.autoChat.currentRound = 0;
 
   var now = Date.now();
   var userLine = '[' + (pgState.autoChat.userName || 'User') + ']: ' + text;
 
+  // Inject user message into every model window's inbox, then process.
   modelWins.forEach(function(i) {
     var w = pgWinAt(i);
-    w.messages.push({ role: 'user', content: userLine, createdAt: now });
-    w.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: now });
+    w.replyCount = 0;
+    w.autoChatDone = false;
+    w.inbox = [];
+    w.inbox.push({ sender: pgState.autoChat.userName || 'User', content: text, timestamp: now });
   });
 
   pgSave();
   if (pgState.activeWin < pgState.splitCount) pgRenderSidebar();
   pgRenderInputBar();
 
+  // Kick off all windows that can reply.
   modelWins.forEach(function(i) {
-    var w = pgWinAt(i);
-    var lastIdx = w.messages.length - 1;
-    pgRenderMessages(i);
-    w.autoChatReplied = false;
-    pgSend(i, lastIdx);
+    pgAutoChatProcessWindowInbox(i);
   });
   pgUpdateAutoChatUI();
 }
 
+// Process a single window's inbox: merge messages, push user+assistant,
+// and send. No-op if the window can't reply or inbox is empty.
+function pgAutoChatProcessWindowInbox(winIdx) {
+  if (!pgAutoChatCanReply(winIdx)) return;
+  var w = pgWinAt(winIdx);
+  if (!w.inbox.length) return;
+
+  // Use the latest inbox timestamp so the same message injected into
+  // multiple windows gets an identical createdAt (for dedup in group chat).
+  var now = w.inbox.reduce(function(max, m) { return Math.max(max, m.timestamp); }, 0) || Date.now();
+  var merged = w.inbox.map(function(m) {
+    return '[' + m.sender + ']: ' + m.content;
+  }).join('\n\n');
+  w.inbox = [];
+
+  w.messages.push({ role: 'user', content: merged, createdAt: now });
+  w.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: now });
+  var lastIdx = w.messages.length - 1;
+  pgRenderMessages(winIdx);
+  pgSend(winIdx, lastIdx);
+}
+
+// ----- Finish hook (called from pgFinish / pgFail) -------------------
+
 function pgAutoChatOnFinish(winIdx) {
+  if (!pgState.autoChat || !pgState.autoChat.isRunning) return;
+  if (pgState.autoChat.abortFlag) return;
   var w = pgWinAt(winIdx);
   if (!w) return;
-  if (w.autoChatReplied) return; // guard double-call
-  w.autoChatReplied = true;
 
-  // Broadcast this window's reply into other windows' inboxes.
+  // Count this reply (completed = success or failure).
+  w.replyCount++;
+
+  // Check iteration limit.
+  var iters = pgState.autoChat.iterations;
+  if (iters > 0 && w.replyCount >= iters) {
+    w.autoChatDone = true;
+  }
+
+  // Broadcast this window's reply to other windows that can still reply.
   var content = pgTextContent(w.messages[w.messages.length - 1].content);
   if (content && content.trim()) {
     var sender = pgAutoChatGetAgentName(winIdx);
     var ts = Date.now();
     for (var j = 0; j < pgState.splitCount; j++) {
       if (j === winIdx) continue;
-      if (!pgWinAt(j).config.model) continue;
-      pgWinAt(j).inbox.push({ sender: sender, content: content, timestamp: ts });
+      var other = pgWinAt(j);
+      if (!other.config.model) continue;
+      if (other.autoChatDone) continue;
+      other.inbox.push({ sender: sender, content: content, timestamp: ts });
     }
   }
-  pgAutoChatCheckRoundComplete();
-}
 
-function pgAutoChatCheckRoundComplete() {
-  var modelWins = pgAutoChatModelWindows();
-  var allDone = modelWins.every(function(i) { return pgWinAt(i).autoChatReplied; });
-  if (!allDone) return;
-
-  pgState.autoChat.currentRound++;
   pgUpdateAutoChatUI();
 
-  var iters = pgState.autoChat.iterations;
-  if (iters > 0 && pgState.autoChat.currentRound >= iters) {
-    pgAutoChatFinish();
-    return;
+  // Try to process this window's own inbox (it may have received messages
+  // while it was busy replying).
+  pgAutoChatProcessWindowInbox(winIdx);
+
+  // Try to process other idle windows' inboxes (they just received our broadcast).
+  for (var k = 0; k < pgState.splitCount; k++) {
+    if (k === winIdx) continue;
+    pgAutoChatProcessWindowInbox(k);
   }
-  pgAutoChatProcessInboxes();
+
+  // Check if the entire auto-chat should end.
+  pgAutoChatCheckAllDone();
 }
 
-function pgAutoChatProcessInboxes() {
+// Check if all windows are done (hit limit) or idle with empty inbox.
+function pgAutoChatCheckAllDone() {
   var modelWins = pgAutoChatModelWindows();
-  var anyNew = false;
-  var now = Date.now();
-
-  modelWins.forEach(function(i) {
+  var allDone = modelWins.every(function(i) {
     var w = pgWinAt(i);
-    w.autoChatReplied = false;
-    if (w.inbox.length) {
-      anyNew = true;
-      var merged = w.inbox.map(function(m) {
-        return '[' + m.sender + ']: ' + m.content;
-      }).join('\n\n');
-      w.messages.push({ role: 'user', content: merged, createdAt: now });
-      w.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: now });
-      w.inbox = [];
-      var lastIdx = w.messages.length - 1;
-      pgRenderMessages(i);
-      pgSend(i, lastIdx);
-    }
+    // Still replying — not done.
+    if (w.streaming) return false;
+    // Hit iteration limit.
+    if (w.autoChatDone) return true;
+    // Idle but has pending inbox messages — will trigger soon.
+    if (w.inbox.length > 0) return false;
+    // Idle, no inbox, but can still reply (under limit) — waiting for
+    // someone to say something. If EVERY window is in this state, nobody
+    // will speak → conversation ends.
+    return true;
   });
-
-  if (!anyNew) {
+  if (allDone) {
     pgAutoChatFinish();
   }
 }
@@ -171,11 +205,13 @@ function pgAutoChatProcessInboxes() {
 function pgAutoChatStop() {
   pgState.autoChat.abortFlag = true;
   pgState.autoChat.isRunning = false;
-  // abort in-flight requests
   if (typeof pgStop === 'function') pgStop();
   for (var i = 0; i < pgState.splitCount; i++) {
-    pgWinAt(i).inbox = [];
-    pgWinAt(i).autoChatReplied = false;
+    var w = pgWinAt(i);
+    if (!w) continue;
+    w.inbox = [];
+    w.autoChatDone = false;
+    w.replyCount = 0;
   }
   pgSave();
   pgRenderSidebar();
@@ -188,15 +224,22 @@ function pgAutoChatFinish() {
   pgState.autoChat.isRunning = false;
   pgState.autoChat.abortFlag = false;
   for (var i = 0; i < pgState.splitCount; i++) {
-    pgWinAt(i).inbox = [];
-    pgWinAt(i).autoChatReplied = false;
+    var w = pgWinAt(i);
+    if (!w) continue;
+    w.inbox = [];
+    w.autoChatDone = false;
+    w.replyCount = 0;
   }
   pgSave();
   pgRenderSidebar();
   pgRenderInputBar();
   pgUpdateAutoChatUI();
+  var totalReplies = 0;
+  for (var i2 = 0; i2 < pgState.splitCount; i2++) {
+    totalReplies += pgWinAt(i2).replyCount;
+  }
   if (pgState.autoChat.iterations > 0) {
-    pgToast(pgT('pgAutoChatFinished', [pgState.autoChat.currentRound]), 'success');
+    pgToast(pgT('pgAutoChatFinished', [totalReplies]), 'success');
   } else {
     pgToast(pgT('pgAutoChatNoNewContent'), 'success');
   }
@@ -206,51 +249,21 @@ function pgAutoChatFinish() {
 
 function pgAutoChatUserSend(text) {
   if (pgState.autoChat.isRunning) {
-    var userLine = '[' + (pgState.autoChat.userName || 'User') + ']: ' + text;
-    var anyIdle = false;
-    for (var i = 0; i < pgState.splitCount; i++) {
+    var now = Date.now();
+    var modelWins = pgAutoChatModelWindows();
+    modelWins.forEach(function(i) {
       var w = pgWinAt(i);
-      if (!w.config.model) continue;
-      if (w.streaming) {
-        w.inbox.push({ sender: pgState.autoChat.userName || 'User', content: text, timestamp: Date.now() });
-      } else {
-        anyIdle = true;
-      }
-    }
-    if (anyIdle) {
-      // merge immediate user message into idle windows and kick a round
-      pgAutoChatProcessUserImmediate(userLine);
-    }
+      if (w.autoChatDone) return;
+      w.inbox.push({ sender: pgState.autoChat.userName || 'User', content: text, timestamp: now });
+    });
+    // Trigger any idle windows that can reply.
+    modelWins.forEach(function(i) {
+      pgAutoChatProcessWindowInbox(i);
+    });
+    pgUpdateAutoChatUI();
   } else {
     pgAutoChatStart(text);
   }
-}
-
-// Inject a user line directly into idle windows (no inbox delay) and
-// trigger a new round. Windows currently streaming keep the message in inbox.
-function pgAutoChatProcessUserImmediate(userLine) {
-  var now = Date.now();
-  var modelWins = pgAutoChatModelWindows();
-  var anyNew = false;
-  modelWins.forEach(function(i) {
-    var w = pgWinAt(i);
-    if (w.streaming) return;
-    w.autoChatReplied = false;
-    w.messages.push({ role: 'user', content: userLine, createdAt: now });
-    w.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: now });
-    w.inbox = [];
-    var lastIdx = w.messages.length - 1;
-    pgRenderMessages(i);
-    anyNew = true;
-    pgSend(i, lastIdx);
-  });
-  if (!anyNew) {
-    // all busy; wait for finish hooks to process inbox
-    return;
-  }
-  pgState.autoChat.isRunning = true;
-  if (pgState.autoChat.currentRound === 0) pgState.autoChat.currentRound = 1;
-  pgUpdateAutoChatUI();
 }
 
 // ----- UI sync -------------------------------------------------------
@@ -263,10 +276,21 @@ function pgUpdateAutoChatUI() {
   }
   var hint = document.getElementById('pg-autochat-iterations-hint');
   if (hint) {
-    if (pgState.autoChat.iterations === 0) {
-      hint.textContent = pgT('pgAutoChatInfiniteWarn');
+    if (!pgState.autoChat.isRunning) {
+      hint.textContent = pgState.autoChat.iterations === 0
+        ? pgT('pgAutoChatInfiniteWarn')
+        : '';
     } else {
-      hint.textContent = pgT('pgAutoChatRound', [pgState.autoChat.currentRound, pgState.autoChat.iterations]);
+      // Build per-window progress string: "W1:3 W2:5 / 10"
+      var parts = [];
+      var modelWins = pgAutoChatModelWindows();
+      var iters = pgState.autoChat.iterations;
+      modelWins.forEach(function(i) {
+        var w = pgWinAt(i);
+        parts.push('W' + (i + 1) + ':' + w.replyCount);
+      });
+      var suffix = iters > 0 ? (' / ' + iters) : ' / ∞';
+      hint.textContent = parts.join(' ') + suffix;
     }
   }
 }
@@ -274,6 +298,7 @@ function pgUpdateAutoChatUI() {
 // ----- Group chat modal ---------------------------------------------
 
 function pgOpenGroupChatModal() {
+  var seen = {};
   var allMsgs = [];
   for (var i = 0; i < pgState.splitCount; i++) {
     var w = pgWinAt(i);
@@ -285,22 +310,31 @@ function pgOpenGroupChatModal() {
       var content = pgTextContent(msg.content);
       if (!content) continue;
 
-      var sender, displayContent;
+      var sender, displayContent, isUser;
       if (msg.role === 'assistant') {
         sender = agentName;
         displayContent = content;
+        isUser = false;
       } else {
+        // User messages in auto-chat have [sender]: prefix.
         var match = content.match(/^\[([^\]]+)\]:\s*([\s\S]*)$/);
         if (match) {
           sender = match[1];
           displayContent = match[2];
+          isUser = (sender === (pgState.autoChat.userName || 'User'));
         } else {
           sender = pgState.autoChat.userName || 'User';
           displayContent = content;
+          isUser = true;
         }
       }
 
-      var isUser = msg.role === 'user' && !content.match(/^\[([^\]]+)\]:/);
+      // Deduplicate: same sender + content + timestamp = same message
+      // appearing in multiple windows' histories.
+      var dedupeKey = sender + '\x00' + displayContent + '\x00' + (msg.createdAt || msg.startedAt || 0);
+      if (seen[dedupeKey]) continue;
+      seen[dedupeKey] = true;
+
       allMsgs.push({
         sender: sender,
         content: displayContent,

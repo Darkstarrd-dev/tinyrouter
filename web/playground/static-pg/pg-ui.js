@@ -215,9 +215,10 @@ function pgRenderPanes() {
     var w = pgWinAt(i);
     var modelLabel = w && w.config && w.config.model ? w.config.model : pgEscapeHtml(pgT('pgSelectModel'));
     if (modelLabel.length > 30) modelLabel = modelLabel.substring(0, 30) + '…';
+    var paneLabel = (w && w.config.agentName) ? w.config.agentName : pgT('pgPaneName', [i + 1]);
     html += '<div class="pg-pane" data-win="' + i + '">' +
       '<div class="pg-pane-head">' +
-        '<span class="pg-pane-idx">' + pgEscapeHtml(pgT('pgPaneName', [i + 1])) + '</span>' +
+        '<span class="pg-pane-idx">' + pgEscapeHtml(paneLabel) + '</span>' +
         '<span class="pg-pane-model">' + modelLabel + '</span>' +
         '<button class="pg-pane-btn" onclick="event.stopPropagation();pgClearWindowMessages(' + i + ')" title="' + pgEscapeHtml(pgT('pgClearWin')) + '">' + PG_ICON_DELETE + '</button>' +
         '<button class="pg-pane-btn" onclick="event.stopPropagation();pgOpenDebugModal(' + i + ')" title="' + pgEscapeHtml(pgT('pgDebugWin')) + '">' + PG_ICON_DEBUG + '</button>' +
