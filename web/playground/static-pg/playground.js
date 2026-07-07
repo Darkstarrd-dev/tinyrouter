@@ -1198,7 +1198,7 @@ function pgRenderMessages() {
     var side = msg.role === 'user' ? 'user' : (msg.role === 'system' ? 'system' : 'assistant');
     var errCls = msg.status === 'error' ? ' error' : '';
     html += '<div class="pg-msg ' + side + errCls + '" id="pg-msg-' + idx + '">';
-    html += '<div id="pg-bubble-' + idx + '">' + pgMsgInnerHTML(idx, msg, !!msg.sourceVisible) + '</div>';
+    html += '<div class="pg-bubble-slot" id="pg-bubble-' + idx + '">' + pgMsgInnerHTML(idx, msg, !!msg.sourceVisible) + '</div>';
     // Metadata: time + response duration.
     var metaTime = pgFormatTime(msg.createdAt || msg.completedAt || msg.startedAt);
     var metaLines = '';
