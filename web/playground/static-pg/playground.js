@@ -638,6 +638,9 @@ function pgFlushRender(assistantIdx) {
   if (pgState.renderTimer) return;
   pgState.renderTimer = setTimeout(function() {
     pgState.renderTimer = null;
+    // 流已结束(pgFinish/pgFail 已把 pendingContent 清空并渲染最终内容): 过期定时器
+    // 不得再用被清空的 pendingContent 覆盖已完成的消息, 否则气泡内容被冲空坍缩.
+    if (!pgState.streaming) return;
     var msg = pgState.messages[assistantIdx];
     if (!msg) return;
     // 流式期实时从 pendingContent 分流 <think> 块到 pendingReasoning.
@@ -743,6 +746,9 @@ function pgSendNonStream(body, assistantIdx) {
 function pgFinish(assistantIdx) {
   if (!pgState.streaming) return;
   pgState.streaming = false;
+  // 取消可能挂起的防抖渲染定时器, 避免它在 finish 清空 pendingContent 之后才回调,
+  // 用空内容覆盖刚渲染好的最终气泡(表现为"坍缩成小框").
+  if (pgState.renderTimer) { clearTimeout(pgState.renderTimer); pgState.renderTimer = null; }
   pgState.abortCtrl = null;
   var msg = pgState.messages[assistantIdx];
   if (msg) {
@@ -782,6 +788,7 @@ function pgFinish(assistantIdx) {
 
 function pgFail(assistantIdx, errMsg, errorCode) {
   pgState.streaming = false;
+  if (pgState.renderTimer) { clearTimeout(pgState.renderTimer); pgState.renderTimer = null; }
   pgState.abortCtrl = null;
   var msg = pgState.messages[assistantIdx];
   if (msg) {
