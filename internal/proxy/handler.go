@@ -255,7 +255,8 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		latencyMs := time.Since(startTime).Milliseconds()
 
 		if isStream {
-			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes)
+			normalize := cfgProvider != nil && cfgProvider.NormalizeStreamChunks
+			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize)
 		} else {
 			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes)
 		}

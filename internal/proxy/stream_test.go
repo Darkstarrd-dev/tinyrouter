@@ -199,3 +199,65 @@ func TestExtractTokens_TotalTokensFallback(t *testing.T) {
 		t.Fatalf("expected in=500 (total_tokens fallback), out=0, got in=%d out=%d", in, out)
 	}
 }
+
+func TestNormalizeSSEChunk_ChoicesNull(t *testing.T) {
+	// ModelScope-style usage-only preamble chunk: choices is null.
+	line := `data: {"id":"","object":"","created":0,"model":"Tencent-Hunyuan/Hy3","system_fingerprint":"","choices":null,"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`
+	out := normalizeSSEChunk(line)
+	if !strings.Contains(out, `"choices":[]`) {
+		t.Fatalf("expected choices normalized to [], got: %s", out)
+	}
+	if !strings.Contains(out, `"usage":{`) {
+		t.Fatalf("expected usage field preserved, got: %s", out)
+	}
+}
+
+func TestNormalizeSSEChunk_ErrorPassthrough(t *testing.T) {
+	// A chunk with choices:null but an error object must NOT be rewritten.
+	line := `data: {"choices":null,"error":{"message":"rate limited","type":"rate_limit_error"}}`
+	out := normalizeSSEChunk(line)
+	if strings.Contains(out, `"choices":[]`) {
+		t.Fatalf("error chunk must not be normalized, got: %s", out)
+	}
+	if !strings.Contains(out, `"error":`) {
+		t.Fatalf("error chunk must keep error field, got: %s", out)
+	}
+}
+
+func TestNormalizeSSEChunk_Done(t *testing.T) {
+	line := `data: [DONE]`
+	out := normalizeSSEChunk(line)
+	if out != line {
+		t.Fatalf("expected [DONE] unchanged, got: %s", out)
+	}
+}
+
+func TestNormalizeSSEChunk_ValidArray(t *testing.T) {
+	// A healthy chunk with choices as array must pass through unchanged.
+	line := `data: {"id":"x","choices":[{"delta":{"content":"hi"},"finish_reason":null}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`
+	out := normalizeSSEChunk(line)
+	if out != line {
+		t.Fatalf("expected valid chunk unchanged, got: %s", out)
+	}
+}
+
+func TestNormalizeSSEChunk_BlankLine(t *testing.T) {
+	// Event separator / comment lines must pass through unchanged.
+	for _, line := range []string{"", ": keep-alive"} {
+		if out := normalizeSSEChunk(line); out != line {
+			t.Fatalf("expected %q unchanged, got %q", line, out)
+		}
+	}
+}
+
+func TestNormalizeSSEChunk_FinalUsageKept(t *testing.T) {
+	// Final usage chunk has choices:null but carries real token counts.
+	line := `data: {"id":"gen-1","object":"chat.completion.chunk","created":1,"model":"Tencent-Hunyuan/Hy3","system_fingerprint":"","choices":null,"usage":{"prompt_tokens":13,"completion_tokens":39,"total_tokens":52}}`
+	out := normalizeSSEChunk(line)
+	if !strings.Contains(out, `"choices":[]`) {
+		t.Fatalf("expected choices normalized, got: %s", out)
+	}
+	if !strings.Contains(out, `"total_tokens":52`) {
+		t.Fatalf("expected real usage preserved, got: %s", out)
+	}
+}

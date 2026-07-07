@@ -75,18 +75,24 @@ func (m *ModelDef) UnmarshalJSON(data []byte) error {
 
 // Provider represents one upstream OpenAI-compatible endpoint.
 type Provider struct {
-	ID               string       `yaml:"id" json:"id"`
-	Name             string       `yaml:"name" json:"name"`
-	Prefix           string       `yaml:"prefix" json:"prefix"`
-	BaseURL          string       `yaml:"baseUrl" json:"baseUrl"`
-	APIType          string       `yaml:"apiType" json:"apiType"`
-	IsActive         bool         `yaml:"isActive" json:"isActive"`
-	Keys             []Key        `yaml:"keys" json:"keys"`
-	Models           []ModelDef   `yaml:"models,omitempty" json:"models,omitempty"`
-	RotationStrategy string       `yaml:"rotationStrategy,omitempty" json:"rotationStrategy,omitempty"`
-	StickyLimit      int          `yaml:"stickyLimit,omitempty" json:"stickyLimit,omitempty"`
-	InjectStreamOpts bool         `yaml:"injectStreamOptions,omitempty" json:"injectStreamOptions,omitempty"`
-	NIMConfig        *NIMSettings `yaml:"nim,omitempty" json:"nim,omitempty"`
+	ID               string     `yaml:"id" json:"id"`
+	Name             string     `yaml:"name" json:"name"`
+	Prefix           string     `yaml:"prefix" json:"prefix"`
+	BaseURL          string     `yaml:"baseUrl" json:"baseUrl"`
+	APIType          string     `yaml:"apiType" json:"apiType"`
+	IsActive         bool       `yaml:"isActive" json:"isActive"`
+	Keys             []Key      `yaml:"keys" json:"keys"`
+	Models           []ModelDef `yaml:"models,omitempty" json:"models,omitempty"`
+	RotationStrategy string     `yaml:"rotationStrategy,omitempty" json:"rotationStrategy,omitempty"`
+	StickyLimit      int        `yaml:"stickyLimit,omitempty" json:"stickyLimit,omitempty"`
+	InjectStreamOpts bool       `yaml:"injectStreamOptions,omitempty" json:"injectStreamOptions,omitempty"`
+	// NormalizeStreamChunks fixes upstreams (e.g. ModelScope) that emit
+	// usage-only SSE chunks with "choices":null, which violates the OpenAI
+	// chat-completion-chunk schema (choices must be an array or error an
+	// object). When true, streamResponse rewrites "choices":null to
+	// "choices":[] while preserving the usage field. Off by default.
+	NormalizeStreamChunks bool         `yaml:"normalizeStreamChunks,omitempty" json:"normalizeStreamChunks,omitempty"`
+	NIMConfig             *NIMSettings `yaml:"nim,omitempty" json:"nim,omitempty"`
 }
 
 // IsNIM reports whether this provider should use the NIM-specific key rotation

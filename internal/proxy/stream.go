@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -38,7 +39,53 @@ func (b *SSELineBuffer) Remaining() string {
 	return ""
 }
 
-func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte) {
+// normalizeSSEChunk normalizes a single SSE line coming from an upstream.
+// It only rewrites "data:" payloads where "choices" is null and no "error"
+// field is present, turning "choices":null into "choices":[] so that strict
+// OpenAI-chunk validators (which require choices to be an array) accept the
+// usage-only preamble chunks emitted by some providers (e.g. ModelScope).
+// All other lines (blank separators, comments, [DONE], error chunks, valid
+// chunks) are returned unchanged. Parse failures fall back to the original
+// line to avoid dropping data.
+func normalizeSSEChunk(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "data:") {
+		return line
+	}
+	payload := strings.TrimSpace(trimmed[5:])
+	if payload == "[DONE]" {
+		return line
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(payload), &obj); err != nil {
+		return line
+	}
+	// Never touch error chunks: they must reach the client as-is.
+	if _, hasErr := obj["error"]; hasErr {
+		return line
+	}
+	// Only fix the specific malformed case: choices is explicitly null.
+	choices, exists := obj["choices"]
+	if !exists {
+		return line
+	}
+	if choices == nil {
+		obj["choices"] = []any{}
+	} else if arr, ok := choices.([]any); ok && len(arr) == 0 {
+		// already an empty array; nothing to do
+	} else {
+		return line
+	}
+
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return line
+	}
+	return "data: " + string(out)
+}
+
+func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool) {
 	defer resp.Body.Close()
 
 	streamStart := time.Now()
@@ -76,12 +123,47 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
-			if _, err := w.Write(buf[:n]); err != nil {
-				h.logger.Debug("client disconnected during SSE stream: %v", err)
-				return
+			if normalize {
+				// Line-based rewrite path: normalize each data: line before
+				// forwarding so malformed chunks (choices:null) are fixed.
+				for _, line := range sb.Feed(buf[:n]) {
+					out := normalizeSSEChunk(line)
+					if _, werr := w.Write([]byte(out + "\n")); werr != nil {
+						h.logger.Debug("client disconnected during SSE stream: %v", werr)
+						return
+					}
+					totalOutput += len(out) + 1
+					if strings.HasPrefix(strings.TrimSpace(line), "data:") {
+						payload := strings.TrimSpace(strings.TrimSpace(line)[5:])
+						if payload != "[DONE]" {
+							if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
+								inputTokens = in
+								outputTokens = out
+							}
+						}
+					}
+				}
+			} else {
+				if _, err := w.Write(buf[:n]); err != nil {
+					h.logger.Debug("client disconnected during SSE stream: %v", err)
+					return
+				}
+				// Token extraction still needs to scan the raw lines.
+				for _, line := range sb.Feed(buf[:n]) {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "data:") {
+						payload := strings.TrimSpace(line[5:])
+						if payload == "[DONE]" {
+							continue
+						}
+						if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
+							inputTokens = in
+							outputTokens = out
+						}
+					}
+				}
 			}
 			flusher.Flush()
-			totalOutput += n
 			if reqID != 0 {
 				if !firstChunkDone {
 					h.Inflight.SetFirstChunk(reqID)
@@ -96,23 +178,25 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					lastSSEPush = time.Now()
 				}
 			}
-			for _, line := range sb.Feed(buf[:n]) {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "data:") {
-					payload := strings.TrimSpace(line[5:])
-					if payload == "[DONE]" {
-						continue
-					}
-					if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
-						inputTokens = in
-						outputTokens = out
-					}
-				}
-			}
 		}
 		if err != nil {
 			remaining := sb.Remaining()
 			if remaining != "" {
+				if normalize {
+					out := normalizeSSEChunk(remaining)
+					if _, werr := w.Write([]byte(out + "\n")); werr != nil {
+						h.logger.Debug("client disconnected during SSE stream: %v", werr)
+						return
+					}
+					totalOutput += len(out) + 1
+					remaining = out
+				} else {
+					if _, werr := w.Write([]byte(remaining + "\n")); werr != nil {
+						h.logger.Debug("client disconnected during SSE stream: %v", werr)
+						return
+					}
+					totalOutput += len(remaining) + 1
+				}
 				line := strings.TrimSpace(remaining)
 				if strings.HasPrefix(line, "data:") {
 					payload := strings.TrimSpace(line[5:])
