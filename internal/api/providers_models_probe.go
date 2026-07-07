@@ -199,22 +199,26 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Parse quota from upstream response headers (e.g. ModelScope rate-limit headers)
+	// Parse quota from upstream response headers (e.g. ModelScope rate-limit headers).
+	// Only trust quota when the probe actually succeeded (200 + no error body); a 4xx/5xx
+	// (e.g. 402 insufficient_balance) must not populate misleading "remaining" numbers.
 	var quotaRemain, quotaTotal int
-	adapter := rotation.GetAdapter(*provider)
-	if snap := adapter.ParseHeaders(resp.Header); snap != nil {
-		quotaRemain = snap.ModelRemaining
-		quotaTotal = snap.ModelLimit
-		if ks := rt.reg.GetKeyState(providerID, key.ID); ks != nil {
-			ks.UpdateQuota(req.Model, snap.ModelLimit, snap.ModelRemaining, snap.GlobalLimit, snap.GlobalRemaining)
-		}
-		activeKeyCount := 0
-		for _, k := range provider.Keys {
-			if k.IsActive {
-				activeKeyCount++
+	if ok {
+		adapter := rotation.GetAdapter(*provider)
+		if snap := adapter.ParseHeaders(resp.Header); snap != nil {
+			quotaRemain = snap.ModelRemaining
+			quotaTotal = snap.ModelLimit
+			if ks := rt.reg.GetKeyState(providerID, key.ID); ks != nil {
+				ks.UpdateQuota(req.Model, snap.ModelLimit, snap.ModelRemaining, snap.GlobalLimit, snap.GlobalRemaining)
 			}
+			activeKeyCount := 0
+			for _, k := range provider.Keys {
+				if k.IsActive {
+					activeKeyCount++
+				}
+			}
+			rt.quotaTracker.Update(provider.Name, req.Model, key.ID, key.Name, snap.ModelLimit, snap.ModelRemaining, activeKeyCount)
 		}
-		rt.quotaTracker.Update(provider.Name, req.Model, key.ID, key.Name, snap.ModelLimit, snap.ModelRemaining, activeKeyCount)
 	}
 
 	safeReqHeaders := req2.Header.Clone()

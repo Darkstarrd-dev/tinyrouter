@@ -2,6 +2,7 @@ package rotation
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -222,6 +223,55 @@ func TestMarkDailyQuotaLocked(t *testing.T) {
 	midnight := time.Date(time.Now().In(loc).Year(), time.Now().In(loc).Month(), time.Now().In(loc).Day()+1, 0, 5, 0, 0, loc)
 	if time.Until(unlock) > time.Until(midnight)+time.Minute {
 		t.Fatalf("expected unlock around next CST midnight+5min, got %v, diff=%v", unlock, time.Until(unlock))
+	}
+}
+
+func TestMarkBalanceLocked(t *testing.T) {
+	reg, sel := setupTest(t)
+	state := reg.GetKeyState("test", "a")
+
+	unlock := sel.MarkBalanceLocked("test", "a", "gpt-4", `{"error":{"http_code":"402","message":"insufficient balance (1008)","type":"insufficient_balance_error"}}`)
+
+	state.Lock()
+	if state.Status != "locked" {
+		t.Fatalf("expected status 'locked', got %s", state.Status)
+	}
+	if _, ok := state.ModelLocks["gpt-4"]; !ok {
+		t.Fatal("expected model lock to exist")
+	}
+	if !strings.Contains(state.LastError, "insufficient balance") {
+		t.Fatalf("expected last error to mention insufficient balance, got %q", state.LastError)
+	}
+	state.Unlock()
+
+	if unlock.IsZero() {
+		t.Fatal("expected non-zero unlock time")
+	}
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	midnight := time.Date(time.Now().In(loc).Year(), time.Now().In(loc).Month(), time.Now().In(loc).Day()+1, 0, 5, 0, 0, loc)
+	if time.Until(unlock) > time.Until(midnight)+time.Minute {
+		t.Fatalf("expected unlock around next CST midnight+5min, got %v", unlock)
+	}
+}
+
+func TestIsBalanceExhausted(t *testing.T) {
+	tests := []struct {
+		status int
+		body   string
+		want   bool
+	}{
+		{402, `{"error":{"http_code":"402","message":"insufficient balance (1008)","type":"insufficient_balance_error"}}`, true},
+		{402, `{"error":{"message":"Insufficient Balance"}}`, true},
+		{402, `{"error":{"message":"rate limit exceeded"}}`, false},
+		{429, `{"error":{"type":"insufficient_balance_error"}}`, false},
+		{200, `{"error":{"type":"insufficient_balance_error"}}`, false},
+		{402, ``, false},
+	}
+	for _, tt := range tests {
+		got := IsBalanceExhausted(tt.status, tt.body)
+		if got != tt.want {
+			t.Errorf("IsBalanceExhausted(%d, %q) = %v, want %v", tt.status, tt.body, got, tt.want)
+		}
 	}
 }
 

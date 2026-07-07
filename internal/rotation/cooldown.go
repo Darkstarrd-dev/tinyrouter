@@ -16,6 +16,7 @@ type CooldownManager interface {
 	ClearError(providerID, keyID, model string)
 	MarkDailyQuotaLocked(providerID, keyID, model string, body string) time.Time
 	MarkRateLimited(providerID, keyID, model string, duration time.Duration) time.Time
+	MarkBalanceLocked(providerID, keyID, model, body string) time.Time
 }
 
 func (s *Selector) MarkUnavailable(providerID, keyID, model string, statusCode int, body string) time.Time {
@@ -39,9 +40,8 @@ func (s *Selector) MarkUnavailable(providerID, keyID, model string, statusCode i
 	}
 	unlock := time.Now().Add(backoff)
 	state.ModelLocks[model] = unlock
-	state.Status = "cooldown"
-	state.LastError = fmt.Sprintf("%d: %s", statusCode, truncate(body, 200))
-	state.LastErrorAt = time.Now()
+	state.ModelStatus[model] = "cooldown"
+	state.ModelErrors[model] = fmt.Sprintf("%d: %s", statusCode, truncate(body, 200))
 	if s.onStateChange != nil {
 		s.onStateChange()
 	}
@@ -57,10 +57,10 @@ func (s *Selector) ClearError(providerID, keyID, model string) {
 	defer state.Unlock()
 
 	delete(state.ModelLocks, model)
+	delete(state.ModelStatus, model)
+	delete(state.ModelErrors, model)
 	if len(state.ModelLocks) == 0 {
 		state.BackoffLevel = 0
-		state.Status = "active"
-		state.LastError = ""
 	}
 	if s.onStateChange != nil {
 		s.onStateChange()
@@ -83,10 +83,11 @@ func (s *Selector) isKeyAvailable(state *registry.KeyRuntimeState, model string)
 	for m, unlock := range state.ModelLocks {
 		if !now.Before(unlock) {
 			delete(state.ModelLocks, m)
+			delete(state.ModelStatus, m)
+			delete(state.ModelErrors, m)
 		}
 	}
 
-	state.Status = "active"
 	return true
 }
 
@@ -149,8 +150,30 @@ func (s *Selector) MarkDailyQuotaLocked(providerID, keyID, model string, body st
 
 	unlock := nextCSTMidnight05()
 	state.ModelLocks[model] = unlock
+	state.ModelStatus[model] = "locked"
+	state.ModelErrors[model] = fmt.Sprintf("429 daily quota: %s", truncate(body, 200))
+	if s.onStateChange != nil {
+		s.onStateChange()
+	}
+	return unlock
+}
+
+// MarkBalanceLocked marks a key as permanently unusable for a model due to an
+// account-level balance exhaustion error (e.g. ModelScope 402 insufficient_balance_error).
+// Unlike a transient cooldown, this persists until next CST 00:05 — retrying or switching
+// to another key of the same broke account is futile.
+func (s *Selector) MarkBalanceLocked(providerID, keyID, model, body string) time.Time {
+	state := s.reg.GetKeyState(providerID, keyID)
+	if state == nil {
+		return time.Time{}
+	}
+	state.Lock()
+	defer state.Unlock()
+
+	unlock := nextCSTMidnight05()
+	state.ModelLocks[model] = unlock
 	state.Status = "locked"
-	state.LastError = fmt.Sprintf("429 daily quota: %s", truncate(body, 200))
+	state.LastError = fmt.Sprintf("402 insufficient balance: %s", truncate(body, 200))
 	state.LastErrorAt = time.Now()
 	if s.onStateChange != nil {
 		s.onStateChange()
@@ -171,9 +194,8 @@ func (s *Selector) MarkRateLimited(providerID, keyID, model string, duration tim
 
 	unlock := time.Now().Add(duration)
 	state.ModelLocks[model] = unlock
-	state.Status = "cooldown"
-	state.LastError = fmt.Sprintf("rate limited: %s (%v)", model, duration)
-	state.LastErrorAt = time.Now()
+	state.ModelStatus[model] = "cooldown"
+	state.ModelErrors[model] = fmt.Sprintf("rate limited: %s (%v)", model, duration)
 	if s.onStateChange != nil {
 		s.onStateChange()
 	}

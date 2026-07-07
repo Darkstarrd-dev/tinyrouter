@@ -234,6 +234,19 @@ func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.Selecte
 	resp.Body.Close()
 	bodyStr := string(body)
 
+	// Account-level balance exhaustion (ModelScope 402 insufficient_balance_error):
+	// lock the key for this model, invalidate its stale quota snapshot so the quota
+	// monitor stops showing misleading "remaining" numbers, then switch.
+	if rotation.IsBalanceExhausted(resp.StatusCode, bodyStr) {
+		h.selector.MarkBalanceLocked(providerID, sel.Key.ID, model, bodyStr)
+		h.quotaTracker.RemoveKey(sel.Provider.Name, model, sel.Key.ID)
+		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
+		h.logger.Error("upstream %d (balance exhausted) for Key %s (%s), body=%s | locked", resp.StatusCode, sel.Key.Name, sel.Provider.Name, util.TruncStr(bodyStr, 500))
+		state.temp429Retries = 0
+		state.tpmWaitRetries = 0
+		return
+	}
+
 	rule := rotation.ClassifyError(resp.StatusCode, bodyStr)
 	switch rule.Action {
 	case rotation.ActionBackoff:

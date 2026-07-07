@@ -35,6 +35,11 @@ var DefaultErrorRules = []ErrorRule{
 	{BodyMatch: "quota exceeded", Action: ActionBackoff},
 	{BodyMatch: "capacity", Action: ActionBackoff},
 	{BodyMatch: "overloaded", Action: ActionBackoff},
+	// Account-level balance exhaustion (e.g. ModelScope 402 insufficient_balance_error).
+	// Retrying other keys of the same broke account or waiting is pointless, so treat
+	// it as a hard daily lock instead of a transient cooldown.
+	{BodyMatch: "insufficient_balance", Action: ActionDailyQuota},
+	{BodyMatch: "insufficient balance", Action: ActionDailyQuota},
 
 	// --- Status-based rules (fallback when text doesn't match) ---
 	{StatusCode: 401, Action: ActionCooldown, CooldownSec: 120},
@@ -66,4 +71,16 @@ func ClassifyError(statusCode int, body string) ErrorRule {
 	}
 
 	return ErrorRule{Action: ActionTransient, CooldownSec: DefaultTransientCooldownSec}
+}
+
+// IsBalanceExhausted detects an account-level balance exhaustion error.
+// ModelScope returns HTTP 402 with type "insufficient_balance_error" when the
+// token account runs out of balance. Such keys are dead until recharged, so they
+// must be locked (not transient-cooled) and their quota snapshots invalidated.
+func IsBalanceExhausted(statusCode int, body string) bool {
+	if statusCode != 402 {
+		return false
+	}
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "insufficient_balance") || strings.Contains(lower, "insufficient balance")
 }

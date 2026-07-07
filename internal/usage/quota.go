@@ -97,6 +97,39 @@ func (qt *QuotaTracker) Update(providerName, model, keyID, keyName string, limit
 	}
 }
 
+// RemoveKey drops a single key's quota snapshot from a model's bar. Used when a
+// key is permanently disabled for a model (e.g. 402 insufficient_balance) so the
+// aggregate "remaining" no longer reflects a dead key's stale header values.
+func (qt *QuotaTracker) RemoveKey(providerName, model, keyID string) {
+	qt.mu.Lock()
+	defer qt.mu.Unlock()
+
+	key := providerName + "/" + model
+	bar, exists := qt.bars[key]
+	if !exists {
+		return
+	}
+	filtered := bar.Keys[:0]
+	for _, k := range bar.Keys {
+		if k.KeyID != keyID {
+			filtered = append(filtered, k)
+		}
+	}
+	bar.Keys = filtered
+	bar.TotalUsed = 0
+	for _, k := range bar.Keys {
+		bar.TotalUsed += (k.Limit - k.Remaining)
+	}
+	// Recompute PerKeyLimit/TotalCapacity from remaining keys (0 if none left).
+	if len(bar.Keys) == 0 {
+		bar.PerKeyLimit = 0
+		bar.TotalCapacity = 0
+	} else {
+		bar.PerKeyLimit = bar.Keys[0].Limit
+		bar.TotalCapacity = bar.PerKeyLimit * len(bar.Keys)
+	}
+}
+
 // All returns all quota bars.
 func (qt *QuotaTracker) All() []QuotaBar {
 	qt.mu.RLock()
