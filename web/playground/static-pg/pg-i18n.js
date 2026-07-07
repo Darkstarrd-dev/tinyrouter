@@ -61,6 +61,8 @@ window.PG_I18N = {
     pgWinBarTitle: 'Window Setup', pgSplitCount: 'Split', pgEditWindow: 'Editing window {0}',
     pgPaneName: 'Window {0}', pgNoModelWin: 'Window {0}: no model selected, skipped',
     pgWinBtnTitle: 'Edit window {0}', pgGenSwitchLock: 'Cannot switch layout while generating',
+    pgClearWin: 'Clear Chat', pgDebugWin: 'Debug',
+    pgImagePreview: 'Image Preview',
   },
   cn: {
     pgSelectModel: '选择模型', pgNoModels: '未配置模型', pgSendMessage: '发送', pgStop: '停止', pgClear: '清空对话',
@@ -122,5 +124,7 @@ window.PG_I18N = {
     pgWinBarTitle: '窗口设置', pgSplitCount: '分割数量', pgEditWindow: '正在编辑窗口 {0}',
     pgPaneName: '窗口 {0}', pgNoModelWin: '窗口 {0} 未选择模型，已跳过',
     pgWinBtnTitle: '编辑窗口 {0}', pgGenSwitchLock: '生成中不可切换窗口布局',
+    pgClearWin: '清空对话', pgDebugWin: '调试',
+    pgImagePreview: '图片预览',
   }
 };

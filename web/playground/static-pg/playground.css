@@ -10,13 +10,15 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 .pg-main{grid-row:1;grid-column:1;display:flex;flex-direction:column;min-height:0;min-width:0;padding-right:12px;overflow:hidden}
 .pg-main-inner{max-width:56rem;width:100%;margin:0 auto;padding:16px 16px;flex:1 1 0;min-height:0;display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden}
 @media (max-width:900px){.pg-main-inner{padding:8px}}
-.pg-side{grid-row:1 / span 2;grid-column:2;display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0;min-width:0;padding-left:12px;border-left:0}
-.pg-input-bar{grid-row:2;grid-column:1;display:flex;gap:8px;align-items:stretch;flex-shrink:0;padding-top:8px}
+.pg-side{grid-row:1 / span 2;grid-column:2;display:flex;flex-direction:column;gap:0;overflow-y:auto;min-height:0;min-width:0;padding-left:12px;border-left:0}
+.pg-input-bar{grid-row:2;grid-column:1;display:flex;gap:0;align-items:stretch;flex-shrink:0;padding-top:0;max-width:1200px;justify-self:center;width:100%}
 .pg-input-card{
   flex:1;
+  display:flex;
+  flex-direction:row;
   background:var(--glass-bg);
   border:1px solid var(--glass-border);
-  border-radius:12px;
+  border-radius:0;
   transition:border-color .2s;
   overflow:hidden;
 }
@@ -36,6 +38,7 @@ html,body,.app{overflow:hidden !important;height:100% !important}
   background:transparent;
   box-shadow:none;
   padding:12px 16px;
+  text-align:center;
 }
 .pg-input-bar .pg-input:focus{border:none;box-shadow:none;}
 .pg-input-bar .pg-send{
@@ -199,7 +202,7 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 .pg-send.stop{background:var(--danger);color:#fff}
 
 /* Panel: parameters, debug, image, system-prompt, custom-body */
-.pg-panel{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;padding:12px}
+.pg-panel{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:0;padding:12px}
 .pg-panel-title{font-size:var(--font-section-title);font-weight:600;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:1px solid var(--glass-border)}
 .pg-param{display:flex;align-items:center;gap:8px;margin-bottom:10px;transition:opacity .2s}
 .pg-param.disabled{opacity:.45;pointer-events:none}
@@ -318,8 +321,8 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 }
 
 .pg-main-inner.pg-split{max-width:none;width:100%}
-.pg-panes{flex:1;display:grid;gap:8px;min-height:0}
-.pg-pane{display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid var(--glass-border);border-radius:10px;overflow:hidden;background:var(--glass-bg)}
+.pg-panes{flex:1;display:grid;gap:0;min-height:0}
+.pg-pane{display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid var(--glass-border);border-radius:0;overflow:hidden;background:var(--glass-bg)}
 .pg-pane-head{display:flex;align-items:center;gap:6px;padding:6px 10px;font-size:var(--font-badge);color:var(--text-secondary);border-bottom:1px solid var(--glass-border);background:var(--glass-hover);flex-shrink:0}
 .pg-pane-idx{font-weight:600;color:var(--accent)}
 .pg-pane-model{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
@@ -333,3 +336,32 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 .pg-win-btn:disabled{opacity:.35;cursor:not-allowed}
 .pg-winbar select{width:70px}
 .pg-winbar-hint{font-size:11px;color:var(--text-muted);margin-top:6px}
+.pg-side > .pg-panel + .pg-panel{margin-top:-1px}
+
+/* Pane header buttons */
+.pg-pane-btn{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:none;background:transparent;color:var(--text-muted);cursor:pointer;border-radius:4px;flex-shrink:0;transition:all .15s}
+.pg-pane-btn:hover{background:var(--glass-hover);color:var(--text-secondary)}
+.pg-pane-btn.danger:hover{color:var(--danger)}
+
+/* Input thumbnails area (left side of input card) */
+.pg-input-thumbs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 4px 8px 12px;flex-shrink:0;align-content:flex-start;max-width:200px;overflow-y:auto}
+.pg-input-thumbs:empty{display:none}
+.pg-input-right{flex:1;display:flex;flex-direction:column;min-width:0}
+
+/* Playground modal system */
+.pg-modal-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .2s}
+.pg-modal-overlay.show{opacity:1;pointer-events:auto}
+.pg-modal{background:var(--modal-bg);border:1px solid var(--glass-border);border-radius:12px;padding:20px;min-width:500px;max-width:80vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,0.3);transform:scale(0.95) translateY(10px);transition:transform .2s;overflow:hidden}
+.pg-modal-overlay.show .pg-modal{transform:scale(1) translateY(0)}
+.pg-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0}
+.pg-modal-title{font-size:var(--font-base);font-weight:600;color:var(--text)}
+.pg-modal-close{width:28px;height:28px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;border-radius:6px}
+.pg-modal-close:hover{background:var(--glass-hover);color:var(--text)}
+.pg-modal-body{flex:1;overflow:auto;min-height:0}
+
+/* Input thumbnails (pasted images) */
+.pg-input-thumb-wrap{position:relative;width:48px;height:48px;flex-shrink:0}
+.pg-input-thumb{width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--glass-border);cursor:pointer;transition:transform .15s,border-color .15s}
+.pg-input-thumb:hover{transform:scale(1.05);border-color:var(--accent)}
+.pg-input-thumb-del{position:absolute;top:-4px;right:-4px;width:16px;height:16px;border-radius:50%;background:var(--danger);color:#fff;border:none;cursor:pointer;font-size:9px;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.pg-input-thumb-del:hover{background:var(--danger);transform:scale(1.15)}
