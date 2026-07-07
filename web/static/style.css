@@ -811,6 +811,11 @@ tbody tr:last-child td{border-bottom:none}
   padding-top:16px
 }
 .settings-block:last-child{border-bottom:none;padding-bottom:0}
+
+/* Port row: label / input / save button on one line */
+.settings-port-row{display:flex;align-items:center;gap:12px}
+.settings-port-label{font-size:var(--font-card-title);font-weight:600;color:var(--text);white-space:nowrap}
+.settings-port-input{max-width:120px;height:30px;padding:4px 12px;font-size:var(--font-base);border-radius:8px}
 .settings-block-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .settings-block-title{font-weight:600;font-size:var(--font-card-title);color:var(--text)}
 

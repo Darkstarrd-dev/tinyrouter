@@ -9,13 +9,11 @@ async function renderEndpoint(c) {
   c.innerHTML = '\
     <div class="settings-layout">\
       <div class="settings-panel-left">\
-        <div class="settings-block">\
-          <div class="form-group">\
-            <label for="port">' + t('listenPort') + '</label>\
-            <div class="flex">\
-              <input type="number" id="port" value="' + settings.port + '" style="max-width:120px">\
-              <button type="button" class="btn btn-primary" onclick="withLoading(this, () => savePort())">' + t('save') + '</button>\
-            </div>\
+          <div class="settings-block">\
+          <div class="settings-port-row">\
+            <span class="settings-port-label">' + t('listenPort') + '</span>\
+            <input type="number" id="port" value="' + settings.port + '" class="settings-port-input">\
+            <button type="button" class="btn btn-primary btn-sm" onclick="withLoading(this, () => savePort())">' + t('save') + '</button>\
           </div>\
           <p class="muted mt-12">' + t('apiEndpoint') + ' <span class="code copyable" data-copy="http://localhost:' + settings.port + '/v1" onclick="copyToClipboard(this.getAttribute(\'data-copy\'))" title="' + t('clickToCopy') + '">http://localhost:' + settings.port + '/v1</span></p>\
           <p class="muted mt-12">' + t('noKeyRequired') + '</p>\
@@ -42,8 +40,11 @@ async function renderEndpoint(c) {
             <div class="form-group"><label for="backoffMaxSec">' + t('backoffMax') + '</label>\
               <input type="number" id="backoffMaxSec" value="' + ((settings.rotation && settings.rotation.backoffMaxSec) || 300) + '">\
             </div>\
+            <div class="form-group">\
+              <label>&nbsp;</label>\
+              <button type="button" class="btn btn-primary" style="width:100%" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
+            </div>\
           </div>\
-          <button type="button" class="btn btn-primary mt-12" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
         </div>\
         <div class="settings-block">\
           <div class="settings-block-header">\
