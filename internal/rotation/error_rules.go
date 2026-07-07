@@ -16,7 +16,7 @@ const (
 
 // ErrorRule defines one error classification rule.
 type ErrorRule struct {
-	StatusCode  int         // HTTP status code (0 means wildcard)
+	StatusCode  int         // HTTP status code; 0 matches nothing (falls through to default transient)
 	BodyMatch   string      // case-insensitive substring match on body (empty = skip)
 	Action      ErrorAction // action to take
 	CooldownSec int         // fixed cooldown seconds (for ActionCooldown)

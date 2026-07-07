@@ -133,15 +133,13 @@ func TestLogger_Unsubscribe(t *testing.T) {
 	ch := l.Subscribe()
 	l.Unsubscribe(ch)
 
-	// After unsubscribe, the channel is closed.
+	// After unsubscribe, the channel should not receive new messages.
 	l.Info("after unsubscribe")
 
+	time.Sleep(20 * time.Millisecond)
 	select {
-	case _, ok := <-ch:
-		if ok {
-			t.Error("expected channel to be closed after unsubscribe")
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("timeout — channel not closed")
+	case <-ch:
+		t.Error("expected no messages after unsubscribe")
+	case <-time.After(50 * time.Millisecond):
 	}
 }

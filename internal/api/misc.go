@@ -252,7 +252,11 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 	for i, d := range details {
 		var lu, rot time.Time
 		if d.LastUsedAt != "" {
-			lu, _ = time.Parse(time.RFC3339, d.LastUsedAt)
+			var parseErr error
+			lu, parseErr = time.Parse(time.RFC3339, d.LastUsedAt)
+			if parseErr != nil {
+				rt.logger.Debug("parse LastUsedAt failed for %s: %v", d.KeyID, parseErr)
+			}
 		}
 		if d.RotatedAt != "" {
 			rot, _ = time.Parse(time.RFC3339, d.RotatedAt)
@@ -385,7 +389,8 @@ func (rt *Router) streamConsoleLogs(w http.ResponseWriter, r *http.Request) {
 
 	// Send existing lines first
 	for _, line := range rt.logger.AllLines() {
-		fmt.Fprintf(w, "data: {\"type\":\"line\",\"line\":%s}\n\n", mustJSON(line))
+		payload, _ := json.Marshal(map[string]string{"type": "line", "line": line})
+		fmt.Fprintf(w, "data: %s\n\n", payload)
 		flusher.Flush()
 	}
 
@@ -400,7 +405,8 @@ func (rt *Router) streamConsoleLogs(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "data: {\"type\":\"line\",\"line\":%s}\n\n", mustJSON(line))
+			payload, _ := json.Marshal(map[string]string{"type": "line", "line": line})
+			fmt.Fprintf(w, "data: %s\n\n", payload)
 			flusher.Flush()
 		case <-ctx.Done():
 			return

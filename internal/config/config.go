@@ -213,7 +213,7 @@ func Save(path string, cfg *Config) error {
 		return err
 	}
 	if renameErr := os.Rename(tmp, path); renameErr != nil {
-		return nil
+		return renameErr
 	}
 	return nil
 }

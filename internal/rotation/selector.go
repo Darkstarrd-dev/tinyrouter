@@ -82,13 +82,17 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 	}
 	var chosen config.Key
 	strategy := s.effectiveStrategy(provider)
+	var chosenOk bool
 	switch strategy {
 	case "round-robin":
-		chosen = s.selectRoundRobin(provider, candidates, model)
+		chosen, chosenOk = s.selectRoundRobin(provider, candidates, model)
 	case "failover":
-		chosen = s.selectRotation(provider, candidates)
+		chosen, chosenOk = s.selectRotation(provider, candidates)
 	default:
-		chosen = s.selectFillFirst(candidates)
+		chosen, chosenOk = s.selectFillFirst(candidates)
+	}
+	if !chosenOk {
+		return nil, fmt.Errorf("no available keys for provider %s (model %s)", providerID, model)
 	}
 	state := s.reg.GetKeyState(provider.ID, chosen.ID)
 	if state != nil {

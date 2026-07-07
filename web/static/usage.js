@@ -5,6 +5,7 @@ var lastUsageEntries = [];
 var modelColorMap = {};
 var expandedModels = new Set();
 var lockCountdownTimerStarted = false;
+var lockCountdownInterval = null;
 var quotaBarItems = {};
 var lastQuotaSig = '';
 var usageDebugMode = false;
@@ -273,16 +274,24 @@ function attachTrendHover(entries) {
 }
 
 async function renderUsage(c) {
+  try {
   showSkeleton(c, 4);
-  const [summary, usage, quotas, settings] = await Promise.all([
+  var results = await Promise.allSettled([
     apiGet('/usage/summary'),
     apiGet('/usage?limit=500'),
     apiGet('/usage/quotas'),
     apiGet('/settings')
   ]);
+  if (currentPage !== 'usage') return;
+  var summary = results[0].status === 'fulfilled' ? results[0].value : {};
+  var usage = results[1].status === 'fulfilled' ? results[1].value : {};
+  var quotas = results[2].status === 'fulfilled' ? results[2].value : {};
+  var settings = results[3].status === 'fulfilled' ? results[3].value : {};
+  var rejected = results.some(function(r) { return r.status === 'rejected'; });
+  if (rejected) toast(t('loadFailed') || 'Load failed', 'error');
   usageDebugMode = !!(settings && settings.debugMode);
   lastUsageEntries = usage.entries || [];
-  const quotaBars = quotas.quotas || [];
+  var quotaBars = quotas.quotas || [];
   quotaBarItems = {};
   lastQuotaSig = '';
   var quotaCardHtml = '<div class="card"><div class="card-title">' + t('quotaMonitor') + '</div><div class="quota-section quota-section-scroll"></div></div>';
@@ -299,13 +308,19 @@ async function renderUsage(c) {
   var mainEl = document.querySelector('.main');
   if (mainEl) mainEl.classList.add('main-no-scroll');
   var section = document.querySelector('.quota-monitor-card > .card > .quota-section');
-  if (quotaBars.length === 0) {
-    section.innerHTML = emptyState(t('noQuota'));
-  } else {
-    buildQuotaBarItems(quotaBars, section);
+  if (section) {
+    if (quotaBars.length === 0) {
+      section.innerHTML = emptyState(t('noQuota'));
+    } else {
+      buildQuotaBarItems(quotaBars, section);
+    }
   }
   attachTrendHover(lastUsageEntries);
   startUsageRefresh();
+  } catch(e) {
+    c.innerHTML = emptyState(t('loadFailed') || 'Load failed');
+    console.warn('renderUsage failed:', e);
+  }
 }
 
 function renderRecentRequestsInline(entries) {
@@ -368,7 +383,7 @@ async function refreshQuotaData() {
     updateQuotaBars(quotas.quotas || []);
     updateRecentRequestsModal();
     updateRecentRequestsInline(lastUsageEntries);
-  } catch(e) {}
+  } catch(e) { console.warn('refreshQuotaData failed:', e); }
 }
 
 function startUsageRefresh() {
@@ -397,6 +412,11 @@ function stopUsageRefresh() {
     usageEventSource.close();
     usageEventSource = null;
   }
+  if (lockCountdownInterval) {
+    clearInterval(lockCountdownInterval);
+    lockCountdownInterval = null;
+  }
+  lockCountdownTimerStarted = false;
 }
 
 function computeQuotaSig(bars) {
@@ -671,7 +691,8 @@ function updateQuotaBars(bars) {
   if (!bars) bars = [];
   if (!lockCountdownTimerStarted) {
     lockCountdownTimerStarted = true;
-    setInterval(function() {
+    clearInterval(lockCountdownInterval);
+    lockCountdownInterval = setInterval(function() {
       updateLockCountdowns();
       updateKeyTimers();
     }, 1000);

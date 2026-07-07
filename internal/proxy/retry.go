@@ -49,7 +49,7 @@ func (h *Handler) handleNetworkError(sel *rotation.SelectedKey, providerID, mode
 }
 
 // handle429 processes HTTP 429 responses. Distinguishes daily quota locks from temporary rate limits.
-func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, startTime time.Time, state *retryState) {
+func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, startTime time.Time, state *retryState, r *http.Request) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		h.logger.Warn("failed to read upstream 429 body: %v", err)
@@ -108,7 +108,12 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 			h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
 				util.TruncStr(bodyStr, 200), delay, state.temp429Retries, maxBackoffRetries, sel.Key.Name)
 			h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
-			time.Sleep(time.Duration(delay) * time.Second)
+			select {
+			case <-r.Context().Done():
+				h.logger.Debug("client canceled during 429 backoff")
+				return
+			case <-time.After(time.Duration(delay) * time.Second):
+			}
 			return
 		}
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
@@ -143,7 +148,12 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 				h.logger.Warn("429 tpm: %s | Key %s waiting 15s, retrying same key (attempt %d/1)",
 					util.TruncStr(bodyStr, 200), sel.Key.Name, state.tpmWaitRetries)
 				h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
-				time.Sleep(15 * time.Second)
+				select {
+				case <-r.Context().Done():
+					h.logger.Debug("client canceled during TPM wait")
+					return
+				case <-time.After(15 * time.Second):
+				}
 				return
 			}
 			h.selector.MarkRateLimited(providerID, sel.Key.ID, model, 60*time.Second)
@@ -198,7 +208,12 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
 			util.TruncStr(bodyStr, 200), delay, state.temp429Retries, state.maxRetries, sel.Key.Name)
 		h.recordUsage(sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, nil, body, resp.Header, resp.StatusCode)
-		time.Sleep(time.Duration(delay) * time.Second)
+		select {
+		case <-r.Context().Done():
+			h.logger.Debug("client canceled during 429 backoff")
+			return
+		case <-time.After(time.Duration(delay) * time.Second):
+		}
 		return
 	}
 

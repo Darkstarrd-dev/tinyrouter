@@ -106,7 +106,23 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chatURL := proxy.BuildUpstreamURL(provider.BaseURL, "/v1/chat/completions")
-	body := `{"model":"` + req.Model + `","messages":[{"role":"user","content":"hi"}],"max_tokens":16,"stream":false}`
+	type probeReq struct {
+		Model     string              `json:"model"`
+		Messages  []map[string]string `json:"messages"`
+		MaxTokens int                 `json:"max_tokens"`
+		Stream    bool                `json:"stream"`
+	}
+	bodyBytes, err := json.Marshal(probeReq{
+		Model:     req.Model,
+		Messages:  []map[string]string{{"role": "user", "content": "hi"}},
+		MaxTokens: 16,
+		Stream:    false,
+	})
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to encode request")
+		return
+	}
+	body := string(bodyBytes)
 	var parsedReqBody any = body
 	var reqJSON map[string]any
 	if json.Unmarshal([]byte(body), &reqJSON) == nil {

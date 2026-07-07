@@ -154,14 +154,21 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 		h.logger.Error("failed to read upstream response: %v", err)
 		return
 	}
-	w.Write(bodyBytes)
+	_, werr := w.Write(bodyBytes)
 
 	inputTokens, outputTokens := util.ExtractTokens(bodyBytes)
 	if sel == nil {
 		h.logger.Warn("pass-through response with nil selector, skipping usage recording")
 		return
 	}
+	status := "success"
+	errMsg := ""
+	if werr != nil {
+		status = "client_disconnected"
+		errMsg = werr.Error()
+		h.logger.Warn("client disconnected during pass-through: %v", werr)
+	}
 	h.logger.Info("\U0001f4ca [response] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
-	h.recordUsage(sel.Provider.Name, model, sel, "success", latencyMs, 0, inputTokens, outputTokens, "", reqBody, bodyBytes, resp.Header, resp.StatusCode)
+	h.recordUsage(sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, bodyBytes, resp.Header, resp.StatusCode)
 }

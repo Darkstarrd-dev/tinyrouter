@@ -36,7 +36,10 @@ func resetConsecCount(state *registry.KeyRuntimeState) {
 // preferred), with ties broken by Priority ASC then config order. On success the chosen
 // key is not rotated, so it stays sticky at the front; on failure the caller rotates it
 // to the back via RotateToBack.
-func (s *Selector) selectRotation(provider *config.Provider, keys []config.Key) config.Key {
+func (s *Selector) selectRotation(provider *config.Provider, keys []config.Key) (config.Key, bool) {
+	if len(keys) == 0 {
+		return config.Key{}, false
+	}
 	best := keys[0]
 	bestState := s.reg.GetKeyState(provider.ID, best.ID)
 	var bestRotated time.Time
@@ -57,20 +60,26 @@ func (s *Selector) selectRotation(provider *config.Provider, keys []config.Key) 
 			bestPriority = k.Priority
 		}
 	}
-	return best
+	return best, true
 }
 
-func (s *Selector) selectFillFirst(keys []config.Key) config.Key {
+func (s *Selector) selectFillFirst(keys []config.Key) (config.Key, bool) {
+	if len(keys) == 0 {
+		return config.Key{}, false
+	}
 	best := keys[0]
 	for _, k := range keys[1:] {
 		if k.Priority < best.Priority {
 			best = k
 		}
 	}
-	return best
+	return best, true
 }
 
-func (s *Selector) selectRoundRobin(provider *config.Provider, keys []config.Key, model string) config.Key {
+func (s *Selector) selectRoundRobin(provider *config.Provider, keys []config.Key, model string) (config.Key, bool) {
+	if len(keys) == 0 {
+		return config.Key{}, false
+	}
 	stickyLimit := s.effectiveStickyLimit(provider)
 	if stickyLimit <= 0 {
 		stickyLimit = 3
@@ -96,7 +105,7 @@ func (s *Selector) selectRoundRobin(provider *config.Provider, keys []config.Key
 	}
 
 	if current != nil && currentConsec < stickyLimit {
-		return *current
+		return *current, true
 	}
 
 	oldest := keys[0]
@@ -117,7 +126,7 @@ func (s *Selector) selectRoundRobin(provider *config.Provider, keys []config.Key
 	if state != nil {
 		resetConsecCount(state)
 	}
-	return oldest
+	return oldest, true
 }
 
 func (s *Selector) effectiveStrategy(provider *config.Provider) string {

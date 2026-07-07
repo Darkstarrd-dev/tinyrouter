@@ -6,6 +6,7 @@ let providerDetailCache = null;
 let modelTestStatus = {};
 let importTarget = 'models';
 var usageEventSource = null;
+var navGen = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
@@ -23,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function navigateTo(page) {
   currentPage = page;
+  var gen = ++navGen;
   currentProviderId = null;
   stopUsageRefresh();
   // Cleanup playground streaming state when leaving the page.
@@ -52,7 +54,16 @@ function navigateTo(page) {
     }
   })();
   if (page === 'playground' || page === 'endpoint' && mainEl) mainEl.classList.add('main-no-scroll');
-  if (p && p.then) p.then(() => container.classList.add('page-enter'));
+  if (p && p.then) {
+    p.then(() => { if (gen === navGen) container.classList.add('page-enter'); })
+     .catch((e) => {
+       if (gen === navGen) {
+         container.innerHTML = emptyState('Load failed');
+         container.classList.add('page-enter');
+       }
+       console.warn('navigateTo render failed:', e);
+     });
+  }
 }
 
 function escapeHtml(s) {

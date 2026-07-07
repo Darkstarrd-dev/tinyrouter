@@ -2,7 +2,8 @@ const API = '/api';
 
 async function apiGet(path, signal) {
   const r = await fetch(API + path, { signal: signal });
-  const data = await r.json();
+  var data;
+  try { data = await r.json(); } catch(e) { return { error: 'HTTP ' + r.status + ' (non-JSON body)' }; }
   if (!r.ok && !data.error) data.error = 'HTTP ' + r.status;
   return data;
 }
@@ -13,7 +14,8 @@ async function apiPost(path, body, signal) {
     body: JSON.stringify(body),
     signal: signal
   });
-  const data = await r.json();
+  var data;
+  try { data = await r.json(); } catch(e) { return { error: 'HTTP ' + r.status + ' (non-JSON body)' }; }
   if (!r.ok && !data.error) data.error = 'HTTP ' + r.status;
   return data;
 }
@@ -24,7 +26,8 @@ async function apiPatch(path, body, signal) {
     body: JSON.stringify(body),
     signal: signal
   });
-  const data = await r.json();
+  var data;
+  try { data = await r.json(); } catch(e) { return { error: 'HTTP ' + r.status + ' (non-JSON body)' }; }
   if (!r.ok && !data.error) data.error = 'HTTP ' + r.status;
   return data;
 }
@@ -35,13 +38,15 @@ async function apiPut(path, body, signal) {
     body: JSON.stringify(body),
     signal: signal
   });
-  const data = await r.json();
+  var data;
+  try { data = await r.json(); } catch(e) { return { error: 'HTTP ' + r.status + ' (non-JSON body)' }; }
   if (!r.ok && !data.error) data.error = 'HTTP ' + r.status;
   return data;
 }
 async function apiDelete(path, signal) {
   const r = await fetch(API + path, { method: 'DELETE', signal: signal });
-  const data = await r.json();
+  var data;
+  try { data = await r.json(); } catch(e) { return { error: 'HTTP ' + r.status + ' (non-JSON body)' }; }
   if (!r.ok && !data.error) data.error = 'HTTP ' + r.status;
   return data;
 }

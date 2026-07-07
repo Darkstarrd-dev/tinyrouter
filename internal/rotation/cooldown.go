@@ -112,10 +112,11 @@ func BackoffSequence(n int) int {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n] + "..."
+	return string(runes[:n]) + "..."
 }
 
 func IsDailyQuota429(body string, model string) bool {

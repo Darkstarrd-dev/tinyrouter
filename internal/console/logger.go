@@ -34,7 +34,6 @@ func (l *Logger) timestamp() string {
 
 func (l *Logger) write(line string) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	l.buffer[l.head] = line
 	l.head = (l.head + 1) % l.maxLines
@@ -42,12 +41,16 @@ func (l *Logger) write(line string) {
 		l.size++
 	}
 
-	// Broadcast to subscribers (non-blocking)
+	chans := make([]chan string, 0, len(l.subs))
 	for ch := range l.subs {
+		chans = append(chans, ch)
+	}
+	l.mu.Unlock()
+
+	for _, ch := range chans {
 		select {
 		case ch <- line:
 		default:
-			// drop if subscriber is slow
 		}
 	}
 }
@@ -111,7 +114,6 @@ func (l *Logger) Unsubscribe(ch chan string) {
 	l.mu.Lock()
 	delete(l.subs, ch)
 	l.mu.Unlock()
-	close(ch)
 }
 
 // Clear empties the log buffer.

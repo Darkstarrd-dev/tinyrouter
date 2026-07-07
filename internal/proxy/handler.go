@@ -179,7 +179,12 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		if cfgProvider != nil && cfgProvider.IsNIM() {
 			if wait := h.selector.WaitNIMInterval(providerID, sel.Key.ID); wait > 0 {
 				h.logger.Debug("NIM min_interval wait %v for key %s", wait, sel.Key.Name)
-				time.Sleep(wait)
+				select {
+				case <-r.Context().Done():
+					h.logger.Debug("client canceled during NIM wait")
+					return false
+				case <-time.After(wait):
+				}
 			}
 		}
 
@@ -210,7 +215,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode == 429 {
-			h.handle429(resp, sel, providerID, upstreamModel, startTime, state)
+			h.handle429(resp, sel, providerID, upstreamModel, startTime, state, r)
 			if keyState != nil {
 				keyState.DecInFlight()
 			}
