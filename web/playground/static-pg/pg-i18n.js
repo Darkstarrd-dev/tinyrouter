@@ -58,6 +58,9 @@ window.PG_I18N = {
     pgCodeShowFull: 'Show full content', pgCodeCollapse: 'Collapse', pgCodeExpand: 'Expand',
     pgCodeProcessing: 'Processing large content...', pgCodeCopiedClipboard: 'Copied to clipboard',
     pgErrorCode: 'Code: {0}',
+    pgWinBarTitle: 'Window Setup', pgSplitCount: 'Split', pgEditWindow: 'Editing window {0}',
+    pgPaneName: 'Window {0}', pgNoModelWin: 'Window {0}: no model selected, skipped',
+    pgWinBtnTitle: 'Edit window {0}', pgGenSwitchLock: 'Cannot switch layout while generating',
   },
   cn: {
     pgSelectModel: '选择模型', pgNoModels: '未配置模型', pgSendMessage: '发送', pgStop: '停止', pgClear: '清空对话',
@@ -116,5 +119,8 @@ window.PG_I18N = {
     pgCodeShowFull: '显示完整内容', pgCodeCollapse: '收起', pgCodeExpand: '展开',
     pgCodeProcessing: '正在处理大内容...', pgCodeCopiedClipboard: '已复制到剪贴板',
     pgErrorCode: '代码: {0}',
+    pgWinBarTitle: '窗口设置', pgSplitCount: '分割数量', pgEditWindow: '正在编辑窗口 {0}',
+    pgPaneName: '窗口 {0}', pgNoModelWin: '窗口 {0} 未选择模型，已跳过',
+    pgWinBtnTitle: '编辑窗口 {0}', pgGenSwitchLock: '生成中不可切换窗口布局',
   }
 };

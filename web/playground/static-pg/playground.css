@@ -316,3 +316,20 @@ html,body,.app{overflow:hidden !important;height:100% !important}
   .pg-main{padding-right:0}
   .pg-bubble{max-width:92vw}
 }
+
+.pg-main-inner.pg-split{max-width:none;width:100%}
+.pg-panes{flex:1;display:grid;gap:8px;min-height:0}
+.pg-pane{display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid var(--glass-border);border-radius:10px;overflow:hidden;background:var(--glass-bg)}
+.pg-pane-head{display:flex;align-items:center;gap:6px;padding:6px 10px;font-size:var(--font-badge);color:var(--text-secondary);border-bottom:1px solid var(--glass-border);background:var(--glass-hover);flex-shrink:0}
+.pg-pane-idx{font-weight:600;color:var(--accent)}
+.pg-pane-model{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.pg-pane .pg-messages{flex:1;overflow-y:auto}
+.pg-pane-empty{display:flex;align-items:center;justify-content:center;flex:1;color:var(--text-muted);font-size:var(--font-badge)}
+.pg-winbar{flex-shrink:0}
+.pg-winbar-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.pg-winbar-btns{display:flex;gap:4px}
+.pg-win-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--glass-border);background:var(--glass-bg);color:var(--text-secondary);cursor:pointer;font-weight:600}
+.pg-win-btn.active{background:var(--accent);color:#000;border-color:var(--accent)}
+.pg-win-btn:disabled{opacity:.35;cursor:not-allowed}
+.pg-winbar select{width:70px}
+.pg-winbar-hint{font-size:11px;color:var(--text-muted);margin-top:6px}

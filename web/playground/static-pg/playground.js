@@ -6,6 +6,7 @@
 // toggle (user/assistant/system), system prompt, reasoning duration,
 // sources rendering, show-source/preview, HTML iframe preview, mermaid,
 // message timing, error retry/edit-prompt actions, v2 localStorage.
+// Multi-window: split panes (1-4), each with independent conversation.
 // =====================================================================
 
 // ----- Module 1: State management -----------------------------------
@@ -63,9 +64,6 @@ function pgEscapeHtml(s)     { return PG_HOST && PG_HOST.escapeHtml ? PG_HOST.es
 function pgCopyToClipboard(tx, lb) { return PG_HOST && PG_HOST.copyToClipboard ? PG_HOST.copyToClipboard(tx, lb) : copyToClipboard(tx, lb); }
 function pgT(k, ar) {
   if (PG_HOST && PG_HOST.t) return PG_HOST.t(k, ar);
-  // 优先查 playground 自己的字典 (pg-i18n.js)
-  // 主字典 i18n.js 不含 pg* key, 全局 t() 会返回 key 本身 (带 pg 前缀),
-  // 所以必须先查 PG_I18N, 才能拿到真实译文
   if (typeof window !== 'undefined' && window.PG_I18N) {
     var lang = document.documentElement.getAttribute('data-lang') || (localStorage && localStorage.getItem('lang')) || 'en';
     var dict = window.PG_I18N[lang] || window.PG_I18N['en'] || {};
@@ -77,7 +75,6 @@ function pgT(k, ar) {
       return s;
     }
   }
-  // fallback: i18n.js 全局 t() (非 pg* key 才会命中)
   if (typeof t === 'function') return t(k, ar);
   return k;
 }
@@ -88,40 +85,52 @@ var PG_MAX_MSGS_BYTES = 1024 * 1024;       // 1MB raw string cap
 var PG_MAX_MSG_CHARS = 40000;              // single message content cap
 var PG_MAX_MSGS_CHARS = 120000;            // total loaded content cap
 
+function makeWin() {
+  return {
+    config: JSON.parse(JSON.stringify(PG_DEFAULT_CFG)),
+    parameterEnabled: JSON.parse(JSON.stringify(PG_DEFAULT_PARAMS)),
+    messages: [],
+    streaming: false,
+    abortCtrl: null,
+    sseEvents: [],
+    lastProvider: '',
+    lastKey: '',
+    debugTab: 'preview',
+    debugRequest: '',
+    debugPreview: '',
+    debugResponse: '',
+    debugTimestamp: null,
+    debugPreviewTimestamp: null,
+    renderTimer: null,
+    pendingContent: '',
+    pendingReasoning: '',
+    pendingSources: [],
+    reasoningStartedAt: null,
+    reasoningCompletedAt: null,
+  };
+}
+
 var pgState = {
-  config: JSON.parse(JSON.stringify(PG_DEFAULT_CFG)),
-  parameterEnabled: JSON.parse(JSON.stringify(PG_DEFAULT_PARAMS)),
-  messages: [],          // {role, content(string|ContentPart[]), reasoning, status, ...timing, sources}
+  winInit: false,
+  splitCount: 1,
+  activeWin: 0,
+  windows: [],
   models: [],
-  streaming: false,
-  abortCtrl: null,
-  sseEvents: [],
-  lastProvider: '',
-  lastKey: '',
-  // Debug panel state
-  debugTab: 'preview',
-  debugRequest: '',
-  debugPreview: '',
-  debugResponse: '',
-  debugTimestamp: null,
-  debugPreviewTimestamp: null,
-  renderTimer: null,
-  pendingContent: '',
-  pendingReasoning: '',
-  pendingSources: [],
-  // timing accumulators (per active request)
-  reasoningStartedAt: null,
-  reasoningCompletedAt: null,
 };
 
+function pgWin() { return pgState.windows[pgState.activeWin]; }
+function pgWinAt(i) { return pgState.windows[i]; }
+
 function pgLoad() {
+  if (!pgState.windows.length) pgState.windows.push(makeWin());
+  var w = pgState.windows[0];
   try {
     var rawCfg = localStorage.getItem(PG_CFG_KEY);
     if (rawCfg) {
       var savedCfg = JSON.parse(rawCfg);
       if (savedCfg) {
         Object.keys(PG_DEFAULT_CFG).forEach(function(k) {
-          if (savedCfg[k] !== undefined) pgState.config[k] = savedCfg[k];
+          if (savedCfg[k] !== undefined) w.config[k] = savedCfg[k];
         });
       }
     }
@@ -132,7 +141,7 @@ function pgLoad() {
       var savedParams = JSON.parse(rawParams);
       if (savedParams) {
         Object.keys(PG_DEFAULT_PARAMS).forEach(function(k) {
-          if (savedParams[k] !== undefined) pgState.parameterEnabled[k] = savedParams[k];
+          if (savedParams[k] !== undefined) w.parameterEnabled[k] = savedParams[k];
         });
       }
     }
@@ -145,9 +154,7 @@ function pgLoad() {
       } else {
         var msgs = JSON.parse(rawMsgs);
         if (Array.isArray(msgs)) {
-          // Trim by count.
           if (msgs.length > PG_MAX_MSGS) msgs = msgs.slice(-PG_MAX_MSGS);
-          // Trim by total content size (from the end backwards).
           var totalSize = 0;
           var trimmedBySize = [];
           for (var mi = msgs.length - 1; mi >= 0; mi--) {
@@ -157,7 +164,6 @@ function pgLoad() {
             totalSize += mc;
             trimmedBySize.unshift(msgs[mi]);
           }
-          // Truncate individual message content.
           trimmedBySize = trimmedBySize.map(function(m) {
             var copy = Object.assign({}, m);
             if (typeof copy.content === 'string' && copy.content.length > PG_MAX_MSG_CHARS) {
@@ -168,29 +174,40 @@ function pgLoad() {
             }
             return pgNormalizeLoadedMessage(copy);
           });
-          pgState.messages = trimmedBySize;
+          w.messages = trimmedBySize;
         }
       }
     }
   } catch (e) { /* corrupt storage */ }
 }
 
+function pgEnsureWindows() {
+  if (pgState.winInit) return;
+  if (!pgState.windows.length) pgState.windows.push(makeWin());
+  for (var k = 1; k < 4; k++) {
+    var clone = JSON.parse(JSON.stringify(pgState.windows[0]));
+    clone.messages = [];
+    clone.streaming = false; clone.abortCtrl = null; clone.renderTimer = null;
+    clone.pendingContent = ''; clone.pendingReasoning = ''; clone.pendingSources = [];
+    clone.reasoningStartedAt = null; clone.reasoningCompletedAt = null;
+    clone.sseEvents = []; clone.lastProvider = ''; clone.lastKey = '';
+    clone.debugTab = 'preview'; clone.debugRequest = ''; clone.debugResponse = '';
+    clone.debugTimestamp = null; clone.debugPreview = ''; clone.debugPreviewTimestamp = null;
+    pgState.windows.push(clone);
+  }
+  pgState.winInit = true;
+}
+
 var pgSaveTimer = null;
 function pgSave() {
   if (pgSaveTimer) clearTimeout(pgSaveTimer);
   pgSaveTimer = setTimeout(function() {
+    var w = pgState.windows[0];
+    try { localStorage.setItem(PG_CFG_KEY, JSON.stringify(w.config)); } catch (e) {}
+    try { localStorage.setItem(PG_PARAM_KEY, JSON.stringify(w.parameterEnabled)); } catch (e) {}
     try {
-      localStorage.setItem(PG_CFG_KEY, JSON.stringify(pgState.config));
-    } catch (e) {}
-    try {
-      localStorage.setItem(PG_PARAM_KEY, JSON.stringify(pgState.parameterEnabled));
-    } catch (e) {}
-    try {
-      // Trim to max message count.
-      var trimmed = pgState.messages;
-      if (trimmed.length > PG_MAX_MSGS) {
-        trimmed = trimmed.slice(-PG_MAX_MSGS);
-      }
+      var trimmed = w.messages;
+      if (trimmed.length > PG_MAX_MSGS) trimmed = trimmed.slice(-PG_MAX_MSGS);
       localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
     } catch (e) {}
   }, 500);
@@ -241,8 +258,6 @@ var PG_PURIFY_CONFIG = (function() {
   };
 })();
 
-// Escape \[...\] -> $$...$$ and \(...\) -> $...$ while protecting fenced code spans.
-// Ported from new-api MarkdownRenderer escapeBrackets.
 function pgEscapeBrackets(text) {
   var pattern = /(```[\s\S]*?```|`[^`]*`)|\\\[([\s\S]*?[^\\])\\\]|\\\((.*?)\\\)/g;
   return text.replace(pattern, function(m, code, sq, rd) {
@@ -253,10 +268,7 @@ function pgEscapeBrackets(text) {
   });
 }
 
-// Normalize inline $$...$$ (single-line) so marked-katex blockKatex fires.
-// Wrap escaped braces on their own line: \n$$\n<inner>\n$$\n
 function pgNormalizeDisplayMath(text) {
-  // Skip fenced code blocks entirely; operate outside of them.
   var parts = [];
   var last = 0;
   var fence = /```[\s\S]*?```/g;
@@ -271,21 +283,15 @@ function pgNormalizeDisplayMath(text) {
   return parts.join('');
 }
 function pgNormalizeInChunk(chunk) {
-  // 单行 $$...$$ -> 多行块格式 (匹配 marked-katex blockRule 要求 $$ 后有 \n)
   chunk = chunk.replace(/\$\$([^\n$]+?)\$\$/g, function(_, inner) {
     return '\n$$\n' + inner.trim() + '\n$$\n';
   });
-  // 多行 $$...$$ 但 $$ 紧贴内容无换行 (如 $$\begin{align*}\n...\n$$)
-  // 在 $$ 后和 $$ 前插入 \n, 让 marked-katex blockRule 命中
   chunk = chunk.replace(/\$\$(?!\n)([\s\S]*?)\$\$/g, function(_, inner) {
     return '\n$$\n' + inner.trim() + '\n$$\n';
   });
   return chunk;
 }
 
-// Wrap raw <DOCTYPE html>, <svg...>, <?xml ...?> into ```html fenced blocks so
-// the renderer can find them as language-html code blocks for iframe preview.
-// Ported from new-api tryWrapHtmlCode.
 function pgTryWrapHtmlCode(text) {
   if (text.indexOf('```') >= 0) return text;
   text = text.replace(/([`]*?)(\w*?)([\n\r]*?)(<!DOCTYPE html>)/g, function(m, qs, lang, nl, dt) {
@@ -297,7 +303,6 @@ function pgTryWrapHtmlCode(text) {
   return text;
 }
 
-// Render markdown -> sanitized HTML. Falls back to escaped plain text.
 function pgRenderMarkdown(text, isUser) {
   if (!text) return '';
   if (typeof marked !== 'undefined') {
@@ -316,7 +321,6 @@ function pgRenderMarkdown(text, isUser) {
   return '<p>' + pgEscapeHtml(text).replace(/\n/g, '<br>') + '</p>';
 }
 
-// Highlight code blocks after they hit the DOM.
 function pgHighlight(container) {
   if (typeof hljs === 'undefined') return;
   container.querySelectorAll('pre code').forEach(function(block) {
@@ -326,13 +330,11 @@ function pgHighlight(container) {
   });
 }
 
-// Reasoning tag tokens built from char codes so they never collide with markup.
 var PG_THINK_OPEN = String.fromCharCode(60) + 'think' + String.fromCharCode(62);
 var PG_THINK_CLOSE = String.fromCharCode(60) + '/think' + String.fromCharCode(62);
 var PG_THINK_RE = new RegExp('^\\s*' + PG_THINK_OPEN.replace(/([<\/ ])/g, '\\$1') + '([\\s\\S]*?)' + PG_THINK_CLOSE.replace(/([<\/ ])/g, '\\$1'));
 var PG_THINK_ALL_RE = new RegExp(PG_THINK_OPEN.replace(/([<\/ ])/g, '\\$1') + '([\\s\\S]*?)' + PG_THINK_CLOSE.replace(/([<\/ ])/g, '\\$1'), 'g');
 
-// Split leading reasoning block from visible content (handles unclosed / streaming).
 function pgSplitReasoning(text) {
   var reasoning = '';
   var m = text.match(PG_THINK_RE);
@@ -340,23 +342,19 @@ function pgSplitReasoning(text) {
     reasoning = m[1];
     text = text.slice(m[0].length);
   } else if (text.indexOf(PG_THINK_OPEN) === 0) {
-    // Streaming unclosed: everything after is reasoning.
     reasoning = text.slice(PG_THINK_OPEN.length);
     text = '';
   }
   return { content: text, reasoning: reasoning };
 }
 
-// Pull ALL think blocks out of content (handles multiple blocks intermixed).
 function pgExtractAllReasoning(text) {
   if (text.indexOf(PG_THINK_OPEN) < 0) return { content: text, reasoning: '' };
-  // Easiest correct approach: strip closed blocks first, then handle trailing unclosed.
   var reasoningParts = [];
   text = text.replace(PG_THINK_ALL_RE, function(_, inner) {
     reasoningParts.push(inner);
     return '';
   });
-  // Trailing unclosed think block during streaming.
   var openIdx = text.indexOf(PG_THINK_OPEN);
   if (openIdx >= 0) {
     reasoningParts.push(text.slice(openIdx + PG_THINK_OPEN.length));
@@ -366,7 +364,6 @@ function pgExtractAllReasoning(text) {
 }
 
 // ----- Module 4: Content helpers (text / images) ------------------
-// message.content may be string OR [{type:'text'|'image_url', text?, image_url?}].
 function pgTextContent(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -389,8 +386,6 @@ function pgParseSSELine(line) {
   try { return JSON.parse(payload); } catch (e) { return null; }
 }
 
-// Merge a streaming chunk into accumulated content, deduplicating the repeated
-// prefix that some upstreams resend in every chunk (mirrors new-api mergePendingStreamChunk).
 function pgMergeChunk(current, next) {
   if (!current || !next || next.indexOf(current) !== 0) {
     return (current || '') + (next || '');
@@ -398,17 +393,12 @@ function pgMergeChunk(current, next) {
   return next;
 }
 
-// Parse an HTTP error response body for structured error.code / error.message
-// (mirrors new-api parseStreamErrorDetails / parseRequestErrorDetails).
 function pgParseErrorDetails(text) {
   if (!text) return { errorMessage: 'Request error occurred', errorCode: null };
   try {
     var parsed = JSON.parse(text);
     if (parsed && parsed.error) {
-      return {
-        errorMessage: parsed.error.message || text,
-        errorCode: parsed.error.code || null,
-      };
+      return { errorMessage: parsed.error.message || text, errorCode: parsed.error.code || null };
     }
     if (parsed && parsed.message) {
       return { errorMessage: parsed.message, errorCode: parsed.error_code || null };
@@ -417,30 +407,25 @@ function pgParseErrorDetails(text) {
   return { errorMessage: text, errorCode: null };
 }
 
-// Build the OpenAI-compatible request body honoring parameterEnabled toggles.
-function pgBuildBody() {
-  if (pgState.config.useCustomBody && pgState.config.customBody) {
-    try { return JSON.parse(pgState.config.customBody); } catch (e) {
+function pgBuildBodyForWin(i) {
+  var w = pgWinAt(i);
+  if (w.config.useCustomBody && w.config.customBody) {
+    try { return JSON.parse(w.config.customBody); } catch (e) {
       throw new Error('Invalid custom body JSON');
     }
   }
-  var en = pgState.parameterEnabled;
-  var cfg = pgState.config;
-  var messages = pgState.messages
+  var en = w.parameterEnabled;
+  var cfg = w.config;
+  var messages = w.messages
     .filter(function(m) {
       if (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'system') return false;
       if (m.role === 'assistant' && m.error) return false;
-      // Skip empty loading assistant placeholders.
       if (m.role === 'assistant' && m.status === 'loading') return false;
       return true;
     })
     .map(function(m) {
-      // Drop images for non-final user messages (OpenAI only accepts final user images
-      // cleanly; we still pass arrays because some upstreams accept multiple — mirror
-      // new-api buildMessageContent behaviour of attaching images to the last user).
       return { role: m.role, content: m.content };
     });
-
   var body = {
     model: cfg.model,
     messages: messages,
@@ -452,25 +437,26 @@ function pgBuildBody() {
   if (en.frequencyPenalty) body.frequency_penalty = cfg.frequencyPenalty;
   if (en.presencePenalty) body.presence_penalty = cfg.presencePenalty;
   if (en.seed && cfg.seed !== '' && cfg.seed !== null) {
-    // seed may be numeric or string; pass through as-is if numeric, else string.
     var seedNum = Number(cfg.seed);
     body.seed = isNaN(seedNum) ? cfg.seed : seedNum;
   }
   return body;
 }
 
-// Attach system prompt + multimodal content as a final pre-send transform.
-function pgFinalizeBodyForSend(body, lastUserMessage) {
-  // System prompt injection at top.
-  if (pgState.config.systemPrompt && pgState.config.systemPrompt.trim()) {
+function pgBuildBody() {
+  return pgBuildBodyForWin(pgState.activeWin);
+}
+
+function pgFinalizeBodyForSend(body, lastUserMessage, i) {
+  var w = pgWinAt(i);
+  if (w.config.systemPrompt && w.config.systemPrompt.trim()) {
     var hasSystem = (body.messages || []).some(function(m) { return m.role === 'system'; });
     if (!hasSystem) {
-      body.messages = [{ role: 'system', content: pgState.config.systemPrompt }].concat(body.messages);
+      body.messages = [{ role: 'system', content: w.config.systemPrompt }].concat(body.messages);
     }
   }
-  // Multimodal: rewrite last user message content as ContentPart[] if images present.
-  if (pgState.config.imageEnabled && Array.isArray(pgState.config.imageUrls)) {
-    var urls = pgState.config.imageUrls.filter(function(u) { return u && u.trim(); });
+  if (w.config.imageEnabled && Array.isArray(w.config.imageUrls)) {
+    var urls = w.config.imageUrls.filter(function(u) { return u && u.trim(); });
     if (urls.length > 0 && lastUserMessage) {
       var text = (typeof lastUserMessage.content === 'string')
         ? lastUserMessage.content
@@ -486,56 +472,57 @@ function pgFinalizeBodyForSend(body, lastUserMessage) {
   return body;
 }
 
-function pgSend(assistantIdx) {
+function pgSend(i, assistantIdx) {
+  var w = pgWinAt(i);
   var body;
-  try { body = pgBuildBody(); } catch (e) {
+  try { body = pgBuildBodyForWin(i); } catch (e) {
     pgToast(e.message, 'error'); return;
   }
-  pgState.sseEvents = [];
-  pgState.lastProvider = '';
-  pgState.lastKey = '';
-  pgState.pendingContent = '';
-  pgState.pendingReasoning = '';
-  pgState.pendingSources = [];
-  pgState.reasoningStartedAt = null;
-  pgState.reasoningCompletedAt = null;
+  w.sseEvents = [];
+  w.lastProvider = '';
+  w.lastKey = '';
+  w.pendingContent = '';
+  w.pendingReasoning = '';
+  w.pendingSources = [];
+  w.reasoningStartedAt = null;
+  w.reasoningCompletedAt = null;
 
-  // Find last user message in body for multimodal rewrite.
   var lastUser = null;
-  for (var i = body.messages.length - 1; i >= 0; i--) {
-    if (body.messages[i].role === 'user') { lastUser = body.messages[i]; break; }
+  for (var j = body.messages.length - 1; j >= 0; j--) {
+    if (body.messages[j].role === 'user') { lastUser = body.messages[j]; break; }
   }
-  body = pgFinalizeBodyForSend(body, lastUser);
-  pgState.debugRequest = JSON.stringify(body, null, 2);
-  pgState.debugResponse = '';
-  pgState.debugTimestamp = new Date().toISOString();
+  body = pgFinalizeBodyForSend(body, lastUser, i);
+  w.debugRequest = JSON.stringify(body, null, 2);
+  w.debugResponse = '';
+  w.debugTimestamp = new Date().toISOString();
 
-  if (pgState.config.stream) {
-    pgStream(body, assistantIdx);
+  if (w.config.stream) {
+    pgStream(i, body, assistantIdx);
   } else {
-    pgSendNonStream(body, assistantIdx);
+    pgSendNonStream(i, body, assistantIdx);
   }
 }
 
-function pgStream(body, assistantIdx) {
-  pgState.streaming = true;
-  pgState.abortCtrl = new AbortController();
+function pgStream(i, body, assistantIdx) {
+  var w = pgWinAt(i);
+  w.streaming = true;
+  w.abortCtrl = new AbortController();
   pgUpdateInputBar();
 
   fetch('/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
     body: JSON.stringify(body),
-    signal: pgState.abortCtrl.signal,
+    signal: w.abortCtrl.signal,
   }).then(function(resp) {
-    pgState.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
-    pgState.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
+    w.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
+    w.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
     if (!resp.ok || !resp.body) {
       resp.text().then(function(text) {
         var details = pgParseErrorDetails(text);
-        pgFail(assistantIdx, details.errorMessage || ('HTTP ' + resp.status), details.errorCode);
+        pgFail(i, assistantIdx, details.errorMessage || ('HTTP ' + resp.status), details.errorCode);
       }).catch(function() {
-        pgFail(assistantIdx, 'HTTP ' + resp.status);
+        pgFail(i, assistantIdx, 'HTTP ' + resp.status);
       });
       return Promise.reject(new Error('HTTP ' + resp.status));
     }
@@ -545,78 +532,78 @@ function pgStream(body, assistantIdx) {
     function pump() {
       return reader.read().then(function(chunk) {
         if (chunk.done) {
-          pgFinish(assistantIdx);
-          // 兜底: 确保 send 按钮切换回来, 某些上游不发 [DONE] 直接关连接.
-          pgState.streaming = false;
+          pgFinish(i, assistantIdx);
+          var w2 = pgWinAt(i);
+          w2.streaming = false;
           pgUpdateInputBar();
           return;
         }
         buffer += decoder.decode(chunk.value, { stream: true });
         var events = buffer.split('\n');
         buffer = events.pop();
-        for (var i = 0; i < events.length; i++) {
-          var line = events[i].trim();
+        for (var j = 0; j < events.length; j++) {
+          var line = events[j].trim();
           if (!line) continue;
-          // 仅把 data: 行记入调试 SSE 列表, 避免 : 注释行 / 空行 / data:[DONE]
-          // 被 SSE 查看器当成 JSON 解析失败计为错误.
-          if (line.indexOf('data:') === 0) pgState.sseEvents.push(line);
+          if (line.indexOf('data:') === 0) {
+            var w3 = pgWinAt(i);
+            w3.sseEvents.push(line);
+          }
           var data = pgParseSSELine(line);
           if (!data) continue;
           if (data.done) {
-            pgFinish(assistantIdx);
-            // 兜底: 确保 send 按钮切换回来.
-            pgState.streaming = false;
+            pgFinish(i, assistantIdx);
+            var w4 = pgWinAt(i);
+            w4.streaming = false;
             pgUpdateInputBar();
             return;
           }
-          pgApplyChunk(data, assistantIdx);
+          pgApplyChunk(i, data, assistantIdx);
         }
-        pgFlushRender(assistantIdx);
+        pgFlushRender(i, assistantIdx);
         return pump();
       });
     }
     return pump();
   }).catch(function(err) {
     if (err && err.name === 'AbortError') {
-      pgFinish(assistantIdx);
-    } else if (pgState.streaming) {
-      pgFail(assistantIdx, err && err.message ? err.message : String(err));
+      pgFinish(i, assistantIdx);
     } else {
-      // 兜底: streaming 已被复位但 inputBar 可能没刷新, 强制刷新一次.
-      pgUpdateInputBar();
+      var w5 = pgWinAt(i);
+      if (w5.streaming) {
+        pgFail(i, assistantIdx, err && err.message ? err.message : String(err));
+      } else {
+        pgUpdateInputBar();
+      }
     }
   });
 }
 
-function pgApplyChunk(data, assistantIdx) {
+function pgApplyChunk(i, data, assistantIdx) {
+  var w = pgWinAt(i);
   var choices = data.choices;
   if (!choices || !choices.length) {
-    // Non-choice chunks (e.g., usage/citations wrapper).
-    pgApplySourcesFromObject(data, /*target*/ null);
+    pgApplySourcesFromObject(i, data);
     return;
   }
   var delta = choices[0].delta || {};
-  if (delta.content) pgState.pendingContent = pgMergeChunk(pgState.pendingContent, delta.content);
-  // 兼容多种 reasoning 字段名: reasoning_content (DeepSeek/GLM), reasoning, thinking, thought
+  if (delta.content) w.pendingContent = pgMergeChunk(w.pendingContent, delta.content);
   var reasonChunk = delta.reasoning_content || delta.reasoning || delta.thinking || delta.thought;
   if (reasonChunk) {
-    if (!pgState.reasoningStartedAt) pgState.reasoningStartedAt = Date.now();
-    pgState.pendingReasoning = pgMergeChunk(pgState.pendingReasoning, reasonChunk);
+    if (!w.reasoningStartedAt) w.reasoningStartedAt = Date.now();
+    w.pendingReasoning = pgMergeChunk(w.pendingReasoning, reasonChunk);
   }
-  // Some upstreams deliver sources/citations at delta level.
-  pgApplySourcesFromObject(delta, null);
-  // Others nest under message.citations / web_search.
+  pgApplySourcesFromObject(i, delta);
   if (choices[0].message) {
-    pgApplySourcesFromObject(choices[0].message, null);
+    pgApplySourcesFromObject(i, choices[0].message);
   }
 }
 
-// Extract sources-like arrays from an arbitrary object. Tolerates many shapes.
-function pgApplySourcesFromObject(obj, _target) {
+function pgApplySourcesFromObject(i, obj) {
+  var w = pgWinAt(i);
   if (!obj || typeof obj !== 'object') return;
   var candidates = ['sources', 'citations', 'web_search_citation', 'web_search'];
-  for (var i = 0; i < candidates.length; i++) {
-    var key = candidates[i];
+  for (var j = 0; j < candidates.length; j++) {
+    var key = candidates[j];
     var val = obj[key];
     if (!val) continue;
     if (Array.isArray(val)) {
@@ -625,88 +612,81 @@ function pgApplySourcesFromObject(obj, _target) {
         var href = item.url || item.href || item.link || (typeof item === 'string' ? item : '');
         if (!href) return;
         var title = item.title || item.name || item.snippet || (typeof item === 'string' ? '' : '');
-        // Dedup by href.
-        if (!pgState.pendingSources.some(function(s) { return s.href === href; })) {
-          pgState.pendingSources.push({ href: href, title: title || href });
+        if (!w.pendingSources.some(function(s) { return s.href === href; })) {
+          w.pendingSources.push({ href: href, title: title || href });
         }
       });
     }
   }
 }
 
-function pgFlushRender(assistantIdx) {
-  if (pgState.renderTimer) return;
-  pgState.renderTimer = setTimeout(function() {
-    pgState.renderTimer = null;
-    // 流已结束(pgFinish/pgFail 已把 pendingContent 清空并渲染最终内容): 过期定时器
-    // 不得再用被清空的 pendingContent 覆盖已完成的消息, 否则气泡内容被冲空坍缩.
-    if (!pgState.streaming) return;
-    var msg = pgState.messages[assistantIdx];
+function pgFlushRender(i, assistantIdx) {
+  var w = pgWinAt(i);
+  if (w.renderTimer) return;
+  w.renderTimer = setTimeout(function() {
+    var w2 = pgWinAt(i);
+    w2.renderTimer = null;
+    if (!w2.streaming) return;
+    var msg = w2.messages[assistantIdx];
     if (!msg) return;
-    // 流式期实时从 pendingContent 分流 <think> 块到 pendingReasoning.
-    // 多数上游把 <think>...</think> 塞在 delta.content 而非 delta.reasoning_content,
-    // 不分流的话 marked 会把 <think> 当未知 HTML 吃掉, 用户只看到残留汉字.
-    var split = pgExtractAllReasoning(pgState.pendingContent);
+    var split = pgExtractAllReasoning(w2.pendingContent);
     if (split.reasoning) {
-      pgState.pendingReasoning = pgState.pendingReasoning
-        ? pgState.pendingReasoning + '\n' + split.reasoning
+      w2.pendingReasoning = w2.pendingReasoning
+        ? w2.pendingReasoning + '\n' + split.reasoning
         : split.reasoning;
-      pgState.pendingContent = split.content;
-      if (!pgState.reasoningStartedAt) pgState.reasoningStartedAt = Date.now();
+      w2.pendingContent = split.content;
+      if (!w2.reasoningStartedAt) w2.reasoningStartedAt = Date.now();
     }
-    // 处理仍在 <think> 内未闭合的流式 content (split.content 为空但 pendingContent 还有 <think> 前缀)
-    if (!pgState.pendingContent && pgState.pendingReasoning) {
-      // 纯思考阶段: bubble 内容为空是正常的, 不要再回填.
+    if (!w2.pendingContent && w2.pendingReasoning) {
     }
-    msg.content = pgState.pendingContent;
-    msg.reasoning = pgState.pendingReasoning;
-    msg.sources = pgState.pendingSources.slice();
-    if (pgState.reasoningStartedAt) {
-      msg.reasoningStartedAt = pgState.reasoningStartedAt;
-      if (pgState.reasoningCompletedAt) {
-        msg.reasoningCompletedAt = pgState.reasoningCompletedAt;
-        msg.reasoningDurationMs = pgState.reasoningCompletedAt - pgState.reasoningStartedAt;
+    msg.content = w2.pendingContent;
+    msg.reasoning = w2.pendingReasoning;
+    msg.sources = w2.pendingSources.slice();
+    if (w2.reasoningStartedAt) {
+      msg.reasoningStartedAt = w2.reasoningStartedAt;
+      if (w2.reasoningCompletedAt) {
+        msg.reasoningCompletedAt = w2.reasoningCompletedAt;
+        msg.reasoningDurationMs = w2.reasoningCompletedAt - w2.reasoningStartedAt;
       } else {
-        // Still streaming reasoning — live duration so far.
-        msg.reasoningDurationMs = Date.now() - pgState.reasoningStartedAt;
+        msg.reasoningDurationMs = Date.now() - w2.reasoningStartedAt;
       }
     }
     msg.status = 'streaming';
-    // When content delta starts arriving after reasoning, seal reasoning timing.
-    if (pgState.reasoningStartedAt && !pgState.reasoningCompletedAt && pgState.pendingContent) {
-      pgState.reasoningCompletedAt = Date.now();
-      msg.reasoningCompletedAt = pgState.reasoningCompletedAt;
-      msg.reasoningDurationMs = pgState.reasoningCompletedAt - pgState.reasoningStartedAt;
+    if (w2.reasoningStartedAt && !w2.reasoningCompletedAt && w2.pendingContent) {
+      w2.reasoningCompletedAt = Date.now();
+      msg.reasoningCompletedAt = w2.reasoningCompletedAt;
+      msg.reasoningDurationMs = w2.reasoningCompletedAt - w2.reasoningStartedAt;
     }
-    pgRenderBubble(assistantIdx);
+    pgRenderBubble(i, assistantIdx);
     pgRenderDebug();
-    pgScrollBottom();
+    pgScrollBottom(i);
   }, 50);
 }
 
-function pgSendNonStream(body, assistantIdx) {
-  pgState.streaming = true;
-  pgState.abortCtrl = new AbortController();
+function pgSendNonStream(i, body, assistantIdx) {
+  var w = pgWinAt(i);
+  w.streaming = true;
+  w.abortCtrl = new AbortController();
   pgUpdateInputBar();
   fetch('/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: pgState.abortCtrl.signal,
+    signal: w.abortCtrl.signal,
   }).then(function(resp) {
-    pgState.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
-    pgState.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
+    w.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
+    w.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
     return resp.json().then(function(j) {
       if (!resp.ok) {
         var details = pgParseErrorDetails(JSON.stringify(j));
         var err2 = new Error(details.errorMessage || ('HTTP ' + resp.status));
         if (details.errorCode) {
-          var msg2 = pgState.messages[assistantIdx];
+          var msg2 = w.messages[assistantIdx];
           if (msg2) msg2.errorCode = details.errorCode;
         }
         throw err2;
       }
-      var msg = pgState.messages[assistantIdx];
+      var msg = w.messages[assistantIdx];
       var choice = j.choices && j.choices[0];
       msg.startedAt = msg.startedAt || Date.now();
       msg.completedAt = Date.now();
@@ -715,8 +695,8 @@ function pgSendNonStream(body, assistantIdx) {
         msg.content = choice.message.content || '';
         msg.reasoning = choice.message.reasoning_content || '';
         msg.status = 'complete';
-        pgApplySourcesFromObject(choice.message, null);
-        msg.sources = pgState.pendingSources.slice();
+        pgApplySourcesFromObject(i, choice.message);
+        msg.sources = w.pendingSources.slice();
         if (msg.reasoning) {
           msg.reasoningStartedAt = msg.startedAt;
           msg.reasoningCompletedAt = msg.completedAt;
@@ -726,46 +706,43 @@ function pgSendNonStream(body, assistantIdx) {
         msg.content = '';
         msg.status = 'complete';
       }
-      pgState.sseEvents.push(JSON.stringify(j, null, 2));
-      pgState.debugResponse = JSON.stringify(j, null, 2);
-      pgRenderBubble(assistantIdx);
+      w.sseEvents.push(JSON.stringify(j, null, 2));
+      w.debugResponse = JSON.stringify(j, null, 2);
+      pgRenderBubble(i, assistantIdx);
       pgRenderDebug();
       pgSave();
       pgUpdateInputBar();
     });
   }).catch(function(err) {
     if (err && err.name === 'AbortError') {
-      pgFinish(assistantIdx);
+      pgFinish(i, assistantIdx);
     } else {
-      var ec = (pgState.messages[assistantIdx] && pgState.messages[assistantIdx].errorCode) || null;
-      pgFail(assistantIdx, err && err.message ? err.message : String(err), ec);
+      var ec = (w.messages[assistantIdx] && w.messages[assistantIdx].errorCode) || null;
+      pgFail(i, assistantIdx, err && err.message ? err.message : String(err), ec);
     }
   });
 }
 
-function pgFinish(assistantIdx) {
-  if (!pgState.streaming) return;
-  pgState.streaming = false;
-  // 取消可能挂起的防抖渲染定时器, 避免它在 finish 清空 pendingContent 之后才回调,
-  // 用空内容覆盖刚渲染好的最终气泡(表现为"坍缩成小框").
-  if (pgState.renderTimer) { clearTimeout(pgState.renderTimer); pgState.renderTimer = null; }
-  pgState.abortCtrl = null;
-  var msg = pgState.messages[assistantIdx];
+function pgFinish(i, assistantIdx) {
+  var w = pgWinAt(i);
+  if (!w.streaming) return;
+  w.streaming = false;
+  if (w.renderTimer) { clearTimeout(w.renderTimer); w.renderTimer = null; }
+  w.abortCtrl = null;
+  var msg = w.messages[assistantIdx];
   if (msg) {
-    msg.content = pgState.pendingContent;
-    msg.reasoning = pgState.pendingReasoning;
-    msg.sources = pgState.pendingSources.slice();
-    // Pull out any stray think block from final content.
+    msg.content = w.pendingContent;
+    msg.reasoning = w.pendingReasoning;
+    msg.sources = w.pendingSources.slice();
     var split = pgExtractAllReasoning(msg.content);
     if (split.reasoning) msg.reasoning = (msg.reasoning ? msg.reasoning + '\n\n---\n\n' : '') + split.reasoning;
     msg.content = split.content;
     if (msg.status !== 'error') msg.status = 'complete';
-    // Seal timings.
-    if (pgState.reasoningStartedAt && !pgState.reasoningCompletedAt) {
-      pgState.reasoningCompletedAt = Date.now();
+    if (w.reasoningStartedAt && !w.reasoningCompletedAt) {
+      w.reasoningCompletedAt = Date.now();
     }
-    if (msg.reasoningStartedAt && !msg.reasoningCompletedAt && pgState.reasoningCompletedAt) {
-      msg.reasoningCompletedAt = pgState.reasoningCompletedAt;
+    if (msg.reasoningStartedAt && !msg.reasoningCompletedAt && w.reasoningCompletedAt) {
+      msg.reasoningCompletedAt = w.reasoningCompletedAt;
     }
     if (msg.reasoningStartedAt && msg.reasoningCompletedAt) {
       msg.reasoningDurationMs = msg.reasoningCompletedAt - msg.reasoningStartedAt;
@@ -775,123 +752,134 @@ function pgFinish(assistantIdx) {
       if (msg.startedAt) msg.durationMs = msg.completedAt - msg.startedAt;
     }
   }
-  pgState.pendingContent = '';
-  pgState.pendingReasoning = '';
-  pgState.pendingSources = [];
-  pgState.reasoningStartedAt = null;
-  pgState.reasoningCompletedAt = null;
-  pgSave();
-  pgRenderBubble(assistantIdx);
+  w.pendingContent = '';
+  w.pendingReasoning = '';
+  w.pendingSources = [];
+  w.reasoningStartedAt = null;
+  w.reasoningCompletedAt = null;
+  if (i === 0) pgSave();
+  pgRenderBubble(i, assistantIdx);
   pgRenderDebug();
   pgUpdateInputBar();
 }
 
-function pgFail(assistantIdx, errMsg, errorCode) {
-  pgState.streaming = false;
-  if (pgState.renderTimer) { clearTimeout(pgState.renderTimer); pgState.renderTimer = null; }
-  pgState.abortCtrl = null;
-  var msg = pgState.messages[assistantIdx];
+function pgFail(i, assistantIdx, errMsg, errorCode) {
+  var w = pgWinAt(i);
+  w.streaming = false;
+  if (w.renderTimer) { clearTimeout(w.renderTimer); w.renderTimer = null; }
+  w.abortCtrl = null;
+  var msg = w.messages[assistantIdx];
   if (msg) {
     msg.error = errMsg;
     if (errorCode) msg.errorCode = errorCode;
-    msg.content = pgTextContent(pgState.pendingContent) ? pgState.pendingContent : '';
-    msg.reasoning = pgState.pendingReasoning;
+    msg.content = pgTextContent(w.pendingContent) ? w.pendingContent : '';
+    msg.reasoning = w.pendingReasoning;
     msg.status = 'error';
     if (!msg.completedAt) {
       msg.completedAt = Date.now();
       if (msg.startedAt) msg.durationMs = msg.completedAt - msg.startedAt;
     }
   }
-  pgState.sseEvents.push('[ERROR] ' + errMsg);
-  pgSave();
-  pgRenderBubble(assistantIdx);
+  w.sseEvents.push('[ERROR] ' + errMsg);
+  if (i === 0) pgSave();
+  pgRenderBubble(i, assistantIdx);
   pgRenderDebug();
   pgUpdateInputBar();
 }
 
-// ----- Module 6: Stop / Clear --------------------------------------
-// 同步复位 streaming 状态, 不依赖 fetch abort 的异步 reject 链路.
-// 之前仅调 abort(), 一旦上游 SSE 没有正确发出 [DONE] 或 reader reject
-// 未冒泡到 catch, pgState.streaming 会一直为 true, send 按钮卡死在"停止".
+// ----- Module 6: Stop / Clear / Global controls --------------------
 function pgStop() {
-  if (pgState.abortCtrl) {
-    try { pgState.abortCtrl.abort(); } catch (e) {}
-    pgState.abortCtrl = null;
-  }
-  // 找到最后一条 streaming/loading 的 assistant 消息, 主动收尾.
-  if (pgState.streaming) {
-    var last = pgState.messages.length - 1;
-    for (var i = last; i >= 0; i--) {
-      if (pgState.messages[i].role === 'assistant'
-          && (pgState.messages[i].status === 'streaming'
-              || pgState.messages[i].status === 'loading')) {
-        pgFinish(i);
-        break;
+  for (var i = 0; i < pgState.windows.length; i++) {
+    var w = pgWinAt(i);
+    if (w.abortCtrl) {
+      try { w.abortCtrl.abort(); } catch (e) {}
+      w.abortCtrl = null;
+    }
+    if (w.streaming) {
+      var last = w.messages.length - 1;
+      for (var j = last; j >= 0; j--) {
+        if (w.messages[j].role === 'assistant'
+            && (w.messages[j].status === 'streaming'
+                || w.messages[j].status === 'loading')) {
+          pgFinish(i, j);
+          break;
+        }
       }
     }
-    // 兜底: 上面循环没命中时, 强制复位, 避免 send 卡死.
-    if (pgState.streaming) {
-      pgState.streaming = false;
-      pgUpdateInputBar();
+    // Safety: force streaming off
+    if (pgWinAt(i).streaming) {
+      pgWinAt(i).streaming = false;
     }
   }
+  pgUpdateInputBar();
 }
 
 function pgClear() {
-  if (pgState.streaming) pgStop();
-  pgState.messages = [];
-  pgState.sseEvents = [];
+  pgStop();
+  for (var i = 0; i < pgState.splitCount; i++) {
+    var w = pgWinAt(i);
+    w.messages = [];
+    w.sseEvents = [];
+    pgRenderMessages(i);
+  }
   pgSave();
-  pgRenderMessages();
   pgRenderDebug();
 }
 
-// ----- Module 7: Stop-all generation guard ------------------------
-function pgIsGenerating() { return pgState.streaming; }
+function pgIsGenerating() {
+  return pgState.windows.some(function(w) { return w.streaming; });
+}
+
+function pgAnyWindowHasModel() {
+  for (var i = 0; i < pgState.splitCount; i++) {
+    if (pgWinAt(i).config.model) return true;
+  }
+  return false;
+}
 
 // ----- Module 8/9: Edit / Regenerate --------------------------------
-function pgBeginEdit(idx) {
-  var msg = pgState.messages[idx];
+function pgBeginEdit(i, idx) {
+  var w = pgWinAt(i);
+  var msg = w.messages[idx];
   if (!msg) return;
-  var wrap = document.getElementById('pg-bubble-' + idx);
+  var wrap = document.getElementById('pg-bubble-' + i + '-' + idx);
   if (!wrap) return;
   var txt = pgTextContent(msg.content);
   wrap.innerHTML =
     '<div class="pg-editor-title"><span>' + pgEscapeHtml(pgT('pgEdit')) +
       '<span class="' + (txt !== pgTextContent(msg.content) ? 'unsaved' : 'saved') + '"></span></span></div>' +
-    '<textarea class="pg-editor" id="pg-edit-ta-' + idx + '">' + pgEscapeHtml(txt) + '</textarea>' +
+    '<textarea class="pg-editor" id="pg-edit-ta-' + i + '-' + idx + '">' + pgEscapeHtml(txt) + '</textarea>' +
     '<div class="pg-editor-row">' +
-      '<button class="pg-btn" onclick="pgCancelEdit(' + idx + ')">' + pgEscapeHtml(pgT('cancel')) + '</button>' +
-      '<button class="pg-btn" onclick="pgApplyEdit(' + idx + ',false)">' + pgEscapeHtml(pgT('pgSave')) + '</button>' +
-      '<button class="pg-btn active" onclick="pgApplyEdit(' + idx + ',true)">' + pgEscapeHtml(pgT('pgSendMessage')) + '</button>' +
+      '<button class="pg-btn" onclick="pgCancelEdit(' + i + ',' + idx + ')">' + pgEscapeHtml(pgT('cancel')) + '</button>' +
+      '<button class="pg-btn" onclick="pgApplyEdit(' + i + ',' + idx + ',false)">' + pgEscapeHtml(pgT('pgSave')) + '</button>' +
+      '<button class="pg-btn active" onclick="pgApplyEdit(' + i + ',' + idx + ',true)">' + pgEscapeHtml(pgT('pgSendMessage')) + '</button>' +
     '</div>';
-  var ta = document.getElementById('pg-edit-ta-' + idx);
+  var ta = document.getElementById('pg-edit-ta-' + i + '-' + idx);
   if (ta) {
     ta.focus();
     ta.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') { e.preventDefault(); pgCancelEdit(idx); }
+      if (e.key === 'Escape') { e.preventDefault(); pgCancelEdit(i, idx); }
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        pgApplyEdit(idx, true);
+        pgApplyEdit(i, idx, true);
       }
     });
   }
 }
 
-function pgCancelEdit(idx) {
-  pgRenderBubble(idx);
+function pgCancelEdit(i, idx) {
+  pgRenderBubble(i, idx);
 }
 
-function pgApplyEdit(idx, submit) {
-  var ta = document.getElementById('pg-edit-ta-' + idx);
+function pgApplyEdit(i, idx, submit) {
+  var w = pgWinAt(i);
+  var ta = document.getElementById('pg-edit-ta-' + i + '-' + idx);
   if (!ta) return;
-  var msg = pgState.messages[idx];
+  var msg = w.messages[idx];
   if (!msg) return;
-  // Keep multimodal parts intact unless content was string (text-only messages).
   if (typeof msg.content === 'string') {
     msg.content = ta.value;
   } else {
-    // Replace only the text part.
     var replaced = false;
     msg.content = (msg.content || []).map(function(p) {
       if (p.type === 'text') { replaced = true; return { type: 'text', text: ta.value }; }
@@ -901,88 +889,111 @@ function pgApplyEdit(idx, submit) {
   }
   if (submit) {
     if (pgIsGenerating()) { pgToast(pgT('pgStreaming'), 'warning'); return; }
-    pgState.messages = pgState.messages.slice(0, idx + 1);
-    pgState.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: Date.now() });
-    pgSave();
-    pgRenderMessages();
-    pgSend(pgState.messages.length - 1);
+    w.messages = w.messages.slice(0, idx + 1);
+    w.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: Date.now() });
+    if (i === 0) pgSave();
+    pgRenderMessages(i);
+    pgSend(i, w.messages.length - 1);
   } else {
-    pgRenderBubble(idx);
-    pgSave();
+    pgRenderBubble(i, idx);
+    if (i === 0) pgSave();
   }
 }
 
-function pgRegenerate(idx) {
+function pgRegenerate(i, idx) {
   if (pgIsGenerating()) return;
-  pgState.messages = pgState.messages.slice(0, idx);
-  pgState.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: Date.now() });
-  pgSave();
-  pgRenderMessages();
-  pgSend(pgState.messages.length - 1);
+  var w = pgWinAt(i);
+  w.messages = w.messages.slice(0, idx);
+  w.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: Date.now() });
+  if (i === 0) pgSave();
+  pgRenderMessages(i);
+  pgSend(i, w.messages.length - 1);
 }
 
-function pgDeleteMessage(idx) {
-  pgState.messages.splice(idx, 1);
-  pgSave();
-  pgRenderMessages();
+function pgDeleteMessage(i, idx) {
+  var w = pgWinAt(i);
+  w.messages.splice(idx, 1);
+  if (i === 0) pgSave();
+  pgRenderMessages(i);
 }
 
-// Role toggle: user -> assistant -> system -> user.
-function pgToggleRole(idx) {
+function pgToggleRole(i, idx) {
   if (pgIsGenerating()) return;
-  var msg = pgState.messages[idx];
+  var w = pgWinAt(i);
+  var msg = w.messages[idx];
   if (!msg) return;
   var order = { user: 'assistant', assistant: 'system', system: 'user' };
   msg.role = order[msg.role] || 'user';
-  pgSave();
-  pgRenderMessages();
+  if (i === 0) pgSave();
+  pgRenderMessages(i);
 }
 
-// Find the most recent user message strictly before idx (for edit-prompt on errors).
-function pgPrevUserBefore(idx) {
-  for (var i = idx - 1; i >= 0; i--) {
-    if (pgState.messages[i].role === 'user') return i;
+function pgPrevUserBefore(i, idx) {
+  var w = pgWinAt(i);
+  for (var j = idx - 1; j >= 0; j--) {
+    if (w.messages[j].role === 'user') return j;
   }
   return -1;
 }
 
-function pgRetryError(idx) {
+function pgRetryError(i, idx) {
   if (pgIsGenerating()) return;
-  pgRegenerate(idx);
+  pgRegenerate(i, idx);
 }
 
-function pgEditPromptForError(idx) {
+function pgEditPromptForError(i, idx) {
   if (pgIsGenerating()) return;
-  var prevUser = pgPrevUserBefore(idx);
+  var prevUser = pgPrevUserBefore(i, idx);
   if (prevUser < 0) { pgToast(pgT('pgNoPrevUser'), 'warning'); return; }
-  pgBeginEdit(prevUser);
+  pgBeginEdit(i, prevUser);
 }
 
-// ----- Module: New message send -------------------------------------
+// ----- Module: New message send (broadcast) -------------------------
 function pgUserSend() {
   var ta = document.getElementById('pg-input');
   if (!ta) return;
   var text = ta.value.trim();
-  if (!text || pgState.streaming) return;
-  if (!pgState.config.model) {
+  if (!text || pgIsGenerating()) return;
+  if (!pgAnyWindowHasModel()) {
     pgToast(pgT('pgSelectModel'), 'warning'); return;
   }
+  var skipped = [];
   var now = Date.now();
-  pgState.messages.push({ role: 'user', content: text, createdAt: now });
-  pgState.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: now });
-  ta.value = '';
-  pgSave();
-  pgRenderMessages();
-  pgSend(pgState.messages.length - 1);
-  // After send, auto-disable image attach (mirrors new-api behavior).
-  if (pgState.config.imageEnabled) {
-    setTimeout(function() { pgState.config.imageEnabled = false; pgSave(); pgRenderSidebar(); }, 100);
+  for (var i = 0; i < pgState.splitCount; i++) {
+    var w = pgWinAt(i);
+    if (!w.config.model) {
+      skipped.push(i);
+      pgToast(pgT('pgNoModelWin', [i + 1]), 'warning');
+      continue;
+    }
+    w.messages.push({ role: 'user', content: text, createdAt: now });
+    w.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: now });
   }
+  ta.value = '';
+  for (var i2 = 0; i2 < pgState.splitCount; i2++) {
+    if (skipped.indexOf(i2) >= 0) continue;
+    pgRenderMessages(i2);
+    var w2 = pgWinAt(i2);
+    pgSend(i2, w2.messages.length - 1);
+  }
+  pgSave();
+  // After send, auto-disable image attach (mirrors new-api behavior).
+  var activeW = pgWin();
+  if (activeW && activeW.config.imageEnabled) {
+    setTimeout(function() { activeW.config.imageEnabled = false; pgSave(); pgRenderSidebar(); }, 100);
+  }
+}
+
+function pgUserSendText(text) {
+  var ta = document.getElementById('pg-input');
+  if (ta) ta.value = text;
+  pgUserSend();
 }
 
 // ----- Module 12: Paste image from clipboard ------------------------
 function pgPasteImage(e) {
-  if (!pgState.config.imageEnabled) return;
+  var w = pgWin();
+  if (!w || !w.config.imageEnabled) return;
   var items = e.clipboardData && e.clipboardData.items;
   if (!items) return;
   for (var i = 0; i < items.length; i++) {
@@ -992,7 +1003,7 @@ function pgPasteImage(e) {
       var reader = new FileReader();
       reader.onload = function(ev) {
         var dataUrl = ev.target.result;
-        pgState.config.imageUrls.push(dataUrl);
+        w.config.imageUrls.push(dataUrl);
         pgSave();
         pgRenderSidebar();
         pgToast(pgT('pgImagePasteAdded'), 'success');
@@ -1004,8 +1015,8 @@ function pgPasteImage(e) {
 }
 
 // ----- Renderers ----------------------------------------------------
-function pgScrollBottom() {
-  var box = document.getElementById('pg-messages');
+function pgScrollBottom(i) {
+  var box = document.getElementById('pg-messages-' + i);
   if (box) box.scrollTop = box.scrollHeight;
 }
 
@@ -1022,52 +1033,44 @@ function pgFormatDuration(ms) {
   return pgT('pgDurationSec', [(ms / 1000).toFixed(2)]);
 }
 
-// Re-render a single bubble without rebuilding the list (preserves scroll).
-function pgRenderBubble(idx) {
-  var wrap = document.getElementById('pg-bubble-' + idx);
+function pgRenderBubble(i, idx) {
+  var w = pgWinAt(i);
+  var wrap = document.getElementById('pg-bubble-' + i + '-' + idx);
   if (!wrap) return;
-  var msg = pgState.messages[idx];
+  var msg = w.messages[idx];
   if (!msg) return;
   var isSourceVisible = !!msg.sourceVisible;
-  var html = pgMsgInnerHTML(idx, msg, isSourceVisible);
+  var html = pgMsgInnerHTML(i, idx, msg, isSourceVisible);
   wrap.innerHTML = html;
-  // Streaming re-render only rewrote the bubble slot above; refresh the meta
-  // row (time + action buttons) so buttons appear as soon as status leaves 'loading'.
-  // 包 try/catch: 即便 meta 更新异常, 也不能破坏气泡渲染或中断 pgRenderMessages 的循环.
   try {
-    var metaWrap = document.getElementById('pg-msg-' + idx);
+    var metaWrap = document.getElementById('pg-msg-' + i + '-' + idx);
     if (metaWrap) {
       var metaEl = metaWrap.querySelector('.pg-msg-meta');
       if (metaEl) {
-        metaEl.innerHTML = pgMsgMetaInnerHTML(idx, msg);
+        metaEl.innerHTML = pgMsgMetaInnerHTML(i, idx, msg);
       } else if (msg.role !== 'loading') {
-        // meta 尚未生成(曾为 loading), 补建一个.
         var meta = document.createElement('div');
-        meta.className = 'pg-msg-meta' + (msg.role === 'assistant' && idx === pgState.messages.length - 1 ? ' always-show' : '');
-        meta.innerHTML = pgMsgMetaInnerHTML(idx, msg);
+        meta.className = 'pg-msg-meta' + (msg.role === 'assistant' && idx === w.messages.length - 1 ? ' always-show' : '');
+        meta.innerHTML = pgMsgMetaInnerHTML(i, idx, msg);
         metaWrap.appendChild(meta);
       }
     }
   } catch (e) { /* meta 更新失败不影响气泡内容 */ }
-  // Source/preview re-render won't touch <pre>; only highlight if showing source.
   if (isSourceVisible) {
     pgHighlight(wrap);
   }
   pgPostProcessCode(wrap);
-  // Wire copy buttons inside this bubble.
   wrap.querySelectorAll('.pg-code-copy').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var codeEl = btn.parentElement && btn.parentElement.querySelector('code');
       pgCopyToClipboard(codeEl ? codeEl.textContent : '', pgT('pgCodeCopied'));
     });
   });
-  // Wire mermaid click to open svg in new window.
   wrap.querySelectorAll('.pg-mermaid').forEach(function(el) {
     el.addEventListener('click', function() { pgOpenMermaidSvg(el); });
   });
 }
 
-// Post-process <pre> blocks: attach Mermaid/HTML preview rendering.
 function pgPostProcessCode(container) {
   var pres = container.querySelectorAll('pre');
   pres.forEach(function(pre) {
@@ -1091,7 +1094,7 @@ function pgRenderMermaid(pre, code) {
   if (typeof window.mermaid === 'undefined') return;
   var placeholder = document.createElement('div');
   placeholder.className = 'pg-mermaid';
-  placeholder.textContent = code; // mermaid parses textContent
+  placeholder.textContent = code;
   pre.parentNode.insertBefore(placeholder, pre.nextSibling);
   try {
     window.mermaid.run({ nodes: [placeholder], suppressErrors: true }).catch(function(e) {
@@ -1114,7 +1117,6 @@ function pgOpenMermaidSvg(el) {
 }
 
 function pgRenderHtmlPreview(pre, html) {
-  // Avoid duplicate iframes when re-rendering the same bubble.
   if (pre.dataset.pgHtml === '1') return;
   pre.dataset.pgHtml = '1';
   var wrap = document.createElement('div');
@@ -1140,13 +1142,12 @@ function pgRenderHtmlPreview(pre, html) {
   pre.parentNode.insertBefore(wrap, pre.nextSibling);
 }
 
-function pgMsgInnerHTML(idx, msg, isSourceVisible) {
+function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
   if (msg.status === 'loading') {
     return '<div class="pg-bubble"><span class="pg-toast-inline">⏳ ' + pgEscapeHtml(pgT('pgWaiting')) + '</span></div>';
   }
   var inner = '';
   var isUser = msg.role === 'user';
-  // Sources panel above assistant text.
   if (msg.role === 'assistant' && msg.sources && msg.sources.length) {
     inner += '<div class="pg-sources collapsed" onclick="this.classList.toggle(\'collapsed\')">' +
       '<div class="pg-sources-head">' + pgEscapeHtml(pgT('pgSourcesCount', [msg.sources.length])) + ' ▾</div>' +
@@ -1158,7 +1159,6 @@ function pgMsgInnerHTML(idx, msg, isSourceVisible) {
         }).join('') +
       '</div></div>';
   }
-  // Reasoning panel (collapsible) with streaming/duration status.
   if (msg.reasoning) {
     var lbl;
     var streamingThink = msg.status === 'streaming' && msg.reasoningStartedAt && !msg.reasoningCompletedAt;
@@ -1170,7 +1170,6 @@ function pgMsgInnerHTML(idx, msg, isSourceVisible) {
     } else {
       lbl = '💭 ' + pgEscapeHtml(pgT('pgThinkingDone'));
     }
-    // 流式思考期间默认展开, 让用户看到实时增量; 完成后默认折叠.
     var thinkCls = streamingThink ? 'pg-thinking' : 'pg-thinking collapsed';
     inner += '<div class="' + thinkCls + '" onclick="this.classList.toggle(\'collapsed\')">' +
       '<div class="pg-thinking-head"><span class="pg-think-label">' + lbl + '</span>' +
@@ -1178,7 +1177,6 @@ function pgMsgInnerHTML(idx, msg, isSourceVisible) {
       '<div class="pg-thinking-body">' + pgEscapeHtml(msg.reasoning) + '</div>' +
     '</div>';
   }
-  // System badge banner.
   if (msg.role === 'system') {
     inner += '<div class="pg-bubble" data-system-badge="' + pgEscapeHtml(pgT('pgSystemBadge')) + '">'
       + pgRenderMarkdown(pgTextContent(msg.content), false) + '</div>';
@@ -1186,7 +1184,6 @@ function pgMsgInnerHTML(idx, msg, isSourceVisible) {
   }
   var isError = msg.status === 'error';
   var cls = 'pg-bubble' + (isError ? ' pg-bubble-error' : '');
-  // Image thumbnails FIRST for multimodal user messages (above text bubble for visibility).
   var imgs = pgImageParts(msg.content);
   if (imgs.length) {
     inner += '<div class="pg-image-row">' + imgs.map(function(p) {
@@ -1203,7 +1200,6 @@ function pgMsgInnerHTML(idx, msg, isSourceVisible) {
       bodyMd += '<div class="pg-error-code">[' + pgEscapeHtml(pgT('pgErrorCode', [msg.errorCode])) + ']</div>';
     }
   } else if (isSourceVisible) {
-    // Show raw markdown source (as code) instead of rendered preview.
     var rawSrc = pgTextContent(msg.content);
     bodyMd = '<pre><code class="language-markdown">' + pgEscapeHtml(rawSrc) + '</code></pre>';
   } else {
@@ -1213,10 +1209,7 @@ function pgMsgInnerHTML(idx, msg, isSourceVisible) {
   return inner;
 }
 
-// Build the inner content of a message's meta row (time + action buttons).
-// Extracted so both pgRenderMessages (full rebuild) and pgRenderBubble
-// (streaming re-render) can refresh the actions once a message leaves 'loading'.
-function pgMsgMetaInnerHTML(idx, msg) {
+function pgMsgMetaInnerHTML(i, idx, msg) {
   var metaTime = pgFormatTime(msg.createdAt || msg.completedAt || msg.startedAt);
   var metaLines = '';
   if (msg.role === 'assistant' && msg.durationMs != null) {
@@ -1234,73 +1227,73 @@ function pgMsgMetaInnerHTML(idx, msg) {
   var html = '<span>' + metaLines + '</span>';
   html += '<div class="pg-msg-actions">';
   if (msg.role === 'assistant' && msg.status !== 'loading') {
-    html += '<button class="pg-action" onclick="pgActionCopy(' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
-    html += '<button class="pg-action" onclick="pgToggleSource(' + idx + ')" title="' + pgEscapeHtml(msg.sourceVisible ? pgT('pgShowPreview') : pgT('pgShowSource')) + '">' + PG_ICON_SRC + '</button>';
-    html += '<button class="pg-action" onclick="pgRegenerate(' + idx + ')" title="' + pgEscapeHtml(pgT('pgRegenerate')) + '">' + PG_ICON_REGEN + '</button>';
+    html += '<button class="pg-action" onclick="pgActionCopy(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
+    html += '<button class="pg-action" onclick="pgToggleSource(' + i + ',' + idx + ')" title="' + pgEscapeHtml(msg.sourceVisible ? pgT('pgShowPreview') : pgT('pgShowSource')) + '">' + PG_ICON_SRC + '</button>';
+    html += '<button class="pg-action" onclick="pgRegenerate(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgRegenerate')) + '">' + PG_ICON_REGEN + '</button>';
     if (msg.status === 'error') {
-      html += '<button class="pg-action" onclick="pgRetryError(' + idx + ')" title="' + pgEscapeHtml(pgT('pgRetry')) + '">' + PG_ICON_RETRY + '</button>';
-      html += '<button class="pg-action" onclick="pgEditPromptForError(' + idx + ')" title="' + pgEscapeHtml(pgT('pgEditPrompt')) + '">' + PG_ICON_EDIT + '</button>';
+      html += '<button class="pg-action" onclick="pgRetryError(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgRetry')) + '">' + PG_ICON_RETRY + '</button>';
+      html += '<button class="pg-action" onclick="pgEditPromptForError(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgEditPrompt')) + '">' + PG_ICON_EDIT + '</button>';
     }
-    html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
+    html += '<button class="pg-action danger" onclick="pgActionDelete(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
   } else if (msg.role === 'user') {
-    html += '<button class="pg-action" onclick="pgActionCopy(' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
-    html += '<button class="pg-action" onclick="pgToggleRole(' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
-    html += '<button class="pg-action" onclick="pgBeginEdit(' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
-    html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
+    html += '<button class="pg-action" onclick="pgActionCopy(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
+    html += '<button class="pg-action" onclick="pgToggleRole(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
+    html += '<button class="pg-action" onclick="pgBeginEdit(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
+    html += '<button class="pg-action danger" onclick="pgActionDelete(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
   } else if (msg.role === 'system') {
-    html += '<button class="pg-action" onclick="pgToggleRole(' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
-    html += '<button class="pg-action" onclick="pgBeginEdit(' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
-    html += '<button class="pg-action danger" onclick="pgActionDelete(' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
+    html += '<button class="pg-action" onclick="pgToggleRole(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
+    html += '<button class="pg-action" onclick="pgBeginEdit(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
+    html += '<button class="pg-action danger" onclick="pgActionDelete(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
   }
   html += '</div>';
   return html;
 }
 
-function pgRenderMessages() {
-  var box = document.getElementById('pg-messages');
+function pgRenderMessages(i) {
+  var w = pgWinAt(i);
+  var box = document.getElementById('pg-messages-' + i);
   if (!box) return;
-  if (!pgState.messages.length) {
-    box.innerHTML = '';
+  if (!w.messages.length) {
+    box.innerHTML = '<div class="pg-pane-empty">' + pgEscapeHtml(pgT('pgEmptyState')) + '</div>';
     return;
   }
   var html = '';
-  pgState.messages.forEach(function(msg, idx) {
+  w.messages.forEach(function(msg, idx) {
     var side = msg.role === 'user' ? 'user' : (msg.role === 'system' ? 'system' : 'assistant');
     var errCls = msg.status === 'error' ? ' error' : '';
-    html += '<div class="pg-msg ' + side + errCls + '" id="pg-msg-' + idx + '">';
-    html += '<div class="pg-bubble-slot" id="pg-bubble-' + idx + '">' + pgMsgInnerHTML(idx, msg, !!msg.sourceVisible) + '</div>';
+    html += '<div class="pg-msg ' + side + errCls + '" id="pg-msg-' + i + '-' + idx + '">';
+    html += '<div class="pg-bubble-slot" id="pg-bubble-' + i + '-' + idx + '">' + pgMsgInnerHTML(i, idx, msg, !!msg.sourceVisible) + '</div>';
     if (msg.role !== 'loading') {
-      html += '<div class="pg-msg-meta' + (msg.role === 'assistant' && idx === pgState.messages.length - 1 ? ' always-show' : '') + '">' + pgMsgMetaInnerHTML(idx, msg) + '</div>';
+      html += '<div class="pg-msg-meta' + (msg.role === 'assistant' && idx === w.messages.length - 1 ? ' always-show' : '') + '">' + pgMsgMetaInnerHTML(i, idx, msg) + '</div>';
     }
     html += '</div>';
   });
   box.innerHTML = html;
-  pgState.messages.forEach(function(_, idx) { pgRenderBubble(idx); });
-  pgScrollBottom();
+  w.messages.forEach(function(_, idx) { pgRenderBubble(i, idx); });
+  pgScrollBottom(i);
 }
 
-
-function pgActionCopy(idx) {
-  var msg = pgState.messages[idx];
+function pgActionCopy(i, idx) {
+  var w = pgWinAt(i);
+  var msg = w.messages[idx];
   if (!msg) return;
   var txt = pgTextContent(msg.content);
-  if (!txt) { pgToast(pgT('pgCopy'), 'warning'); return; } // reuse: no-content -> reuse warning
+  if (!txt) { pgToast(pgT('pgCopy'), 'warning'); return; }
   pgCopyToClipboard(txt, pgT('pgCopiedMsg'));
 }
-function pgActionDelete(idx) {
+function pgActionDelete(i, idx) {
   if (!confirm(pgT('pgClearConfirm'))) return;
-  pgDeleteMessage(idx);
+  pgDeleteMessage(i, idx);
 }
 
-// Toggle source/preview view for a bubble (session-only attribute).
-function pgToggleSource(idx) {
-  var msg = pgState.messages[idx];
+function pgToggleSource(i, idx) {
+  var w = pgWinAt(i);
+  var msg = w.messages[idx];
   if (!msg) return;
   msg.sourceVisible = !msg.sourceVisible;
-  pgRenderBubble(idx);
+  pgRenderBubble(i, idx);
 }
 
-// CodeViewer: render JSON content with hljs highlight, copy button, and large-content truncation.
 function pgCodeViewer(content, title) {
   var formatted = '';
   if (content) {
@@ -1321,7 +1314,6 @@ function pgCodeViewer(content, title) {
   var isLarge = formatted.length > MAX_DISPLAY;
   var display = isLarge ? formatted.substring(0, PREVIEW_LEN) + '\n\n' + pgT('pgCodeTruncated') : formatted;
   var warning = isLarge ? '<div class="pg-code-warning">⚡ ' + pgEscapeHtml(pgT('pgCodeLargeContent')) + '</div>' : '';
-  // Use hljs for JSON highlight if available; fallback to escaped text.
   var highlighted = pgEscapeHtml(display);
   if (typeof hljs !== 'undefined') {
     try {
@@ -1353,7 +1345,6 @@ function pgCodeToggleExpand(btn) {
   var pre = viewer.querySelector('pre');
   if (!pre) return;
   if (isExpanded) {
-    // Collapse back to truncated.
     var truncated = full.substring(0, 5000) + '\n\n' + pgT('pgCodeTruncated');
     pre.textContent = truncated;
     if (typeof hljs !== 'undefined') { try { hljs.highlightElement(pre); } catch(e){} }
@@ -1367,12 +1358,10 @@ function pgCodeToggleExpand(btn) {
   }
 }
 
-// SSEViewer: render SSE events as interactive collapsible list with stats.
 function pgSSEViewer(events) {
   if (!events || !events.length) {
     return '<div class="pg-sse-empty">' + pgEscapeHtml(pgT('pgSSEEmpty')) + '</div>';
   }
-  // Parse each event.
   var parsed = events.map(function(item, index) {
     var isDone = false, parsedObj = null, error = null;
     var payload = item;
@@ -1407,7 +1396,6 @@ function pgSSEViewer(events) {
       }
       header = '<span class="pg-sse-badge idx">#' + (p.index + 1) + '</span> ' + pgEscapeHtml(id);
       if (deltaKeys) header += ' <span style="color:var(--text-muted);font-size:10px">• ' + pgEscapeHtml(deltaKeys) + '</span>';
-      // Build summary badges.
       var summary = '';
       if (p.parsed.choices && p.parsed.choices[0]) {
         var ch = p.parsed.choices[0];
@@ -1453,54 +1441,56 @@ function pgSSEToggleAll() {
 }
 
 function pgSSECopyAll() {
-  var text = pgState.sseEvents.join('\n\n');
-  pgCopyToClipboard(text, pgT('pgSSECopiedAll'));
+  var w = pgWin();
+  if (w) {
+    var text = w.sseEvents.join('\n\n');
+    pgCopyToClipboard(text, pgT('pgSSECopiedAll'));
+  }
 }
 
-// Build a preview payload for the debug panel (debounced).
 var pgPreviewTimer = null;
 function pgSchedulePreview() {
   if (pgPreviewTimer) clearTimeout(pgPreviewTimer);
   pgPreviewTimer = setTimeout(function() {
     pgPreviewTimer = null;
+    var w = pgWin();
+    if (!w) return;
     var preview = null;
     try {
-      if (pgState.config.useCustomBody && pgState.config.customBody) {
-        preview = JSON.parse(pgState.config.customBody);
+      if (w.config.useCustomBody && w.config.customBody) {
+        preview = JSON.parse(w.config.customBody);
       } else {
         preview = pgBuildBody();
       }
     } catch (e) { preview = null; }
-    pgState.debugPreview = preview ? JSON.stringify(preview, null, 2) : '';
-    pgState.debugPreviewTimestamp = new Date().toISOString();
-    // Only re-render debug content if currently on preview tab.
-    if (pgState.debugTab === 'preview') pgRenderDebugContent();
+    w.debugPreview = preview ? JSON.stringify(preview, null, 2) : '';
+    w.debugPreviewTimestamp = new Date().toISOString();
+    if (w.debugTab === 'preview') pgRenderDebugContent();
   }, 300);
 }
 
-// Render the active debug tab content (without rebuilding the whole sidebar).
 function pgRenderDebugContent() {
   var container = document.getElementById('pg-debug-content');
   if (!container) return;
+  var w = pgWin();
+  if (!w) return;
   var html = '';
-  var tab = pgState.debugTab;
+  var tab = w.debugTab;
   if (tab === 'preview') {
-    html = pgCodeViewer(pgState.debugPreview, 'preview');
+    html = pgCodeViewer(w.debugPreview, 'preview');
   } else if (tab === 'request') {
-    html = pgCodeViewer(pgState.debugRequest, 'request');
+    html = pgCodeViewer(w.debugRequest, 'request');
   } else if (tab === 'response') {
-    // Use SSEViewer if we have SSE events; otherwise CodeViewer for non-stream response.
-    if (pgState.sseEvents && pgState.sseEvents.length) {
-      html = pgSSEViewer(pgState.sseEvents);
+    if (w.sseEvents && w.sseEvents.length) {
+      html = pgSSEViewer(w.sseEvents);
     } else {
-      html = pgCodeViewer(pgState.debugResponse, 'response');
+      html = pgCodeViewer(w.debugResponse, 'response');
     }
   }
   container.innerHTML = html;
-  // Update footer timestamp.
   var footer = document.getElementById('pg-debug-footer');
   if (footer) {
-    var ts = (tab === 'preview') ? pgState.debugPreviewTimestamp : pgState.debugTimestamp;
+    var ts = (tab === 'preview') ? w.debugPreviewTimestamp : w.debugTimestamp;
     if (ts) {
       var label = (tab === 'preview') ? pgT('pgDebugPreviewUpdated') : pgT('pgDebugLastRequest');
       footer.textContent = label + ': ' + new Date(ts).toLocaleString();
@@ -1511,22 +1501,91 @@ function pgRenderDebugContent() {
 }
 
 function pgSetDebugTab(tab) {
-  pgState.debugTab = tab;
-  // Update tab button active states.
+  var w = pgWin();
+  if (!w) return;
+  w.debugTab = tab;
   var tabs = document.querySelectorAll('.pg-tab');
   tabs.forEach(function(el) { el.classList.toggle('active', el.dataset.tab === tab); });
   pgRenderDebugContent();
+}
+
+// ----- Panes layout ------------------------------------------------
+function pgRenderPanes() {
+  var panes = document.getElementById('pg-panes');
+  if (!panes) return;
+  var n = pgState.splitCount;
+  var cols = n === 1 ? '1fr' : (n === 2 ? '1fr 1fr' : (n === 3 ? '1fr 1fr 1fr' : '1fr 1fr'));
+  var rows = n === 4 ? '1fr 1fr' : '1fr';
+  panes.style.gridTemplateColumns = cols;
+  panes.style.gridTemplateRows = rows;
+  var html = '';
+  for (var i = 0; i < n; i++) {
+    var w = pgWinAt(i);
+    var modelLabel = w && w.config && w.config.model ? w.config.model : pgEscapeHtml(pgT('pgSelectModel'));
+    if (modelLabel.length > 30) modelLabel = modelLabel.substring(0, 30) + '…';
+    html += '<div class="pg-pane" data-win="' + i + '">' +
+      '<div class="pg-pane-head"><span class="pg-pane-idx">' + pgEscapeHtml(pgT('pgPaneName', [i + 1])) + '</span><span class="pg-pane-model">' + modelLabel + '</span></div>' +
+      '<div class="pg-messages" id="pg-messages-' + i + '"></div>' +
+    '</div>';
+  }
+  panes.innerHTML = html;
+  var inner = document.getElementById('pg-main-inner');
+  if (inner) {
+    inner.classList.toggle('pg-split', n > 1);
+  }
+  for (var i2 = 0; i2 < n; i2++) {
+    pgRenderMessages(i2);
+  }
+}
+
+function pgSetSplitCount(n) {
+  if (pgIsGenerating()) { pgToast(pgT('pgGenSwitchLock'), 'warning'); return; }
+  pgState.splitCount = n;
+  if (pgState.activeWin >= n) pgState.activeWin = n - 1;
+  pgRenderPanes();
+  pgRenderSidebar();
+}
+
+function pgSetActiveWin(i) {
+  if (pgIsGenerating()) return;
+  pgState.activeWin = i;
+  pgRenderSidebar();
 }
 
 // ----- Sidebar: model select + params + image + system + debug -----
 function pgRenderSidebar() {
   var side = document.getElementById('pg-side');
   if (!side) return;
-  var en = pgState.parameterEnabled;
-  var cfg = pgState.config;
+  var w = pgWin();
+  if (!w) return;
+  var en = w.parameterEnabled;
+  var cfg = w.config;
   var customMode = cfg.useCustomBody;
   var dimCls = customMode ? ' disabled' : '';
 
+  // --- WinBar ---
+  var generating = pgIsGenerating();
+  var winBtns = '';
+  for (var k = 0; k < 4; k++) {
+    var isActive = k === pgState.activeWin ? ' active' : '';
+    var isDisabled = (k >= pgState.splitCount || generating) ? ' disabled' : '';
+    winBtns += '<button class="pg-win-btn' + isActive + '" onclick="pgSetActiveWin(' + k + ')"' + (isDisabled ? ' disabled' : '') + ' title="' + pgEscapeHtml(pgT('pgWinBtnTitle', [k + 1])) + '">' + (k + 1) + '</button>';
+  }
+  var splitOpts = '';
+  for (var s = 1; s <= 4; s++) {
+    splitOpts += '<option value="' + s + '"' + (pgState.splitCount === s ? ' selected' : '') + '>' + s + '</option>';
+  }
+  var winbar =
+    '<div class="pg-panel pg-winbar">' +
+      '<div class="pg-panel-title">' + pgEscapeHtml(pgT('pgWinBarTitle')) + '</div>' +
+      '<div class="pg-winbar-row">' +
+        '<div class="pg-winbar-btns">' + winBtns + '</div>' +
+        '<select onchange="pgSetSplitCount(parseInt(this.value,10))"' + (generating ? ' disabled' : '') + '>' + splitOpts + '</select>' +
+      '</div>' +
+      '<div class="pg-winbar-hint">' + pgEscapeHtml(pgT('pgEditWindow', [pgState.activeWin + 1])) + '</div>' +
+    '</div>';
+
+  // --- Model select ---
   var optGroups = '<option value="">' + pgEscapeHtml(pgT('pgSelectModel')) + '</option>';
   var byType = { provider: [], combo: [] };
   pgState.models.forEach(function(m) { if (byType[m.type]) byType[m.type].push(m); });
@@ -1542,7 +1601,7 @@ function pgRenderSidebar() {
   }
   var modelSel = '<select id="pg-model" onchange="pgOnModelChange(this.value)"' + (customMode ? ' disabled' : '') + '>' + optGroups + '</select>';
 
-  // Parameter rows.
+  // --- Parameters ---
   function paramRow(key, label, min, max, step, isNum) {
     var on = en[key];
     var val = cfg[key];
@@ -1570,14 +1629,14 @@ function pgRenderSidebar() {
     '</div>' +
     '<div class="pg-switch"><input type="checkbox" id="pg-stream" ' + (cfg.stream ? 'checked' : '') + ' onchange="pgOnParam(\'stream\', this.checked)"' + (customMode ? ' disabled' : '') + '><label for="pg-stream">' + pgEscapeHtml(pgT('pgStream')) + '</label></div>';
 
-  // System prompt textarea.
+  // --- System prompt ---
   var sysPrompt =
     '<textarea class="pg-system-prompt" id="pg-sysprompt" placeholder="' + pgEscapeHtml(pgT('pgSystemPromptPlaceholder')) + '" oninput="pgOnSystemPrompt(this.value)"' + (customMode ? ' disabled' : '') + '>' + pgEscapeHtml(cfg.systemPrompt || '') + '</textarea>';
 
-  // Image URL input block.
+  // --- Image URL input ---
   var imgBlock = pgRenderImageBlock(customMode);
 
-  // Custom body with JSON validation + auto-fill + format.
+  // --- Custom body ---
   var customValid = true;
   var customErr = '';
   if (cfg.useCustomBody && cfg.customBody && cfg.customBody.trim()) {
@@ -1604,22 +1663,23 @@ function pgRenderSidebar() {
     '</div>' +
     customErrLine;
 
-  // Debug panel with tabs.
-  var sseCount = pgState.sseEvents.length;
-  var customBadge = pgState.config.useCustomBody ? ' <span class="pg-tab-badge custom">' + pgEscapeHtml(pgT('pgDebugCustomBadge')) + '</span>' : '';
+  // --- Debug ---
+  var sseCount = w.sseEvents.length;
+  var customBadge = cfg.useCustomBody ? ' <span class="pg-tab-badge custom">' + pgEscapeHtml(pgT('pgDebugCustomBadge')) + '</span>' : '';
   var responseBadge = sseCount > 0 ? ' <span class="pg-tab-badge">SSE ' + sseCount + '</span>' : '';
   var debugTabs = '<div class="pg-tabs">' +
-    '<button class="pg-tab' + (pgState.debugTab === 'preview' ? ' active' : '') + '" data-tab="preview" onclick="pgSetDebugTab(\'preview\')">👁 ' + pgEscapeHtml(pgT('pgDebugTabPreview')) + customBadge + '</button>' +
-    '<button class="pg-tab' + (pgState.debugTab === 'request' ? ' active' : '') + '" data-tab="request" onclick="pgSetDebugTab(\'request\')">📤 ' + pgEscapeHtml(pgT('pgDebugTabRequest')) + '</button>' +
-    '<button class="pg-tab' + (pgState.debugTab === 'response' ? ' active' : '') + '" data-tab="response" onclick="pgSetDebugTab(\'response\')">⚡ ' + pgEscapeHtml(pgT('pgDebugTabResponse')) + responseBadge + '</button>' +
+    '<button class="pg-tab' + (w.debugTab === 'preview' ? ' active' : '') + '" data-tab="preview" onclick="pgSetDebugTab(\'preview\')">👁 ' + pgEscapeHtml(pgT('pgDebugTabPreview')) + customBadge + '</button>' +
+    '<button class="pg-tab' + (w.debugTab === 'request' ? ' active' : '') + '" data-tab="request" onclick="pgSetDebugTab(\'request\')">📤 ' + pgEscapeHtml(pgT('pgDebugTabRequest')) + '</button>' +
+    '<button class="pg-tab' + (w.debugTab === 'response' ? ' active' : '') + '" data-tab="response" onclick="pgSetDebugTab(\'response\')">⚡ ' + pgEscapeHtml(pgT('pgDebugTabResponse')) + responseBadge + '</button>' +
   '</div>';
   var debugMeta = '<div class="pg-debug-meta">' +
-    '<span>' + pgEscapeHtml(pgT('pgRespProvider').replace('{0}', pgState.lastProvider || pgT('pgNoProvider'))) + '</span>' +
-    '<span>' + pgEscapeHtml(pgT('pgRespKey').replace('{0}', pgState.lastKey || pgT('pgNoProvider'))) + '</span>' +
-    '<span>' + (pgState.streaming ? '🔴 ' + pgT('pgStreaming') : '🟢 ' + pgT('pgIdle')) + '</span></div>';
+    '<span>' + pgEscapeHtml(pgT('pgRespProvider').replace('{0}', w.lastProvider || pgT('pgNoProvider'))) + '</span>' +
+    '<span>' + pgEscapeHtml(pgT('pgRespKey').replace('{0}', w.lastKey || pgT('pgNoProvider'))) + '</span>' +
+    '<span>' + (w.streaming ? '🔴 ' + pgT('pgStreaming') : '🟢 ' + pgT('pgIdle')) + '</span></div>';
   var debug = debugMeta + debugTabs + '<div class="pg-tab-content" id="pg-debug-content"></div><div class="pg-debug-footer" id="pg-debug-footer"></div>';
 
   side.innerHTML =
+    winbar +
     '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
     '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgParams')) + '</div>' + params + '</div>' +
     '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSystemPrompt')) + '</div>' + sysPrompt + '</div>' +
@@ -1631,7 +1691,9 @@ function pgRenderSidebar() {
 }
 
 function pgRenderImageBlock(customMode) {
-  var cfg = pgState.config;
+  var w = pgWin();
+  if (!w) return '';
+  var cfg = w.config;
   var en = cfg.imageEnabled && !customMode;
   var urls = cfg.imageUrls || [];
   var hintKey;
@@ -1659,39 +1721,44 @@ function pgRenderImageBlock(customMode) {
 }
 
 function pgAddImageUrl() {
-  if (!pgState.config.imageEnabled) return;
-  pgState.config.imageUrls.push('');
+  var w = pgWin();
+  if (!w || !w.config.imageEnabled) return;
+  w.config.imageUrls.push('');
   pgSave();
   pgRenderSidebar();
 }
 function pgRemoveImageUrl(i) {
-  pgState.config.imageUrls.splice(i, 1);
+  var w = pgWin();
+  if (!w) return;
+  w.config.imageUrls.splice(i, 1);
   pgSave();
   pgRenderSidebar();
 }
 function pgOnImageUrl(i, v) {
-  pgState.config.imageUrls[i] = v;
+  var w = pgWin();
+  if (!w) return;
+  w.config.imageUrls[i] = v;
   pgSave();
 }
 
 function pgRenderDebug() {
+  var w = pgWin();
+  if (!w) return;
   var side = document.getElementById('pg-side');
   if (side) {
     var meta = side.querySelector('.pg-debug-meta');
     if (meta) {
       meta.innerHTML =
-        '<span>' + pgEscapeHtml(pgT('pgRespProvider').replace('{0}', pgState.lastProvider || pgT('pgNoProvider'))) + '</span>' +
-        '<span>' + pgEscapeHtml(pgT('pgRespKey').replace('{0}', pgState.lastKey || pgT('pgNoProvider'))) + '</span>' +
-        '<span>' + (pgState.streaming ? '🔴 ' + pgT('pgStreaming') : '🟢 ' + pgT('pgIdle')) + '</span>';
+        '<span>' + pgEscapeHtml(pgT('pgRespProvider').replace('{0}', w.lastProvider || pgT('pgNoProvider'))) + '</span>' +
+        '<span>' + pgEscapeHtml(pgT('pgRespKey').replace('{0}', w.lastKey || pgT('pgNoProvider'))) + '</span>' +
+        '<span>' + (w.streaming ? '🔴 ' + pgT('pgStreaming') : '🟢 ' + pgT('pgIdle')) + '</span>';
     }
   }
-  // Update response tab content + SSE badge on tab.
   pgRenderDebugContent();
-  // Update response tab badge.
   var respTab = document.querySelector('.pg-tab[data-tab="response"]');
   if (respTab) {
     var badge = respTab.querySelector('.pg-tab-badge');
-    var count = pgState.sseEvents.length;
+    var count = w.sseEvents.length;
     if (count > 0) {
       if (badge) { badge.textContent = 'SSE ' + count; }
       else { var span = document.createElement('span'); span.className = 'pg-tab-badge'; span.textContent = 'SSE ' + count; respTab.appendChild(span); }
@@ -1706,10 +1773,10 @@ function pgRenderInputBar() {
   var bar = document.getElementById('pg-inputbar');
   if (!bar) return;
   var sendBtn;
-  if (pgState.streaming) {
+  if (pgIsGenerating()) {
     sendBtn = '<button class="pg-send stop" onclick="pgStop()">' + pgEscapeHtml(pgT('pgStop')) + '</button>';
   } else {
-    sendBtn = '<button class="pg-send" onclick="pgUserSend()" ' + (!pgState.config.model ? 'disabled' : '') + '>' + pgEscapeHtml(pgT('pgSendMessage')) + '</button>';
+    sendBtn = '<button class="pg-send" onclick="pgUserSend()" ' + (!pgAnyWindowHasModel() ? 'disabled' : '') + '>' + pgEscapeHtml(pgT('pgSendMessage')) + '</button>';
   }
   bar.innerHTML =
     '<div class="pg-input-card">' +
@@ -1728,27 +1795,32 @@ function pgRenderInputBar() {
 function pgUpdateInputBar() { pgRenderInputBar(); }
 
 // ----- Event handlers ----------------------------------------------
-function pgOnModelChange(v) { pgState.config.model = v; pgSave(); }
+function pgOnModelChange(v) { var w = pgWin(); if (w) { w.config.model = v; pgSave(); pgRenderPanes(); } }
 function pgOnParam(name, v) {
-  pgState.config[name] = v;
+  var w = pgWin();
+  if (!w) return;
+  w.config[name] = v;
   var valEl = document.getElementById('pg-val-' + name);
   if (valEl) valEl.textContent = v;
   pgSave();
 }
-function pgOnSystemPrompt(v) { pgState.config.systemPrompt = v; pgSave(); }
+function pgOnSystemPrompt(v) { var w = pgWin(); if (w) { w.config.systemPrompt = v; pgSave(); } }
 function pgToggleParam(name) {
-  pgState.parameterEnabled[name] = !pgState.parameterEnabled[name];
+  var w = pgWin();
+  if (!w) return;
+  w.parameterEnabled[name] = !w.parameterEnabled[name];
   pgSave();
   pgRenderSidebar();
 }
 
 function pgOnCustomToggle(enabled) {
-  pgState.config.useCustomBody = enabled;
-  // Auto-fill with preview payload when enabling and body is empty.
-  if (enabled && (!pgState.config.customBody || !pgState.config.customBody.trim())) {
+  var w = pgWin();
+  if (!w) return;
+  w.config.useCustomBody = enabled;
+  if (enabled && (!w.config.customBody || !w.config.customBody.trim())) {
     try {
       var preview = pgBuildBody();
-      pgState.config.customBody = JSON.stringify(preview, null, 2);
+      w.config.customBody = JSON.stringify(preview, null, 2);
     } catch (e) { /* ignore */ }
   }
   pgSave();
@@ -1756,13 +1828,15 @@ function pgOnCustomToggle(enabled) {
 }
 
 function pgCustomFormat() {
+  var w = pgWin();
+  if (!w) return;
   var ta = document.getElementById('pg-custombody');
   if (!ta) return;
   try {
     var parsed = JSON.parse(ta.value);
     var formatted = JSON.stringify(parsed, null, 2);
     ta.value = formatted;
-    pgState.config.customBody = formatted;
+    w.config.customBody = formatted;
     pgSave();
     pgRenderSidebar();
   } catch (e) { /* ignore - format button only shown when valid */ }
@@ -1774,11 +1848,9 @@ function pgOnInputKey(e) {
 // ----- Load fixup: finalize orphaned streaming assistants. ----------
 function pgNormalizeLoadedMessage(msg) {
   if (!msg) return msg;
-  // schema sanitize
   if (typeof msg.role !== 'string') msg.role = 'assistant';
   if (msg.content === undefined) msg.content = '';
   if (msg.status === undefined) msg.status = 'complete';
-  // Repair any assistant stuck in streaming/loading.
   if (msg.role === 'assistant' && (msg.status === 'streaming' || msg.status === 'loading')) {
     var hasContent = pgTextContent(msg.content).trim() || (msg.reasoning && msg.reasoning.trim());
     if (hasContent) {
@@ -1797,26 +1869,35 @@ function pgNormalizeLoadedMessage(msg) {
 // ----- Entry: render the page --------------------------------------
 function renderPlayground(container) {
   pgLoad();
+  pgEnsureWindows();
   pgInitMarker();
-  // 强制 #page-content 填满 .main, 防止 .pg-layout height:100% 塌陷导致整页滚动.
   container.style.height = '100%';
   container.style.overflow = 'hidden';
   container.innerHTML =
     '<div class="pg-layout">' +
       '<div class="pg-main">' +
-        '<div class="pg-main-inner">' +
-          '<div class="pg-messages" id="pg-messages"></div>' +
+        '<div class="pg-main-inner" id="pg-main-inner">' +
+          '<div class="pg-panes" id="pg-panes"></div>' +
         '</div>' +
       '</div>' +
       '<div class="pg-input-bar" id="pg-inputbar"></div>' +
       '<div class="pg-side" id="pg-side"></div>' +
     '</div>';
   pgRenderSidebar();
-  pgRenderMessages();
+  pgRenderPanes();
   pgRenderInputBar();
-  pgLoadModels().then(function() { pgRenderSidebar(); });
+  pgLoadModels().then(function() { pgRenderSidebar(); pgRenderPanes(); });
 }
 
 function cleanupPlayground() {
-  if (pgState.streaming) pgStop();
+  for (var i = 0; i < pgState.windows.length; i++) {
+    var w = pgWinAt(i);
+    if (w.streaming) {
+      if (w.abortCtrl) {
+        try { w.abortCtrl.abort(); } catch (e) {}
+        w.abortCtrl = null;
+      }
+      w.streaming = false;
+    }
+  }
 }
