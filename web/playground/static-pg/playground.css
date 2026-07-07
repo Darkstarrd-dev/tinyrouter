@@ -366,3 +366,34 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 .pg-input-thumb:hover{transform:scale(1.05);border-color:var(--accent)}
 .pg-input-thumb-del{position:absolute;top:-4px;right:-4px;width:16px;height:16px;border-radius:50%;background:var(--danger);color:#fff;border:none;cursor:pointer;font-size:9px;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.3)}
 .pg-input-thumb-del:hover{background:var(--danger);transform:scale(1.15)}
+
+/* Auto Chat panel */
+.pg-autochat-panel{border:1px solid rgba(255,255,255,0.1)}
+.pg-autochat-config{margin-top:8px;display:flex;flex-direction:column;gap:8px}
+.pg-param-row{display:flex;align-items:center;gap:8px;font-size:var(--font-badge);color:var(--text-secondary)}
+.pg-param-row label{flex:1;user-select:none}
+.pg-param-row input[type=number],.pg-param-row input[type=text]{width:90px;padding:4px 6px;border-radius:6px;border:1px solid var(--glass-border);background:var(--input-bg);color:var(--text);font-size:var(--font-badge)}
+.pg-param-row input:focus{outline:none;border-color:var(--accent)}
+.pg-autochat-hint{font-size:11px;color:#ff6b6b;min-height:14px}
+.pg-autochat-actions{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.pg-autochat-actions .pg-btn{flex:1;min-width:80px}
+.pg-autochat-stop-btn.running{animation:pg-pulse 1.5s infinite}
+@keyframes pg-pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+/* Agent name */
+.pg-agent-name{width:100%;padding:6px 8px;background:var(--input-bg);border:1px solid var(--glass-border);border-radius:4px;color:inherit;font-size:13px}
+.pg-agent-name:focus{outline:none;border-color:var(--accent)}
+
+/* Group chat modal */
+.pg-gc-body{display:flex;flex-direction:column;max-height:80vh;width:600px;max-width:90vw}
+.pg-gc-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.pg-gc-msg{max-width:80%}
+.pg-gc-msg.user{align-self:flex-end}
+.pg-gc-msg.agent{align-self:flex-start}
+.pg-gc-sender{font-size:12px;font-weight:600;margin-bottom:2px;display:flex;justify-content:space-between;gap:8px}
+.pg-gc-time{font-weight:400;opacity:.5;font-size:11px}
+.pg-gc-content{padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.05);font-size:13px;line-height:1.5}
+.pg-gc-msg.user .pg-gc-content{background:rgba(100,130,255,0.15)}
+.pg-gc-input-bar{display:flex;gap:8px;padding:12px;border-top:1px solid var(--glass-border)}
+.pg-gc-input{flex:1;resize:none;height:60px;padding:8px;background:var(--input-bg);border:1px solid var(--glass-border);border-radius:4px;color:inherit;font-size:13px}
+.pg-gc-input:focus{outline:none;border-color:var(--accent)}

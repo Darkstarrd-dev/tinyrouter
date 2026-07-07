@@ -1,0 +1,175 @@
+// pg-state.js
+function makeWin() {
+  return {
+    config: JSON.parse(JSON.stringify(PG_DEFAULT_CFG)),
+    parameterEnabled: JSON.parse(JSON.stringify(PG_DEFAULT_PARAMS)),
+    messages: [],
+    streaming: false,
+    abortCtrl: null,
+    sseEvents: [],
+    lastProvider: '',
+    lastKey: '',
+    debugTab: 'preview',
+    debugRequest: '',
+    debugPreview: '',
+    debugResponse: '',
+    debugTimestamp: null,
+    debugPreviewTimestamp: null,
+    renderTimer: null,
+    pendingContent: '',
+    pendingReasoning: '',
+    pendingSources: [],
+    reasoningStartedAt: null,
+    reasoningCompletedAt: null,
+    // Auto chat (group-chat) state
+    agentName: '',             // Agent nickname in group chat
+    inbox: [],                 // pending inbound messages [{sender, content, timestamp}]
+    autoChatReplied: false,    // whether this window finished its reply this round
+  };
+}
+
+// Auto chat runtime state (not persisted except userName/iterations).
+var PG_AUTOCHAT_KEY = 'tinyrouter.playground.autochat.v1';
+
+var pgState = {
+  winInit: false,
+  splitCount: 1,
+  activeWin: 0,
+  windows: [],
+  models: [],
+  // Auto chat (group-chat) mode
+  autoChat: {
+    enabled: false,        // auto chat switch (not persisted; off after reload)
+    iterations: 10,        // iteration count (0 = infinite)
+    userName: 'User',      // user nickname
+    currentRound: 0,       // completed rounds
+    isRunning: false,      // loop active
+    abortFlag: false,      // termination signal
+  },
+};
+
+function pgWin() { return pgState.windows[pgState.activeWin]; }
+function pgWinAt(i) { return pgState.windows[i]; }
+
+function pgLoad() {
+  if (!pgState.windows.length) pgState.windows.push(makeWin());
+  var w = pgState.windows[0];
+  try {
+    var rawCfg = localStorage.getItem(PG_CFG_KEY);
+    if (rawCfg) {
+      var savedCfg = JSON.parse(rawCfg);
+      if (savedCfg) {
+        Object.keys(PG_DEFAULT_CFG).forEach(function(k) {
+          if (savedCfg[k] !== undefined) w.config[k] = savedCfg[k];
+        });
+      }
+    }
+  } catch (e) { /* corrupt storage */ }
+  try {
+    var rawParams = localStorage.getItem(PG_PARAM_KEY);
+    if (rawParams) {
+      var savedParams = JSON.parse(rawParams);
+      if (savedParams) {
+        Object.keys(PG_DEFAULT_PARAMS).forEach(function(k) {
+          if (savedParams[k] !== undefined) w.parameterEnabled[k] = savedParams[k];
+        });
+      }
+    }
+  } catch (e) { /* corrupt storage */ }
+  // Auto chat persisted fields (only userName + iterations).
+  try {
+    var rawAuto = localStorage.getItem(PG_AUTOCHAT_KEY);
+    if (rawAuto) {
+      var savedAuto = JSON.parse(rawAuto);
+      if (savedAuto && typeof savedAuto === 'object') {
+        if (typeof savedAuto.userName === 'string') pgState.autoChat.userName = savedAuto.userName;
+        if (typeof savedAuto.iterations === 'number' && savedAuto.iterations >= 0) {
+          pgState.autoChat.iterations = savedAuto.iterations;
+        }
+      }
+    }
+  } catch (e) { /* corrupt storage */ }
+  try {
+    var rawMsgs = localStorage.getItem(PG_MSG_KEY);
+    if (rawMsgs) {
+      if (rawMsgs.length > PG_MAX_MSGS_BYTES) {
+        localStorage.removeItem(PG_MSG_KEY);
+      } else {
+        var msgs = JSON.parse(rawMsgs);
+        if (Array.isArray(msgs)) {
+          if (msgs.length > PG_MAX_MSGS) msgs = msgs.slice(-PG_MAX_MSGS);
+          var totalSize = 0;
+          var trimmedBySize = [];
+          for (var mi = msgs.length - 1; mi >= 0; mi--) {
+            var mc = pgTextContent(msgs[mi].content || '').length
+                   + ((msgs[mi].reasoning || '').length);
+            if (trimmedBySize.length > 0 && totalSize + mc > PG_MAX_MSGS_CHARS) break;
+            totalSize += mc;
+            trimmedBySize.unshift(msgs[mi]);
+          }
+          trimmedBySize = trimmedBySize.map(function(m) {
+            var copy = Object.assign({}, m);
+            if (typeof copy.content === 'string' && copy.content.length > PG_MAX_MSG_CHARS) {
+              copy.content = copy.content.slice(0, PG_MAX_MSG_CHARS) + '\n\n[...]';
+            }
+            if (copy.reasoning && copy.reasoning.length > PG_MAX_MSG_CHARS) {
+              copy.reasoning = copy.reasoning.slice(0, PG_MAX_MSG_CHARS) + '\n\n[...]';
+            }
+            return pgNormalizeLoadedMessage(copy);
+          });
+          w.messages = trimmedBySize;
+        }
+      }
+    }
+  } catch (e) { /* corrupt storage */ }
+}
+
+function pgEnsureWindows() {
+  if (pgState.winInit) return;
+  if (!pgState.windows.length) pgState.windows.push(makeWin());
+  for (var k = 1; k < 4; k++) {
+    var clone = JSON.parse(JSON.stringify(pgState.windows[0]));
+    clone.messages = [];
+    clone.streaming = false; clone.abortCtrl = null; clone.renderTimer = null;
+    clone.pendingContent = ''; clone.pendingReasoning = ''; clone.pendingSources = [];
+    clone.reasoningStartedAt = null; clone.reasoningCompletedAt = null;
+    clone.sseEvents = []; clone.lastProvider = ''; clone.lastKey = '';
+    clone.debugTab = 'preview'; clone.debugRequest = ''; clone.debugResponse = '';
+    clone.debugTimestamp = null; clone.debugPreview = ''; clone.debugPreviewTimestamp = null;
+    pgState.windows.push(clone);
+  }
+  pgState.winInit = true;
+}
+
+var pgSaveTimer = null;
+function pgSave() {
+  if (pgSaveTimer) clearTimeout(pgSaveTimer);
+  pgSaveTimer = setTimeout(function() {
+    var w = pgState.windows[0];
+    try { localStorage.setItem(PG_CFG_KEY, JSON.stringify(w.config)); } catch (e) {}
+    try { localStorage.setItem(PG_PARAM_KEY, JSON.stringify(w.parameterEnabled)); } catch (e) {}
+    try {
+      var trimmed = w.messages;
+      if (trimmed.length > PG_MAX_MSGS) trimmed = trimmed.slice(-PG_MAX_MSGS);
+      localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
+    } catch (e) {}
+    }, 500);
+}
+
+function pgSaveAutoChat() {
+  try {
+    localStorage.setItem(PG_AUTOCHAT_KEY, JSON.stringify({
+      userName: pgState.autoChat.userName,
+      iterations: pgState.autoChat.iterations,
+    }));
+  } catch (e) {}
+}
+
+// ----- Module 2: Model list ---------------------------------------
+function pgLoadModels() {
+  return pgApiGet('/models').then(function(res) {
+    pgState.models = (res && res.models) ? res.models : [];
+  }).catch(function() {
+    pgState.models = [];
+  });
+}
