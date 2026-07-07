@@ -84,9 +84,11 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 .pg-msg.user{align-items:flex-end}
 .pg-msg.assistant{align-items:flex-start}
 .pg-msg.system{align-items:flex-start}
-.pg-bubble{padding:10px 14px;border-radius:12px;line-height:1.55;font-size:var(--font-base);word-break:break-word;width:fit-content;max-width:100%}
-/* slot 用绝对长度控制气泡最大宽度, 避免百分比相对不确定父宽被当作 none 而坍塌成 2 字宽 */
-.pg-bubble-slot{max-width:44rem}
+.pg-bubble{padding:10px 14px;border-radius:12px;line-height:1.55;font-size:var(--font-base);word-break:break-word;width:fit-content;max-width:44rem}
+/* slot 占满整行(确定性宽度), 避免 shrink-to-fit + 百分比 max-width 在不确定父宽下被当作 none 而坍塌;
+   max-width:100% 现在相对确定性 slot 解析, 气泡按内容自适应并上限 44rem */
+.pg-bubble-slot{width:100%;max-width:100%}
+.pg-msg.user .pg-bubble{margin-left:auto}
 .pg-msg.user .pg-bubble{background:var(--glass-hover);border:1px solid var(--glass-border);color:var(--text);border-bottom-right-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
 .pg-msg.assistant .pg-bubble{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;padding:10px 14px;border-bottom-left-radius:6px;color:var(--text);font-size:0.95rem;line-height:1.55}
 .pg-msg.assistant.error .pg-bubble{border-color:var(--danger);color:#ffcdd2;background:rgba(255,99,99,.08)}
@@ -312,5 +314,5 @@ html,body,.app{overflow:hidden !important;height:100% !important}
   .pg-layout{grid-template-columns:1fr;grid-template-rows:1fr auto auto;height:auto}
   .pg-side{grid-column:1;grid-row:3;border-left:none;border-top:1px solid var(--glass-border);padding-left:0;padding-top:12px;max-height:50vh}
   .pg-main{padding-right:0}
-  .pg-bubble-slot{max-width:92vw}
+  .pg-bubble{max-width:92vw}
 }

@@ -557,7 +557,9 @@ function pgStream(body, assistantIdx) {
         for (var i = 0; i < events.length; i++) {
           var line = events[i].trim();
           if (!line) continue;
-          pgState.sseEvents.push(line);
+          // 仅把 data: 行记入调试 SSE 列表, 避免 : 注释行 / 空行 / data:[DONE]
+          // 被 SSE 查看器当成 JSON 解析失败计为错误.
+          if (line.indexOf('data:') === 0) pgState.sseEvents.push(line);
           var data = pgParseSSELine(line);
           if (!data) continue;
           if (data.done) {
@@ -1024,19 +1026,22 @@ function pgRenderBubble(idx) {
   wrap.innerHTML = html;
   // Streaming re-render only rewrote the bubble slot above; refresh the meta
   // row (time + action buttons) so buttons appear as soon as status leaves 'loading'.
-  var metaWrap = document.getElementById('pg-msg-' + idx);
-  if (metaWrap) {
-    var metaEl = metaWrap.querySelector('.pg-msg-meta');
-    if (metaEl) {
-      metaEl.innerHTML = pgMsgMetaInnerHTML(idx, msg);
-    } else if (msg.role !== 'loading') {
-      // meta 尚未生成(曾为 loading), 补建一个.
-      var meta = document.createElement('div');
-      meta.className = 'pg-msg-meta' + (msg.role === 'assistant' && idx === pgState.messages.length - 1 ? ' always-show' : '');
-      meta.innerHTML = pgMsgMetaInnerHTML(idx, msg);
-      metaWrap.appendChild(meta);
+  // 包 try/catch: 即便 meta 更新异常, 也不能破坏气泡渲染或中断 pgRenderMessages 的循环.
+  try {
+    var metaWrap = document.getElementById('pg-msg-' + idx);
+    if (metaWrap) {
+      var metaEl = metaWrap.querySelector('.pg-msg-meta');
+      if (metaEl) {
+        metaEl.innerHTML = pgMsgMetaInnerHTML(idx, msg);
+      } else if (msg.role !== 'loading') {
+        // meta 尚未生成(曾为 loading), 补建一个.
+        var meta = document.createElement('div');
+        meta.className = 'pg-msg-meta' + (msg.role === 'assistant' && idx === pgState.messages.length - 1 ? ' always-show' : '');
+        meta.innerHTML = pgMsgMetaInnerHTML(idx, msg);
+        metaWrap.appendChild(meta);
+      }
     }
-  }
+  } catch (e) { /* meta 更新失败不影响气泡内容 */ }
   // Source/preview re-render won't touch <pre>; only highlight if showing source.
   if (isSourceVisible) {
     pgHighlight(wrap);
@@ -1363,10 +1368,12 @@ function pgSSEViewer(events) {
   // Parse each event.
   var parsed = events.map(function(item, index) {
     var isDone = false, parsedObj = null, error = null;
-    if (item === '[DONE]') { isDone = true; }
+    var payload = item;
+    if (item.indexOf('data:') === 0) payload = item.slice(5).trim();
+    if (payload === '[DONE]') { isDone = true; }
     else if (item.indexOf('[ERROR]') === 0) { error = item.slice(7).trim(); }
     else {
-      try { parsedObj = JSON.parse(item); } catch (e) { error = e.message; }
+      try { parsedObj = JSON.parse(payload); } catch (e) { error = e.message; }
     }
     return { index: index, raw: item, parsed: parsedObj, error: error, isDone: isDone };
   });
