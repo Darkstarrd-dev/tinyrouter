@@ -26,6 +26,8 @@ function makeWin() {
     inbox: [],                 // pending inbound messages [{sender, content, timestamp}]
     replyCount: 0,             // how many replies this window has completed
     autoChatDone: false,       // whether this window reached its iteration limit
+    autoChatPending: false,    // reply scheduled (waiting for delay timer)
+    autoChatDelayTimer: null,  // setTimeout id for random delay before reply
   };
 }
 
@@ -43,7 +45,7 @@ var pgState = {
     enabled: false,        // auto chat switch (not persisted; off after reload)
     iterations: 10,        // iteration count (0 = infinite)
     userName: 'User',      // user nickname
-    currentRound: 0,       // completed rounds
+    delaySeconds: 0,       // random delay base before each reply (0 = no delay)
     isRunning: false,      // loop active
     abortFlag: false,      // termination signal
   },
@@ -86,6 +88,9 @@ function pgLoad() {
         if (typeof savedAuto.userName === 'string') pgState.autoChat.userName = savedAuto.userName;
         if (typeof savedAuto.iterations === 'number' && savedAuto.iterations >= 0) {
           pgState.autoChat.iterations = savedAuto.iterations;
+        }
+        if (typeof savedAuto.delaySeconds === 'number' && savedAuto.delaySeconds >= 0) {
+          pgState.autoChat.delaySeconds = savedAuto.delaySeconds;
         }
       }
     }
@@ -162,6 +167,7 @@ function pgSaveAutoChat() {
     localStorage.setItem(PG_AUTOCHAT_KEY, JSON.stringify({
       userName: pgState.autoChat.userName,
       iterations: pgState.autoChat.iterations,
+      delaySeconds: pgState.autoChat.delaySeconds,
     }));
   } catch (e) {}
 }

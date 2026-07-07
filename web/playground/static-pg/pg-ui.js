@@ -395,6 +395,11 @@ function pgRenderSidebar() {
           '<label>' + pgEscapeHtml(pgT('pgAutoChatUserName')) + '</label>' +
           '<input type="text" value="' + pgEscapeHtml(pgState.autoChat.userName || 'User') + '" oninput="pgAutoChatSetUserName(this.value)">' +
         '</div>' +
+        '<div class="pg-param-row">' +
+          '<label>' + pgEscapeHtml(pgT('pgAutoChatDelay')) + '</label>' +
+          '<input type="number" min="0" step="0.5" value="' + pgState.autoChat.delaySeconds + '" onchange="pgAutoChatSetDelay(this.value)">' +
+        '</div>' +
+        '<div class="pg-autochat-hint">' + pgEscapeHtml(pgT('pgAutoChatDelayHint')) + '</div>' +
       '</div>' +
       '<div class="pg-autochat-actions">' +
         '<button class="pg-btn danger' + (pgState.autoChat.isRunning ? ' running' : '') + '" onclick="pgAutoChatStop()" id="pg-autochat-stop-btn">' + pgEscapeHtml(pgT('pgAutoChatStop')) + '</button>' +
