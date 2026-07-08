@@ -205,8 +205,12 @@ async function saveRotation() {
     retryDelaySec: parseInt(document.getElementById('retryDelaySec').value),
     backoffMaxSec: parseInt(document.getElementById('backoffMaxSec').value),
   };
-  await apiPatch('/settings', { rotation });
-  toast(t('rotationSaved'), 'success');
+  try {
+    await apiPatch('/settings', { rotation });
+    toast(t('rotationSaved'), 'success');
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
 }
 
 async function togglePasswordProtection(enabled) {

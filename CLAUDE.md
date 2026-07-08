@@ -133,8 +133,10 @@ web/
 
 ## 关键设计决策
 
-### 1. 纯本地，无鉴权
-不实现任何认证机制。HTTP server 仅监听 localhost。任意 API Key 或无 Key 均可访问 `/v1/*`。
+### 1. 纯本地，无对外鉴权
+HTTP server 仅监听 localhost。任意 API Key 或无 Key 均可访问 `/v1/*`（上游代理不走应用层鉴权）。
+
+允许实现可选的本地密码保护（`Security.PasswordEnabled`，见 commit `b99c245`）：用于防止本地 `config.yaml` 中的明文 API Key 被直接读取，进入管理 UI 需输入密码登录；初始未设置密码时仍可直接打开应用，不强制登录。密码经 AES-256-GCM 加密存储于 `config.yaml`，登录态用内存 session token + HttpOnly cookie，进程退出即失效。
 
 ### 2. 配置持久化用 YAML，不用数据库
 - `config.yaml` 存储 providers + combos + settings
@@ -211,7 +213,8 @@ web/
 
 - 不要引入数据库 (SQLite, BoltDB, 等)
 - 不要引入前端框架 (React, Vue, 等)
-- 不要实现鉴权 (JWT, OAuth, 密码)
+- 不要实现对外暴露的鉴权 (JWT, OAuth 等面向多用户的认证体系)
+- 允许实现本地密码保护：用于防止本地 `config.yaml` 中的明文 API Key 被直接读取，登录应用需输入密码。初始状态未设置密码时仍可直接打开应用（`Security.PasswordEnabled=false` 时跳过登录页，参考 commit `b99c245`）
 - 不要实现格式转换 (OpenAI ↔ Anthropic)
 - 不要实现 Token Saver (RTK, Headroom, Caveman, Ponytail)
 - 不要修改 `Z:\Playground\9router` 目录中的任何文件

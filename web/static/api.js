@@ -27,8 +27,8 @@ async function apiPatch(path, body, signal) {
     signal: signal
   });
   var data;
-  try { data = await r.json(); } catch(e) { return { error: 'HTTP ' + r.status + ' (non-JSON body)' }; }
-  if (!r.ok && !data.error) data.error = 'HTTP ' + r.status;
+  try { data = await r.json(); } catch(e) { data = { error: 'HTTP ' + r.status + ' (non-JSON body)' }; }
+  if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
   return data;
 }
 async function apiPut(path, body, signal) {

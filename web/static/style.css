@@ -2,6 +2,7 @@
 
 /* ===================== Theme Variables ===================== */
 :root{
+  color-scheme:dark;
   /* Font size: Small (default) */
   --font-base:13.5px;
   --font-h2:20px;
@@ -75,6 +76,7 @@
 }
 
 [data-theme="light"]{
+  color-scheme:light;
   --bg:radial-gradient(ellipse at 30% 20%,#f5f7fa,#e8ecf1 70%);
   --glass-bg:rgba(255,255,255,0.55);
   --glass-hover:rgba(255,255,255,0.75);
@@ -911,11 +913,11 @@ tbody tr:last-child td{border-bottom:none}
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg, #12121a);
+  background: #0a0a0f;
 }
 .login-card {
-  background: var(--card-bg, #1e1e2a);
-  border: 1px solid var(--border, #33334a);
+  background: #1a1a26;
+  border: 1px solid #33334a;
   border-radius: 12px;
   padding: 32px;
   max-width: 360px;
@@ -935,6 +937,7 @@ tbody tr:last-child td{border-bottom:none}
 .login-logo h2 {
   margin: 0;
   font-size: 1.25rem;
+  color: #f0f0f0;
 }
 .login-form {
   display: flex;
@@ -944,16 +947,19 @@ tbody tr:last-child td{border-bottom:none}
 .login-input {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--border, #33334a);
+  border: 1px solid #3a3a4a;
   border-radius: 8px;
-  background: var(--input-bg, #16162a);
-  color: var(--text, #e0e0e8);
+  background: #16162a;
+  color: #f0f0f0;
   font-size: 0.875rem;
   box-sizing: border-box;
 }
 .login-input:focus {
   outline: none;
-  border-color: var(--accent, #6c6cff);
+  border-color: #4fc3f7;
+}
+.login-input::placeholder {
+  color: #686876;
 }
 .login-actions {
   display: flex;
@@ -963,10 +969,34 @@ tbody tr:last-child td{border-bottom:none}
   flex: 1;
 }
 .login-error {
-  color: var(--danger, #ff5252);
+  color: #ef5350;
   font-size: 0.8125rem;
   display: none;
   margin-top: 4px;
+}
+[data-theme="light"] .login-overlay {
+  background: #e8ecf1;
+}
+[data-theme="light"] .login-card {
+  background: #ffffff;
+  border-color: #d0d0da;
+}
+[data-theme="light"] .login-logo h2 {
+  color: #1a1a1a;
+}
+[data-theme="light"] .login-input {
+  background: #f5f5fa;
+  color: #1a1a1a;
+  border-color: #d0d0da;
+}
+[data-theme="light"] .login-input::placeholder {
+  color: #999;
+}
+[data-theme="light"] .login-input:focus {
+  border-color: #4fc3f7;
+}
+[data-theme="light"] .login-error {
+  color: #d32f2f;
 }
 
 

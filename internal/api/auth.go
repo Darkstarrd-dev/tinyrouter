@@ -71,6 +71,15 @@ func (rt *Router) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 		return
 	}
+	// Defensive: password protection is enabled but no password was ever saved
+	// (e.g., user toggled it on but didn't save a password, then restarted).
+	// Treat as not enabled to prevent permanent lockout.
+	if cfg.Security.PasswordEncrypted == "" || cfg.Security.EncryptionKey == "" {
+		setSessionCookie(w, "")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		return
+	}
 	plaintext, err := config.Decrypt(cfg.Security.EncryptionKey, cfg.Security.PasswordEncrypted)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "failed to decrypt password")

@@ -121,6 +121,24 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	rt.reg.Reload(&cfg)
 	rt.selector.UpdateSettings(cfg.Rotation)
 
+	// If password protection was just enabled or a new password was set,
+	// issue a session token to the current client so it stays authenticated.
+	// Without this, enabling password protection would immediately lock out
+	// the current session (AuthMiddleware activates on Reload), making the
+	// subsequent "save password" request fail with 401.
+	if updates.Security != nil {
+		justEnabled := updates.Security.PasswordEnabled != nil && *updates.Security.PasswordEnabled
+		passwordSet := updates.Security.Password != ""
+		if justEnabled || passwordSet {
+			if token, err := generateToken(); err == nil {
+				sessionStore.Lock()
+				sessionStore.tokens[token] = true
+				sessionStore.Unlock()
+				setSessionCookie(w, token)
+			}
+		}
+	}
+
 	if portChanged && rt.restartFn != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{

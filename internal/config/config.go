@@ -260,7 +260,44 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 			}
 		}
 	}
+	// Decrypt API keys if password protection is enabled.
+	// Encrypted keys are prefixed with "enc:" in the YAML file.
+	if cfg.Security.PasswordEnabled && cfg.Security.EncryptionKey != "" {
+		for i := range cfg.Providers {
+			for j := range cfg.Providers[i].Keys {
+				k := &cfg.Providers[i].Keys[j]
+				if strings.HasPrefix(k.Key, "enc:") {
+					encrypted := strings.TrimPrefix(k.Key, "enc:")
+					if decrypted, err := Decrypt(cfg.Security.EncryptionKey, encrypted); err == nil {
+						k.Key = decrypted
+					}
+				}
+			}
+		}
+	}
 	return cfg
+}
+
+// encryptKeysCopy returns a deep copy of cfg with all API key values encrypted.
+// The original cfg is not modified — in-memory keys stay plaintext.
+// Encrypted keys are prefixed with "enc:" so Load can distinguish them.
+func encryptKeysCopy(cfg *Config) *Config {
+	cp := *cfg
+	cp.Providers = make([]Provider, len(cfg.Providers))
+	for i := range cfg.Providers {
+		cp.Providers[i] = cfg.Providers[i]
+		cp.Providers[i].Keys = make([]Key, len(cfg.Providers[i].Keys))
+		for j := range cfg.Providers[i].Keys {
+			cp.Providers[i].Keys[j] = cfg.Providers[i].Keys[j]
+			k := &cp.Providers[i].Keys[j]
+			if k.Key != "" && !strings.HasPrefix(k.Key, "enc:") {
+				if encrypted, err := Encrypt(cfg.Security.EncryptionKey, k.Key); err == nil {
+					k.Key = "enc:" + encrypted
+				}
+			}
+		}
+	}
+	return &cp
 }
 
 // Save writes config to path atomically (temp file + rename).
@@ -271,7 +308,11 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 // remains on disk and will be applied on the next startup via Load.
 // In either fallback case Save returns nil — the data is not lost.
 func Save(path string, cfg *Config) error {
-	data, err := yaml.Marshal(cfg)
+	marshalCfg := cfg
+	if cfg.Security.PasswordEnabled && cfg.Security.EncryptionKey != "" {
+		marshalCfg = encryptKeysCopy(cfg)
+	}
+	data, err := yaml.Marshal(marshalCfg)
 	if err != nil {
 		return err
 	}
