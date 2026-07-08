@@ -37,4 +37,5 @@ function cleanupPlayground() {
       w.streaming = false;
     }
   }
+  if (typeof pgDirectorReset === 'function') pgDirectorReset();
 }

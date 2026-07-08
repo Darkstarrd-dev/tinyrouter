@@ -126,6 +126,8 @@ function pgAutoChatRenderPerspective(winIdx) {
       msgs.push({ role: 'system', content: entry.content });
     } else if (entry.senderType === 'agent' && entry.winIdx === winIdx) {
       msgs.push({ role: 'assistant', content: entry.content });
+    } else if (entry.senderType === 'narrator') {
+      msgs.push({ role: 'system', content: '【旁白】' + entry.content });
     } else {
       msgs.push({ role: 'user', content: '[' + entry.sender + ']: ' + entry.content });
     }
@@ -163,6 +165,7 @@ function pgAutoChatCanReply(winIdx) {
 // ----- Start ---------------------------------------------------------
 
 function pgAutoChatStart(text) {
+  if (typeof pgDirectorReset === 'function') pgDirectorReset();
   var modelWins = pgAutoChatModelWindows();
   if (!modelWins.length) {
     pgToast(pgT('pgSelectModel'), 'warning');
@@ -335,6 +338,9 @@ function pgAutoChatOnFinish(winIdx) {
     // A pass does not advance the conversation; still let the done-check run
     // (e.g. everyone passed -> natural end). Pass does NOT trigger summarization.
     pgAutoChatCheckAllDone();
+
+    // Director hook: a pass is a stronger stagnation signal — count it too (guarded).
+    if (typeof pgDirectorOnAgentReply === 'function' && pgState.autoChat.isRunning) pgDirectorOnAgentReply(winIdx);
     return;
   }
 
@@ -371,12 +377,19 @@ function pgAutoChatOnFinish(winIdx) {
   // Rolling summarization (only after a real reply, not a pass).
   if (typeof pgAutoChatMaybeSummarize === 'function') pgAutoChatMaybeSummarize();
 
+  // Director hook: count this reply toward periodic plot-evaluation (guarded).
+  if (typeof pgDirectorOnAgentReply === 'function' && pgState.autoChat.isRunning) pgDirectorOnAgentReply(winIdx);
+
   // Check if the entire auto-chat should end.
   pgAutoChatCheckAllDone();
 }
 
 // Check if all windows are done (hit limit) or idle with empty inbox.
 function pgAutoChatCheckAllDone() {
+  // Not running (stopped/finished) — no-op, prevents post-end re-entry loops.
+  if (!pgState.autoChat.isRunning) return;
+  // Director/narrator in-flight: defer the done-check to avoid finishing mid-narration (guarded).
+  if (typeof pgDirectorEvalInFlight === 'function' && (pgDirectorEvalInFlight() || (typeof pgDirectorNarratorPending === 'function' && pgDirectorNarratorPending()))) return;
   var modelWins = pgAutoChatModelWindows();
   var allDone = modelWins.every(function(i) {
     var w = pgWinAt(i);
@@ -397,6 +410,8 @@ function pgAutoChatCheckAllDone() {
     return true;
   });
   if (allDone) {
+    // Director final-chance: if plot isn't resolved, defer finish once (guarded).
+    if (typeof pgDirectorOnBeforeFinish === 'function' && pgDirectorOnBeforeFinish()) return;
     pgAutoChatFinish();
   }
 }
@@ -413,6 +428,7 @@ function pgAutoChatClearWindowTimers() {
 }
 
 function pgAutoChatStop() {
+  if (typeof pgDirectorReset === 'function') pgDirectorReset();
   pgState.autoChat.abortFlag = true;
   pgState.autoChat.session++;
   pgState.autoChat.isRunning = false;
@@ -442,6 +458,7 @@ function pgAutoChatStop() {
 }
 
 function pgAutoChatFinish() {
+  if (typeof pgDirectorReset === 'function') pgDirectorReset();
   pgState.autoChat.isRunning = false;
   pgState.autoChat.abortFlag = false;
   pgAutoChatClearWindowTimers();
@@ -776,6 +793,9 @@ function pgAutoChatMaybeSummarize() {
   }
 
   var summaryText = toSummarize.map(function(e) {
+    if (e.senderType === 'narrator') {
+      return '旁白: ' + e.content;
+    }
     return '[' + e.sender + ']: ' + e.content;
   }).join('\n');
 

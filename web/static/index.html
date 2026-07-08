@@ -97,7 +97,7 @@
 <script src="/vendor/highlight.min.js"></script>
 <script src="/vendor/mermaid.min.js"></script>
 <script>if (window.mermaid) { window.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict', themeVariables: { background: '#1a1326', primaryColor: '#c4a6ff', primaryTextColor: '#e6def0', lineColor: '#a89bd6', secondaryColor: '#2a1f3d', tertiaryColor: '#3a2c5e' } }); }</script>
-<!-- Playground modules (load order matters: core → state → markdown → request → stream → render → ui → modal → lifecycle) -->
+<!-- Playground modules (load order matters: core → state → markdown → request → stream → autochat → setup → director → render → ui → modal → lifecycle) -->
 <script src="/pg-i18n.js"></script>
 <script src="/pg-core.js"></script>
 <script src="/pg-state.js"></script>
@@ -105,6 +105,8 @@
 <script src="/pg-request.js"></script>
 <script src="/pg-stream.js"></script>
 <script src="/pg-autochat.js"></script>
+<script src="/pg-setup.js"></script>
+<script src="/pg-director.js"></script>
 <script src="/pg-render.js"></script>
 <script src="/pg-ui.js"></script>
 <script src="/pg-modal.js"></script>

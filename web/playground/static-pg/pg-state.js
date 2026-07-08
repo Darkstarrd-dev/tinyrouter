@@ -32,8 +32,9 @@ function makeWin() {
   };
 }
 
-// Auto chat runtime state (not persisted except userName/iterations).
+// Auto chat runtime state (not persisted except userName/iterations/director).
 var PG_AUTOCHAT_KEY = 'tinyrouter.playground.autochat.v1';
+var PG_SCENARIO_KEY = 'tinyrouter.playground.scenario.v1';
 
 var pgState = {
   winInit: false,
@@ -52,6 +53,14 @@ var pgState = {
     session: 0,            // epoch — incremented on start/stop to invalidate stale setTimeout callbacks
     timeline: [],           // shared timeline — single source of truth for group chat
     timelineId: 0,          // auto-increment id counter for timeline entries
+    scenario: null,         // current ScenarioProfile (AI-generated setup); in-memory, persisted separately
+    director: {             // Phase B: director/narrator config (persisted via pgSaveAutoChat)
+      enabled: false,         // director switch
+      directorModel: '',      // model for judgment calls (empty = use first window's model)
+      narratorModel: '',      // model for narration text (empty = same as directorModel)
+      everyNReplies: 6,       // evaluate every N agent replies (complete + pass)
+      maxNarrations: 0,       // max narrator injections (0 = infinite)
+    },
   },
 };
 
@@ -83,7 +92,7 @@ function pgLoad() {
       }
     }
   } catch (e) { /* corrupt storage */ }
-  // Auto chat persisted fields (only userName + iterations).
+  // Auto chat persisted fields (userName + iterations + delaySeconds + director).
   try {
     var rawAuto = localStorage.getItem(PG_AUTOCHAT_KEY);
     if (rawAuto) {
@@ -96,9 +105,18 @@ function pgLoad() {
         if (typeof savedAuto.delaySeconds === 'number' && savedAuto.delaySeconds >= 0) {
           pgState.autoChat.delaySeconds = savedAuto.delaySeconds;
         }
+        if (savedAuto.director && typeof savedAuto.director === 'object') {
+          var d = savedAuto.director;
+          if (typeof d.enabled === 'boolean') pgState.autoChat.director.enabled = d.enabled;
+          if (typeof d.directorModel === 'string') pgState.autoChat.director.directorModel = d.directorModel;
+          if (typeof d.narratorModel === 'string') pgState.autoChat.director.narratorModel = d.narratorModel;
+          if (typeof d.everyNReplies === 'number' && d.everyNReplies > 0) pgState.autoChat.director.everyNReplies = d.everyNReplies;
+          if (typeof d.maxNarrations === 'number' && d.maxNarrations >= 0) pgState.autoChat.director.maxNarrations = d.maxNarrations;
+        }
       }
     }
   } catch (e) { /* corrupt storage */ }
+  pgLoadScenario();
   try {
     var rawMsgs = localStorage.getItem(PG_MSG_KEY);
     if (rawMsgs) {
@@ -172,8 +190,29 @@ function pgSaveAutoChat() {
       userName: pgState.autoChat.userName,
       iterations: pgState.autoChat.iterations,
       delaySeconds: pgState.autoChat.delaySeconds,
+      director: pgState.autoChat.director,
     }));
   } catch (e) {}
+}
+
+// Persist the current ScenarioProfile (AI-generated setup) for reuse across reloads.
+function pgSaveScenario() {
+  try {
+    var s = pgState.autoChat.scenario;
+    if (s) localStorage.setItem(PG_SCENARIO_KEY, JSON.stringify(s));
+    else localStorage.removeItem(PG_SCENARIO_KEY);
+  } catch (e) { /* quota or corrupt */ }
+}
+
+// Load the most recent ScenarioProfile into memory (called from pgLoad).
+function pgLoadScenario() {
+  try {
+    var raw = localStorage.getItem(PG_SCENARIO_KEY);
+    if (raw) {
+      var parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') pgState.autoChat.scenario = parsed;
+    }
+  } catch (e) { /* corrupt storage */ }
 }
 
 // ----- Module 2: Model list ---------------------------------------

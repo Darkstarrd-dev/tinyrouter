@@ -329,6 +329,13 @@ function pgRenderSidebar() {
       input +
     '</div>';
   }
+  function pgDirectorModelOpts(selected) {
+    var opts = '<option value="">' + pgEscapeHtml(pgT('Default (first window model)')) + '</option>';
+    pgState.models.forEach(function(m) {
+      opts += '<option value="' + pgEscapeHtml(m.id) + '"' + (selected === m.id ? ' selected' : '') + '>' + pgEscapeHtml(m.id) + '</option>';
+    });
+    return opts;
+  }
   var params =
     paramRow('temperature', 'pgTemperature', 0, 2, 0.1, false) +
     paramRow('topP', 'pgTopP', 0, 1, 0.05, false) +
@@ -419,6 +426,36 @@ function pgRenderSidebar() {
       '<div class="pg-autochat-actions">' +
         '<button class="pg-btn danger' + (pgState.autoChat.isRunning ? ' running' : '') + '" onclick="pgAutoChatStop()" id="pg-autochat-stop-btn">' + pgEscapeHtml(pgT('pgAutoChatStop')) + '</button>' +
         '<button class="pg-btn" onclick="pgOpenGroupChatModal()">' + pgEscapeHtml(pgT('pgAutoChatOpenGroup')) + '</button>' +
+        '<button class="pg-btn" onclick="if(typeof pgOpenSetupWizard===\'function\') pgOpenSetupWizard()">' + pgEscapeHtml(pgT('Scenario Setup')) + '</button>' +
+      '</div>' +
+    '</div>' +
+    // --- Director panel ---
+    '<div class="pg-panel pg-director-panel">' +
+      '<div class="pg-panel-title">' + pgEscapeHtml(pgT('Director')) + '</div>' +
+      '<div class="pg-param-row">' +
+        '<label>' + pgEscapeHtml(pgT('Director Enable')) + '</label>' +
+        '<input type="checkbox" id="pg-director-enable"' + (pgState.autoChat.director.enabled ? ' checked' : '') + ' onchange="pgDirectorToggle(this.checked)">' +
+      '</div>' +
+      '<div class="pg-param-row">' +
+        '<label>' + pgEscapeHtml(pgT('Director Model')) + '</label>' +
+        '<select onchange="pgDirectorSetDirectorModel(this.value)">' +
+          pgDirectorModelOpts(pgState.autoChat.director.directorModel) +
+        '</select>' +
+      '</div>' +
+      '<div class="pg-param-row">' +
+        '<label>' + pgEscapeHtml(pgT('Narrator Model')) + '</label>' +
+        '<select onchange="pgDirectorSetNarratorModel(this.value)">' +
+          pgDirectorModelOpts(pgState.autoChat.director.narratorModel) +
+        '</select>' +
+      '</div>' +
+      '<div class="pg-param-row">' +
+        '<label>' + pgEscapeHtml(pgT('Every N Replies')) + '</label>' +
+        '<input type="number" min="1" value="' + pgState.autoChat.director.everyNReplies + '" onchange="pgDirectorSetEveryNReplies(this.value)">' +
+      '</div>' +
+      '<div class="pg-param-row">' +
+        '<label>' + pgEscapeHtml(pgT('Max Narrations')) + '</label>' +
+        '<input type="number" min="0" value="' + pgState.autoChat.director.maxNarrations + '" onchange="pgDirectorSetMaxNarrations(this.value)">' +
+        '<span class="pg-autochat-hint" style="margin-left:4px">' + pgEscapeHtml(pgT('0 = ∞')) + '</span>' +
       '</div>' +
     '</div>' +
     '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgAutoChatAgentName')) + '</div>' +
