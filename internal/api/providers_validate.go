@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -29,8 +31,12 @@ func (rt *Router) validateProvider(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "baseUrl and apiKey required")
 		return
 	}
+	if err := validateBaseURL(req.BaseURL); err != nil {
+		writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("invalid baseUrl: %v", err))
+		return
+	}
 
-	valid, method, err := rt.probeUpstream(req.BaseURL, req.APIKey, req.ModelID)
+	valid, method, err := rt.probeUpstream(r.Context(), req.BaseURL, req.APIKey, req.ModelID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"valid":  valid,
@@ -41,10 +47,10 @@ func (rt *Router) validateProvider(w http.ResponseWriter, r *http.Request) {
 
 // probeUpstream tries GET /v1/models first, then falls back to POST /v1/chat/completions if modelId is provided.
 // Returns (valid, method, errorMessage).
-func (rt *Router) probeUpstream(baseURL, apiKey, modelID string) (bool, string, string) {
+func (rt *Router) probeUpstream(ctx context.Context, baseURL, apiKey, modelID string) (bool, string, string) {
 	modelsURL := proxy.BuildUpstreamURL(baseURL, "/v1/models")
 
-	req, err := http.NewRequest("GET", modelsURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", modelsURL, nil)
 	if err != nil {
 		return false, "", "invalid URL: " + err.Error()
 	}
@@ -67,7 +73,7 @@ func (rt *Router) probeUpstream(baseURL, apiKey, modelID string) (bool, string, 
 	if modelID != "" {
 		chatURL := proxy.BuildUpstreamURL(baseURL, "/v1/chat/completions")
 		body := `{"model":"` + modelID + `","messages":[{"role":"user","content":"hi"}],"max_tokens":16,"stream":false}`
-		chatReq, err := http.NewRequest("POST", chatURL, strings.NewReader(body))
+		chatReq, err := http.NewRequestWithContext(ctx, "POST", chatURL, strings.NewReader(body))
 		if err != nil {
 			return false, "", "invalid URL: " + err.Error()
 		}
@@ -130,7 +136,7 @@ func (rt *Router) testProviderKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valid, _, errMsg := rt.probeUpstream(provider.BaseURL, key.Key, "")
+	valid, _, errMsg := rt.probeUpstream(r.Context(), provider.BaseURL, key.Key, "")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"valid": valid,

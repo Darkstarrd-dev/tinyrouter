@@ -107,7 +107,6 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if sel != nil {
 		w.Header().Set("X-TinyRouter-Provider", sel.Provider.Name)
 		w.Header().Set("X-TinyRouter-Key", sel.KeyName)
@@ -176,37 +175,36 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 				}
 			}
 		}
-		if err != nil {
-			remaining := sb.Remaining()
-			if remaining != "" {
-				if normalize {
-					out := normalizeSSEChunk(remaining)
-					if _, werr := w.Write([]byte(out + "\n")); werr != nil {
-						h.logger.Debug("client disconnected during SSE stream: %v", werr)
-						return
-					}
-					totalOutput += len(out) + 1
-					remaining = out
-				} else {
-					if _, werr := w.Write([]byte(remaining + "\n")); werr != nil {
-						h.logger.Debug("client disconnected during SSE stream: %v", werr)
-						return
-					}
-					totalOutput += len(remaining) + 1
+	if err != nil {
+		remaining := sb.Remaining()
+		if remaining != "" {
+			if normalize {
+				// normalize 路径未在循环中原样写出过整块，需要在这里写出规范化后的 remaining
+				out := normalizeSSEChunk(remaining)
+				if _, werr := w.Write([]byte(out + "\n")); werr != nil {
+					h.logger.Debug("client disconnected during SSE stream: %v", werr)
+					return
 				}
-				line := strings.TrimSpace(remaining)
-				if strings.HasPrefix(line, "data:") {
-					payload := strings.TrimSpace(line[5:])
-					if payload != "[DONE]" {
-						if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
-							inputTokens = in
-							outputTokens = out
-						}
+				totalOutput += len(out) + 1
+				remaining = out
+			} else {
+				// 非 normalize 路径：remaining 已经在循环中通过 w.Write(buf[:n]) 原样发出，
+				// 不应重复写出。仅提取 token 计入 totalOutput/usage。
+			}
+			// 统一提取 token（两个路径都需要）
+			line := strings.TrimSpace(remaining)
+			if strings.HasPrefix(line, "data:") {
+				payload := strings.TrimSpace(line[5:])
+				if payload != "[DONE]" {
+					if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
+						inputTokens = in
+						outputTokens = out
 					}
 				}
 			}
-			break
 		}
+		break
+	}
 	}
 
 	if sel == nil {
@@ -223,14 +221,13 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	defer resp.Body.Close()
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if sel != nil {
 		w.Header().Set("X-TinyRouter-Provider", sel.Provider.Name)
 		w.Header().Set("X-TinyRouter-Key", sel.KeyName)
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	if err != nil {
 		h.logger.Error("failed to read upstream response: %v", err)
 		return

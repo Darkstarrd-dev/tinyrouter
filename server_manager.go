@@ -38,11 +38,12 @@ func (m *ServerManager) Start() {
 // startLocked creates and starts the http.Server. Caller must hold m.mu.
 func (m *ServerManager) startLocked() {
 	m.srv = &http.Server{
-		Addr:         m.addr,
-		Handler:      m.handler,
-		ReadTimeout:  300 * time.Second,
-		WriteTimeout: 300 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:            m.addr,
+		Handler:         m.handler,
+		ReadTimeout:     300 * time.Second,
+		WriteTimeout:    300 * time.Second,
+		IdleTimeout:     120 * time.Second,
+		MaxHeaderBytes:  1 << 20, // 1 MB
 	}
 	go func() {
 		m.logger.Info("TinyRouter v%s starting on http://%s", Version, m.addr)

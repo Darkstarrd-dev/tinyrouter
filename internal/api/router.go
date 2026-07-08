@@ -95,18 +95,25 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	// Middleware
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
-	r.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			// Expose custom response headers (X-TinyRouter-*) to clients.
-			w.Header().Set("Access-Control-Expose-Headers", "X-TinyRouter-Provider, X-TinyRouter-Key")
-			next.ServeHTTP(w, r)
-		})
-	})
 	r.Use(securityHeaders)
 	// Compress responses (brotli/gzip) for compressible content types.
 	// SSE responses and pre-compressed binaries are auto-skipped inside.
 	r.Use(Compress)
+
+	// CORS preflight for proxy routes only (/v1/*). Management /api/* routes
+	// have NO CORS — the admin UI is same-origin and external pages must not
+	// be able to read/modify config or steal API keys via cross-origin fetch.
+	r.Options("/v1/*", func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Expose-Headers", "X-TinyRouter-Provider, X-TinyRouter-Key")
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	// Proxy routes (OpenAI-compatible)
 	r.Post("/v1/chat/completions", proxyHandler.ChatCompletions)
@@ -115,6 +122,14 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
+		// 1 MB API 请求体上限（管理 API 不应需要大 body）
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+				next.ServeHTTP(w, r)
+			})
+		})
+
 		// Settings
 		r.Get("/settings", rt.getSettings)
 		r.Patch("/settings", rt.updateSettings)

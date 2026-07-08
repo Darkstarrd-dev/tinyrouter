@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -81,12 +82,12 @@ func Save(path string, s *Snapshot) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}
 	if renameErr := os.Rename(tmp, path); renameErr != nil {
-		if writeErr := os.WriteFile(path, data, 0644); writeErr != nil {
-			return nil
+		if writeErr := os.WriteFile(path, data, 0600); writeErr != nil {
+			return fmt.Errorf("state file is locked; pending changes saved to %s", tmp)
 		}
 		_ = os.Remove(tmp)
 		return nil

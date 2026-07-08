@@ -1,9 +1,14 @@
-//go:build webview && !windows
+//go:build tray && webview && !windows
 
 package main
 
-// addWebviewMenuItem on non-Windows platforms returns nil — the native WebView2
-// window is Windows-only. The tray menu simply omits the "独立窗口" entry.
+// On non-Windows platforms the native WebView2 window is unavailable.
+// `webview` tag MUST always be paired with `tray` (build.ps1 enforces this),
+// otherwise runHostLoop is undefined. This constraint is reflected by the
+// build tag `tray && webview && !windows` above; building with `-tags webview`
+// alone (without tray) deliberately fails with a clear "runHostLoop undefined"
+// compile error.
+//
 // (Linux/macOS support would require webview/webview with CGO; intentionally
 // out of scope for this iteration.)
 func addWebviewMenuItem(hctx *hostContext) interface{} { return nil }

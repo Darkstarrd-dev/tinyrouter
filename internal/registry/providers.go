@@ -77,9 +77,15 @@ func (r *Registry) UpdateProvider(id string, updates config.Provider) bool {
 			r.config.Providers[i].Name = updates.Name
 			r.config.Providers[i].Prefix = updates.Prefix
 			r.config.Providers[i].BaseURL = updates.BaseURL
+			r.config.Providers[i].APIType = updates.APIType
 			r.config.Providers[i].IsActive = updates.IsActive
 			r.config.Providers[i].RotationStrategy = updates.RotationStrategy
 			r.config.Providers[i].StickyLimit = updates.StickyLimit
+			r.config.Providers[i].InjectStreamOpts = updates.InjectStreamOpts
+			r.config.Providers[i].NormalizeStreamChunks = updates.NormalizeStreamChunks
+			r.config.Providers[i].NIMConfig = updates.NIMConfig
+			// 注意：Keys 和 Models 不在此更新——前者通过 createKey/updateKey/deleteKey
+			// API 操作，后者通过 addProviderModel 等 API 操作，避免误覆盖。
 			return true
 		}
 	}

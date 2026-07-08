@@ -256,10 +256,26 @@ function t(key, args) {
   var msg = dict[key] || (L['en'][key] || key);
   if (args) {
     for (var i = 0; i < args.length; i++) {
-      msg = msg.replace('{' + i + '}', args[i]);
+      // Escape args before substituting into messages that are often rendered
+      // as innerHTML (e.g. providers.js). Prevents XSS via provider error text.
+      var safeArg = (typeof args[i] === 'string') ? tEscapeHtml(args[i]) : args[i];
+      msg = msg.replace('{' + i + '}', safeArg);
     }
   }
   return msg;
+}
+
+// tEscapeHtml escapes characters that are unsafe inside HTML text or
+// attribute values. Local copy so i18n.js does not depend on the load order
+// of app.js (where escapeHtml is defined). The implementation mirrors
+// app.js::escapeHtml to avoid behavioral drift.
+function tEscapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function currentLang() {

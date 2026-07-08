@@ -26,19 +26,31 @@ func New(cfg *config.Config) *Registry {
 }
 
 func (r *Registry) reloadStatesLocked() {
+	// 锁顺序：调用方已持有 cfgMu，此处只需 stateMu。
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+
+	// 保留仍存在的 key 的旧运行时状态，仅增减。
+	// 这样 API 写操作（createProvider / updateProvider / createKey / deleteKey 等）
+	// 不会清空其他 key 已经累积的冷却/锁定/退避状态。
 	newStates := make(map[string]*KeyRuntimeState)
 	for _, p := range r.config.Providers {
 		for _, k := range p.Keys {
-		newStates[p.ID+"/"+k.ID] = &KeyRuntimeState{
-			ModelLocks:  make(map[string]time.Time),
-			ModelStatus: make(map[string]string),
-			ModelErrors: make(map[string]string),
-		}
+			key := p.ID + "/" + k.ID
+			if existing, ok := r.states[key]; ok {
+				// 保留既有运行时状态（冷却/锁定/退避/NIM 计数等）
+				newStates[key] = existing
+			} else {
+				// 新 key：初始化空状态
+				newStates[key] = &KeyRuntimeState{
+					ModelLocks:  make(map[string]time.Time),
+					ModelStatus: make(map[string]string),
+					ModelErrors: make(map[string]string),
+				}
+			}
 		}
 	}
-	r.stateMu.Lock()
 	r.states = newStates
-	r.stateMu.Unlock()
 }
 
 func stateKey(providerID, keyID string) string {

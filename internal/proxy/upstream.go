@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -33,10 +34,10 @@ func BuildUpstreamURL(baseURL, endpointPath string) string {
 	return normalized + endpointPath
 }
 
-func (h *Handler) forwardUpstream(sel *rotation.SelectedKey, body []byte, headers http.Header, isStream bool, path string) (*http.Response, error) {
+func (h *Handler) forwardUpstream(ctx context.Context, sel *rotation.SelectedKey, body []byte, headers http.Header, isStream bool, path string) (*http.Response, error) {
 	url := BuildUpstreamURL(sel.Provider.BaseURL, path)
 
-	req, err := http.NewRequest("POST", url, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(body)))
 	if err != nil {
 		return nil, err
 	}
@@ -51,5 +52,8 @@ func (h *Handler) forwardUpstream(sel *rotation.SelectedKey, body []byte, header
 		req.Header.Set("Accept", "text/event-stream")
 	}
 
+	if isStream {
+		return h.streamClient.Do(req)
+	}
 	return h.client.Do(req)
 }

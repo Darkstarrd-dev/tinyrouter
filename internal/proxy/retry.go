@@ -15,6 +15,7 @@ type retryState struct {
 	excludeKeyIDs  []string
 	temp429Retries int
 	tpmWaitRetries int
+	consecutive5xx int
 	maxRetries     int
 	requestLogged  bool
 }
@@ -226,7 +227,9 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 
 // handleUpstreamError processes HTTP 5xx and 4xx (non-429) responses.
 // Uses ClassifyError to determine the appropriate action, then switches to the next key.
-func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, state *retryState) {
+// For 5xx errors, applies a short backoff (500ms-5s) before the next retry to avoid
+// hammering the upstream (P3.14).
+func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, state *retryState, r *http.Request) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		h.logger.Warn("failed to read upstream error body: %v", err)
@@ -263,6 +266,30 @@ func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.Selecte
 	h.logger.Error("upstream %d for Key %s (%s), body=%s | switching", resp.StatusCode, sel.Key.Name, sel.Provider.Name, util.TruncStr(bodyStr, 500))
 	state.temp429Retries = 0
 	state.tpmWaitRetries = 0
+	if resp.StatusCode < 500 {
+		// Non-5xx (client errors) are not transient; reset the 5xx streak.
+		state.consecutive5xx = 0
+	}
+
+	// 5xx short backoff to avoid hammering the upstream (P3.14).
+	if resp.StatusCode >= 500 {
+		state.consecutive5xx++
+		backoff := time.Duration(500+(state.consecutive5xx-1)*500) * time.Millisecond
+		if backoff > 5*time.Second {
+			backoff = 5 * time.Second
+		}
+		h.logger.Debug("5xx backoff: waiting %v before next retry (consecutive5xx=%d)", backoff, state.consecutive5xx)
+		if r != nil {
+			select {
+			case <-r.Context().Done():
+				h.logger.Debug("client canceled during 5xx backoff")
+				return
+			case <-time.After(backoff):
+			}
+		} else {
+			time.Sleep(backoff)
+		}
+	}
 }
 
 // senseNova429Type classifies SenseNova 429 responses by body content.

@@ -41,4 +41,7 @@ NUL
 coverage
 tests/**/results.jsonl
 
+# Build output (build.ps1 -All produces 13 variants here)
+dist/
+
 tmp/

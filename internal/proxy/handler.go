@@ -22,7 +22,8 @@ type Handler struct {
 	usage             usage.UsageStore
 	quotaTracker      *usage.QuotaTracker
 	logger            *console.Logger
-	client            *http.Client
+	client            *http.Client // 非流式：300s 超时
+	streamClient      *http.Client // 流式：无超时，由 r.Context() 控制
 	UsageUpdates      *Broadcaster
 	InflightUpdates   *Broadcaster
 	Inflight          *InflightTracker
@@ -43,6 +44,9 @@ func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 		},
+		// 流式请求由 r.Context() 控制连接生命周期（1.5 已传播 context），
+		// 不设 Timeout 以避免 300s 后强制中断长 SSE 流（P3.13）。
+		streamClient: &http.Client{},
 	}
 }
 
@@ -56,6 +60,8 @@ func (h *Handler) Completions(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path string) {
 	defer r.Body.Close()
+	// 32 MB 代理请求体上限（LLM prompt 可能很大，32MB 足够）
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read request body")
@@ -198,7 +204,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		h.logger.Debug("SEND %s | %s | body=%dB | %s", sel.Provider.Name, upstreamModel, len(upstreamBody), util.TruncStr(string(upstreamBody), 500))
 
 		startTime := time.Now()
-		resp, err := h.forwardUpstream(sel, upstreamBody, r.Header, isStream, path)
+		resp, err := h.forwardUpstream(r.Context(), sel, upstreamBody, r.Header, isStream, path)
 
 		if err != nil {
 			h.handleNetworkError(sel, providerID, upstreamModel, err, state)
@@ -221,7 +227,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode >= 400 {
-			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state)
+			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state, r)
 			if keyState != nil {
 				keyState.DecInFlight()
 			}

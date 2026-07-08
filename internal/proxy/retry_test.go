@@ -110,7 +110,7 @@ func TestHandle429_Transient(t *testing.T) {
 	h := newTestHandler(t)
 	sel := newSelectedKey()
 
-	// Body that doesn't match any text rule and status 500 → ActionTransient
+	// Body that doesn't match any text rule and status 500 -> ActionTransient
 	resp := &http.Response{
 		StatusCode: http.StatusTooManyRequests,
 		Body:       io.NopCloser(strings.NewReader(`{"error":"unknown error"}`)),
@@ -152,7 +152,7 @@ func TestHandleUpstreamError_401(t *testing.T) {
 	}
 
 	state := &retryState{maxRetries: 5}
-	h.handleUpstreamError(resp, sel, "test", "gpt-4", state)
+	h.handleUpstreamError(resp, sel, "test", "gpt-4", state, nil)
 
 	keyState := h.reg.GetKeyState("test", "key1")
 	if keyState == nil {
@@ -193,7 +193,7 @@ func TestHandleUpstreamError_500(t *testing.T) {
 	}
 
 	state := &retryState{maxRetries: 5}
-	h.handleUpstreamError(resp, sel, "test", "gpt-4", state)
+	h.handleUpstreamError(resp, sel, "test", "gpt-4", state, nil)
 
 	keyState := h.reg.GetKeyState("test", "key1")
 	if keyState == nil {
@@ -208,7 +208,7 @@ func TestHandleUpstreamError_500(t *testing.T) {
 	}
 	keyState.Unlock()
 
-	// 500 without matching body → ActionTransient → MarkRateLimited with DefaultTransientCooldownSec
+	// 500 without matching body �?ActionTransient �?MarkRateLimited with DefaultTransientCooldownSec
 	if status != "cooldown" {
 		t.Fatalf("expected status 'cooldown' for 500, got %s", status)
 	}
@@ -234,7 +234,7 @@ func TestHandleUpstreamError_403(t *testing.T) {
 	state := &retryState{maxRetries: 5}
 
 	// The handleUpstreamError should not panic
-	h.handleUpstreamError(resp, sel, "test", "gpt-4", state)
+	h.handleUpstreamError(resp, sel, "test", "gpt-4", state, nil)
 
 	keyState := h.reg.GetKeyState("test", "key1")
 	if keyState == nil {
@@ -450,7 +450,7 @@ func TestHandle429_DailyQuotaViaBodyText(t *testing.T) {
 	h := newTestHandler(t)
 	sel := newSelectedKey()
 
-	// Body contains the model name "gpt-4" → IsDailyQuota429 returns true
+	// Body contains the model name "gpt-4" �?IsDailyQuota429 returns true
 	resp := &http.Response{
 		StatusCode: http.StatusTooManyRequests,
 		Body:       io.NopCloser(strings.NewReader(`{"error":"gpt-4 quota exceeded"}`)),
@@ -510,7 +510,7 @@ func TestHandleUpstreamError_402(t *testing.T) {
 	}
 
 	state := &retryState{maxRetries: 5}
-	h.handleUpstreamError(resp, sel, "test", "gpt-4", state)
+	h.handleUpstreamError(resp, sel, "test", "gpt-4", state, nil)
 
 	keyState := h.reg.GetKeyState("test", "key1")
 	if keyState == nil {
@@ -521,7 +521,7 @@ func TestHandleUpstreamError_402(t *testing.T) {
 	status := keyState.ModelStatus["gpt-4"]
 	keyState.Unlock()
 
-	// 402 → ActionCooldown, CooldownSec 120
+	// 402 �?ActionCooldown, CooldownSec 120
 	if status != "cooldown" {
 		t.Fatalf("expected status 'cooldown' for 402, got %s", status)
 	}
@@ -538,7 +538,7 @@ func TestHandleUpstreamError_404(t *testing.T) {
 	}
 
 	state := &retryState{maxRetries: 5}
-	h.handleUpstreamError(resp, sel, "test", "gpt-4", state)
+	h.handleUpstreamError(resp, sel, "test", "gpt-4", state, nil)
 
 	keyState := h.reg.GetKeyState("test", "key1")
 	if keyState == nil {
@@ -565,7 +565,7 @@ func TestHandleUpstreamError_NoBody(t *testing.T) {
 	}
 
 	state := &retryState{maxRetries: 5}
-	h.handleUpstreamError(resp, sel, "test", "gpt-4", state)
+	h.handleUpstreamError(resp, sel, "test", "gpt-4", state, nil)
 
 	// Should not panic with empty body
 	keyState := h.reg.GetKeyState("test", "key1")
@@ -612,7 +612,7 @@ func TestHandle429_RPM_ExcludesAccount(t *testing.T) {
 	state := &retryState{maxRetries: 5}
 	h.handle429(resp, sel, "test", "gpt-4", time.Now(), state, &http.Request{})
 
-	// RPM → MarkRateLimited + excludeSameAccountKeys
+	// RPM �?MarkRateLimited + excludeSameAccountKeys
 	if len(state.excludeKeyIDs) == 0 {
 		t.Fatal("expected excluded keys after RPM 429")
 	}
@@ -683,3 +683,4 @@ func TestHandle429_ModelScopeExhausted(t *testing.T) {
 		t.Fatalf("expected status 'locked' for ModelScope exhausted, got %s", status)
 	}
 }
+

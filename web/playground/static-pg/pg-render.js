@@ -1,5 +1,19 @@
 // pg-render.js
 // ----- Renderers ----------------------------------------------------
+
+// pgSafeHref restricts an href to http/https protocols only.
+// Unsafe schemes like javascript: or data: are downgraded to "#".
+// Guard against XSS when LLM-sourced URLs are rendered as clickable links.
+function pgSafeHref(href) {
+  try {
+    var u = new URL(href, window.location.origin);
+    if (u.protocol === 'http:' || u.protocol === 'https:') {
+      return u.href;
+    }
+  } catch (e) {}
+  return '#';
+}
+
 function pgScrollBottom(i) {
   var box = document.getElementById('pg-messages-' + i);
   if (box) box.scrollTop = box.scrollHeight;
@@ -138,7 +152,7 @@ function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
       '<div class="pg-sources-head">' + pgEscapeHtml(pgT('pgSourcesCount', [msg.sources.length])) + ' ▾</div>' +
       '<div class="pg-sources-list">' +
         msg.sources.map(function(s, si) {
-          return '<a class="pg-source-item" href="' + pgEscapeHtml(s.href) + '" target="_blank" rel="noreferrer">' +
+          return '<a class="pg-source-item" href="' + pgEscapeHtml(pgSafeHref(s.href)) + '" target="_blank" rel="noreferrer noopener">' +
             '<span class="pg-source-idx">[' + (si + 1) + ']</span>' +
             '<span>' + pgEscapeHtml(s.title || s.href) + '</span></a>';
         }).join('') +

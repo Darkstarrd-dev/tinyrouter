@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -354,7 +355,8 @@ providers:
 // TestSave_ReturnsNilAndLeavesTmpWhenPathLocked simulates the Windows
 // "config.yaml is locked" scenario by making path read-only so that
 // the rename fallback (direct WriteFile) also fails. Save should return
-// nil and the .tmp file should remain for the next Load to recover.
+// an error (so the caller knows the change is not yet applied to path)
+// and the .tmp file should remain for the next Load to recover.
 //
 // Note: on Windows a read-only attribute blocks both Rename and WriteFile.
 // On POSIX, root can bypass file permissions, but these tests run as the
@@ -375,9 +377,10 @@ func TestSave_ReturnsNilAndLeavesTmpWhenPathLocked(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Port = 5555
 	err := Save(path, cfg)
-	// Save should return nil even though the target is locked.
-	if err != nil {
-		t.Fatalf("Save returned error on locked path: %v (expected nil)", err)
+	// Save 在 rename + direct-write 双失败时返回 error（P2.6），以便调用方
+	// 知道状态未立即落盘到 path；pending 改动仍保留在 .tmp，待下次 Load 应用。
+	if err == nil {
+		t.Fatalf("Save returned nil on locked path (expected error, P2.6 changed behavior)")
 	}
 
 	// The .tmp file should exist (it could not rename or overwrite path).
@@ -388,6 +391,10 @@ func TestSave_ReturnsNilAndLeavesTmpWhenPathLocked(t *testing.T) {
 
 	// Restore permissions so Load can work.
 	_ = os.Chmod(path, 0644)
+
+	// Ensure .tmp mtime is strictly newer than path (so P2.7 applies it).
+	now := time.Now()
+	_ = os.Chtimes(tmpPath, now.Add(time.Second), now.Add(time.Second))
 
 	// Load should apply the .tmp file.
 	loaded, err := Load(path)
@@ -417,6 +424,9 @@ func TestLoad_PendingTmpApplied(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// .tmp must be strictly newer than path (P2.7 mtime comparison).
+	time.Sleep(15 * time.Millisecond)
+
 	// Write a newer config to .tmp (simulating a previous Save that
 	// could not rename).
 	newer := []byte("port: 2222\nenablePlayground: false\n")
@@ -437,7 +447,6 @@ func TestLoad_PendingTmpApplied(t *testing.T) {
 		t.Fatalf(".tmp file should be removed after Load: %v", err)
 	}
 }
-
 // TestLoad_PendingTmpFallbackDirectWrite verifies that when rename fails
 // but the target file is writable, Load falls back to overwriting path
 // with .tmp content.
@@ -446,21 +455,18 @@ func TestLoad_PendingTmpFallbackDirectWrite(t *testing.T) {
 	path := filepath.Join(dir, "config.yaml")
 	tmpPath := path + ".tmp"
 
-	// Create a directory at `path` so that os.Rename(tmp, path) fails
-	// (cannot rename a file over a directory), but we can still read/write
-	// the .tmp file. Actually, this would also make os.ReadFile(path) fail
-	// with IsADirectoryError. Let's use a different approach:
-	//
-	// Instead, we test the normal fallback: .tmp exists, rename works.
 	// The "rename fails" path is tested by TestSave_ReturnsNilAndLeavesTmpWhenPathLocked.
 	//
-	// This test just verifies that when both .tmp and path exist, and the
-	// .tmp has different content, Load prefers .tmp.
+	// This test verifies that when both .tmp and path exist and .tmp has
+	// newer mtime, Load prefers .tmp (via either rename or direct-write fallback).
 
 	stale := []byte("port: 1111\nenablePlayground: false\n")
 	if err := os.WriteFile(path, stale, 0644); err != nil {
 		t.Fatal(err)
 	}
+
+	// Brief sleep so .tmp mtime strictly > path mtime (P2.7 uses After()).
+	time.Sleep(15 * time.Millisecond)
 
 	newer := []byte("port: 3333\nenablePlayground: false\n")
 	if err := os.WriteFile(tmpPath, newer, 0644); err != nil {
@@ -473,5 +479,39 @@ func TestLoad_PendingTmpFallbackDirectWrite(t *testing.T) {
 	}
 	if cfg.Port != 3333 {
 		t.Fatalf("Port = %d, want 3333 (from .tmp)", cfg.Port)
+	}
+}
+
+// TestLoad_StaleTmpIsDiscarded verifies that if .tmp is OLDER than path
+// (e.g. a leftover from a crashed prior run that has since been superseded),
+// Load does NOT roll back to .tmp; it deletes the stale .tmp and uses path.
+func TestLoad_StaleTmpIsDiscarded(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	tmpPath := path + ".tmp"
+
+	// Write path (newer)
+	fresh := []byte("port: 7777\nenablePlayground: false\n")
+	if err := os.WriteFile(path, fresh, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write stale .tmp (older mtime)
+	stale := []byte("port: 1111\nenablePlayground: false\n")
+	if err := os.WriteFile(tmpPath, stale, 0644); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-1 * time.Hour)
+	_ = os.Chtimes(tmpPath, past, past)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Port != 7777 {
+		t.Fatalf("Port = %d, want 7777 (path should win over stale .tmp)", cfg.Port)
+	}
+	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
+		t.Fatalf("stale .tmp should be removed: %v", err)
 	}
 }

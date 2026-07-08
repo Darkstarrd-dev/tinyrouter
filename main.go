@@ -50,7 +50,7 @@ func main() {
 	// issue during iterative debugging.
 	configDir := filepath.Dir(*configPath)
 	lockPath := filepath.Join(configDir, ".tinyrouter.lock")
-	lockFile, lockErr := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	lockFile, lockErr := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if lockErr != nil {
 		if os.IsExist(lockErr) {
 			log.Fatalf("另一个 TinyRouter 实例已在运行。请先关闭它，或删除 %s 后重试。", lockPath)

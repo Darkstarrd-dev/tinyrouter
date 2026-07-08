@@ -28,7 +28,7 @@ func (rt *Router) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	modelsURL := proxy.BuildUpstreamURL(provider.BaseURL, "/v1/models")
-	req, err := http.NewRequest("GET", modelsURL, nil)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", modelsURL, nil)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid base URL")
 		return

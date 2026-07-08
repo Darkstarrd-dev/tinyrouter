@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -91,7 +92,7 @@ func TestForwardUpstream_Success(t *testing.T) {
 	body := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`)
 	headers := http.Header{"User-Agent": {"test-agent"}}
 
-	resp, err := h.forwardUpstream(sel, body, headers, false, "/v1/chat/completions")
+	resp, err := h.forwardUpstream(context.Background(), sel, body, headers, false, "/v1/chat/completions")
 	if err != nil {
 		t.Fatalf("forwardUpstream failed: %v", err)
 	}
@@ -123,7 +124,7 @@ func TestForwardUpstream_NetworkError(t *testing.T) {
 	}
 
 	body := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`)
-	_, err := h.forwardUpstream(sel, body, nil, false, "/v1/chat/completions")
+	_, err := h.forwardUpstream(context.Background(), sel, body, nil, false, "/v1/chat/completions")
 	if err == nil {
 		t.Fatal("expected network error, got nil")
 	}
@@ -151,7 +152,7 @@ func TestForwardUpstream_UserAgentForwarded(t *testing.T) {
 	body := []byte(`{"model":"gpt-4"}`)
 	headers := http.Header{"User-Agent": {"custom-agent/1.0"}}
 
-	_, err := h.forwardUpstream(sel, body, headers, false, "/v1/chat/completions")
+	_, err := h.forwardUpstream(context.Background(), sel, body, headers, false, "/v1/chat/completions")
 	if err != nil {
 		t.Fatalf("forwardUpstream failed: %v", err)
 	}
@@ -216,7 +217,7 @@ func TestForwardUpstream_StreamingSetsAcceptHeader(t *testing.T) {
 	}
 
 	body := []byte(`{"model":"gpt-4"}`)
-	_, err := h.forwardUpstream(sel, body, nil, true, "/v1/chat/completions")
+	_, err := h.forwardUpstream(context.Background(), sel, body, nil, true, "/v1/chat/completions")
 	if err != nil {
 		t.Fatalf("forwardUpstream failed: %v", err)
 	}
@@ -448,6 +449,32 @@ func TestRecordUsage(t *testing.T) {
 		KeyName:  "K1",
 	}
 	h.recordUsage("test", "gpt-4", sel, "success", 100, 50, 10, 20, "", nil, nil, nil, 0)
+
+	// Assert the entry actually landed in the usage ring buffer.
+	rb, ok := h.usage.(*usage.RingBuffer)
+	if !ok {
+		t.Fatalf("expected usage to be *usage.RingBuffer, got %T", h.usage)
+	}
+	entries := rb.All()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 usage entry, got %d", len(entries))
+	}
+	e := entries[0]
+	if e.Provider != "Test Provider" {
+		t.Errorf("Provider = %q, want Test Provider", e.Provider)
+	}
+	if e.Model != "gpt-4" {
+		t.Errorf("Model = %q, want gpt-4", e.Model)
+	}
+	if e.KeyName != "K1" {
+		t.Errorf("KeyName = %q, want K1", e.KeyName)
+	}
+	if e.InputTokens != 10 || e.OutputTokens != 20 {
+		t.Errorf("tokens = in=%d out=%d, want in=10 out=20", e.InputTokens, e.OutputTokens)
+	}
+	if e.Status != "success" {
+		t.Errorf("Status = %q, want success", e.Status)
+	}
 }
 
 func TestAfterMaxRetries_WithMock(t *testing.T) {
@@ -517,9 +544,20 @@ func TestWriteError(t *testing.T) {
 }
 
 func TestInjectStreamOptions(t *testing.T) {
+	// Mock upstream that captures the request body and returns a 200 chat completion.
+	var capturedBody string
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		capturedBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"ok","choices":[{"message":{"content":"done"}}]}`))
+	}))
+	defer mockUpstream.Close()
+
 	provider := config.Provider{
 		ID: "test", Name: "Test", Prefix: "test",
-		BaseURL:          "http://localhost:9999",
+		BaseURL:          mockUpstream.URL,
 		IsActive:         true,
 		InjectStreamOpts: true,
 		Keys: []config.Key{
@@ -535,24 +573,32 @@ func TestInjectStreamOptions(t *testing.T) {
 	usageBuf := usage.New(100)
 	qt := usage.NewQuotaTracker()
 	logger := console.New(100)
-	_ = New(reg, sel, comboRes, usageBuf, qt, logger)
+	h := New(reg, sel, comboRes, usageBuf, qt, logger)
 
-	parsed := map[string]any{
-		"model":    "gpt-4",
-		"stream":   true,
-		"messages": []any{map[string]any{"role": "user", "content": "hi"}},
+	body := `{"model":"test/gpt-4","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.ChatCompletions(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	// Simulate the injection logic from forwardWithRetry
-	cfgProvider, _ := reg.GetProvider("test")
-	if cfgProvider != nil && cfgProvider.InjectStreamOpts {
-		if _, ok := parsed["stream_options"]; !ok {
-			parsed["stream_options"] = map[string]any{"include_usage": true}
-		}
+	// Assert stream_options.include_usage was injected into the upstream request body.
+	var sent map[string]any
+	if err := json.Unmarshal([]byte(capturedBody), &sent); err != nil {
+		t.Fatalf("failed to parse captured upstream body: %v", err)
 	}
-
-	if _, ok := parsed["stream_options"]; !ok {
-		t.Fatal("expected stream_options to be injected")
+	so, ok := sent["stream_options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected stream_options in upstream body, got: %s", capturedBody)
+	}
+	if so["include_usage"] != true {
+		t.Errorf("expected stream_options.include_usage = true, got %v", so["include_usage"])
 	}
 }
 
@@ -640,23 +686,64 @@ func TestHandleProxy_StreamRequest(t *testing.T) {
 	}
 }
 
-func TestComboResponse(t *testing.T) {
-	// Simplified: just verify that writeError produces expected JSON structure
+func TestComboResponse_Fallback(t *testing.T) {
+	// Combo with two targets: first fails (500), second succeeds.
+	// The handler must fall back to the second target and return 200.
+	failUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"boom"}`))
+	}))
+	defer failUpstream.Close()
+
+	okUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"ok","choices":[{"message":{"content":"done"}}]}`))
+	}))
+	defer okUpstream.Close()
+
+	cfg := &config.Config{
+		Providers: []config.Provider{
+			{
+				ID: "p1", Name: "P1", Prefix: "p1", BaseURL: failUpstream.URL, IsActive: true,
+				Keys:   []config.Key{{ID: "k1", Key: "sk-1", Name: "K1", IsActive: true, Priority: 1}},
+				Models: []config.ModelDef{{ID: "m1", QuotaType: "limited"}},
+			},
+			{
+				ID: "p2", Name: "P2", Prefix: "p2", BaseURL: okUpstream.URL, IsActive: true,
+				Keys:   []config.Key{{ID: "k2", Key: "sk-2", Name: "K2", IsActive: true, Priority: 1}},
+				Models: []config.ModelDef{{ID: "m2", QuotaType: "limited"}},
+			},
+		},
+		Combos: []config.Combo{
+			{ID: "cb", Name: "cb", Strategy: "fallback", Models: []string{"p1/m1", "p2/m2"}},
+		},
+		Rotation: config.RotationConfig{Strategy: "fill-first", MaxRetries: 0, BackoffMaxSec: 300},
+	}
+	reg := registry.New(cfg)
+	sel := rotation.New(reg, &cfg.Rotation)
+	comboRes := combo.New(reg)
+	usageBuf := usage.New(100)
+	qt := usage.NewQuotaTracker()
+	logger := console.New(100)
+	h := New(reg, sel, comboRes, usageBuf, qt, logger)
+
+	body := `{"model":"cb","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	writeError(w, http.StatusBadGateway, "all keys exhausted")
+
+	h.ChatCompletions(w, req)
+
 	resp := w.Result()
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("expected 502, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 after fallback, got %d", resp.StatusCode)
 	}
 	var result map[string]any
 	json.NewDecoder(resp.Body).Decode(&result)
-	errObj, ok := result["error"].(map[string]any)
-	if !ok {
-		t.Fatal("expected error object")
-	}
-	if errObj["message"] != "all keys exhausted" {
-		t.Fatalf("unexpected message: %v", errObj["message"])
+	if result["id"] != "ok" {
+		t.Fatalf("expected id ok from second provider, got %v", result["id"])
 	}
 }
 

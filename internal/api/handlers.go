@@ -81,6 +81,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rt.reg.Reload(&cfg)
+	rt.selector.UpdateSettings(cfg.Rotation)
 
 	if portChanged && rt.restartFn != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -108,6 +109,7 @@ func (rt *Router) reload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rt.reg.Reload(cfg)
+	rt.selector.UpdateSettings(cfg.Rotation)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
@@ -135,6 +137,10 @@ func (rt *Router) createProvider(w http.ResponseWriter, r *http.Request) {
 	if p.APIType == "" {
 		p.APIType = "openai-compatible"
 	}
+	if err := validateBaseURL(p.BaseURL); err != nil {
+		writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("invalid baseUrl: %v", err))
+		return
+	}
 	p.IsActive = true
 	if p.Name == "" {
 		p.Name = "Provider-" + strconv.Itoa(len(rt.reg.ListProviders())+1)
@@ -161,6 +167,13 @@ func (rt *Router) updateProvider(w http.ResponseWriter, r *http.Request) {
 	oldName := ""
 	if p, ok := rt.reg.GetProvider(id); ok {
 		oldName = p.Name
+	}
+
+	if updates.BaseURL != "" {
+		if err := validateBaseURL(updates.BaseURL); err != nil {
+			writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("invalid baseUrl: %v", err))
+			return
+		}
 	}
 
 	if rt.reg.UpdateProvider(id, updates) {

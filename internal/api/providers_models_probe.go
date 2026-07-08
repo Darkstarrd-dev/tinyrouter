@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -128,7 +129,7 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 	if json.Unmarshal([]byte(body), &reqJSON) == nil {
 		parsedReqBody = reqJSON
 	}
-	req2, err := http.NewRequest("POST", chatURL, strings.NewReader(body))
+	req2, err := http.NewRequestWithContext(r.Context(), "POST", chatURL, strings.NewReader(body))
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid URL")
 		return
@@ -316,7 +317,7 @@ func (rt *Router) testProviderModelAllKeys(w http.ResponseWriter, r *http.Reques
 			KeyName: k.Name,
 		}
 
-		httpReq, err := http.NewRequest("POST", chatURL, bytes.NewReader(bodyBytes))
+		httpReq, err := http.NewRequestWithContext(r.Context(), "POST", chatURL, bytes.NewReader(bodyBytes))
 		if err != nil {
 			result.Error = err.Error()
 			results = append(results, result)
@@ -439,11 +440,11 @@ func (rt *Router) testProviderModelAllKeysSSE(w http.ResponseWriter, r *http.Req
 		writeAPIError(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
+	ctx := r.Context()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusOK)
 
 	chatURL := proxy.BuildUpstreamURL(provider.BaseURL, "/v1/chat/completions")
@@ -471,7 +472,7 @@ func (rt *Router) testProviderModelAllKeysSSE(w http.ResponseWriter, r *http.Req
 		if !k.IsActive {
 			continue
 		}
-		result := probeSingleKey(rt, providerID, provider, model, k, chatURL, adapter, bodyBytes)
+		result := probeSingleKey(ctx, rt, providerID, provider, model, k, chatURL, adapter, bodyBytes)
 
 		if result.Ok {
 			okCount++
@@ -495,9 +496,9 @@ func (rt *Router) testProviderModelAllKeysSSE(w http.ResponseWriter, r *http.Req
 
 // probeSingleKey performs a single streaming probe against an upstream model
 // endpoint using one specific key, returning the measurement result.
-func probeSingleKey(rt *Router, providerID string, provider *config.Provider, model string, k *config.Key, chatURL string, adapter rotation.RatelimitAdapter, bodyBytes []byte) keyTestResult {
+func probeSingleKey(ctx context.Context, rt *Router, providerID string, provider *config.Provider, model string, k *config.Key, chatURL string, adapter rotation.RatelimitAdapter, bodyBytes []byte) keyTestResult {
 	result := keyTestResult{KeyID: k.ID, KeyName: k.Name}
-	httpReq, err := http.NewRequest("POST", chatURL, bytes.NewReader(bodyBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", chatURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		result.Error = err.Error()
 		return result

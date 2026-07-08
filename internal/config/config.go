@@ -169,20 +169,33 @@ func DefaultConfig() *Config {
 // In case 3 the .tmp file is left on disk for the next restart to retry.
 func Load(path string) (*Config, error) {
 	tmp := path + ".tmp"
-	if _, err := os.Stat(tmp); err == nil {
-		if renameErr := os.Rename(tmp, path); renameErr != nil {
-			tmpData, readErr := os.ReadFile(tmp)
-			if readErr == nil {
-				if writeErr := os.WriteFile(path, tmpData, 0644); writeErr == nil {
-					_ = os.Remove(tmp)
-				} else {
-					var cfg Config
-					if err := yaml.Unmarshal(tmpData, &cfg); err != nil {
-						return nil, fmt.Errorf("parse pending config (.tmp): %w", err)
+	if tmpInfo, err := os.Stat(tmp); err == nil {
+		pathInfo, pathErr := os.Stat(path)
+		applyTmp := true
+		if pathErr == nil && pathInfo != nil && tmpInfo != nil {
+			// 只当 .tmp 比 path 更新时才恢复；否则 .tmp 为过期残留，删除它。
+			applyTmp = tmpInfo.ModTime().After(pathInfo.ModTime())
+		}
+		if applyTmp {
+			if renameErr := os.Rename(tmp, path); renameErr != nil {
+				tmpData, readErr := os.ReadFile(tmp)
+				if readErr == nil {
+					if writeErr := os.WriteFile(path, tmpData, 0600); writeErr == nil {
+						_ = os.Remove(tmp)
+					} else {
+						var cfg Config
+						dec := yaml.NewDecoder(bytes.NewReader(tmpData))
+						dec.KnownFields(true)
+						if err := dec.Decode(&cfg); err != nil {
+							return nil, fmt.Errorf("parse pending config (.tmp): %w", err)
+						}
+						return finalizeConfig(&cfg, tmpData), nil
 					}
-					return finalizeConfig(&cfg, tmpData), nil
 				}
 			}
+		} else {
+			// .tmp 比 path 旧，可能是过时残留，删除它。
+			_ = os.Remove(tmp)
 		}
 	}
 	data, err := os.ReadFile(path)
@@ -197,7 +210,9 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	return finalizeConfig(&cfg, data), nil
@@ -222,6 +237,14 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 	if !bytes.Contains(raw, []byte("enablePlayground")) {
 		cfg.EnablePlayground = true
 	}
+	// StatePersist 默认 true（向后兼容旧 config 无此字段时启用持久化）。
+	// 仅当文件里没有出现 state_persist 时才填默认值，避免用户显式写 false 被覆盖。
+	if !cfg.Rotation.StatePersist && !bytes.Contains(raw, []byte("state_persist")) {
+		cfg.Rotation.StatePersist = true
+	}
+	if cfg.Rotation.StatePath == "" {
+		cfg.Rotation.StatePath = "state.yaml"
+	}
 	for i := range cfg.Providers {
 		for j := range cfg.Providers[i].Models {
 			if cfg.Providers[i].Models[j].QuotaType == "" {
@@ -245,16 +268,18 @@ func Save(path string, cfg *Config) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}
 	if renameErr := os.Rename(tmp, path); renameErr != nil {
 		// Fallback: direct write to target (works if the lock was transient).
-		if writeErr := os.WriteFile(path, data, 0644); writeErr != nil {
+		if writeErr := os.WriteFile(path, data, 0600); writeErr != nil {
 			// Both rename and direct write failed — target is actively locked.
 			// .tmp retains the data; it will be applied on next restart via Load.
 			// Do NOT remove tmp — it is the only persistent copy of the change.
-			return nil
+			// 返回 error 让调用方知道状态未立即落盘到 path（pending 改动在 .tmp，
+			// 下次重启 Load 会自动应用）。
+			return fmt.Errorf("config file is locked (both rename and direct write failed); pending changes saved to %s and will be applied on next restart", tmp)
 		}
 		// Direct write succeeded; clean up the now-redundant .tmp file.
 		_ = os.Remove(tmp)
