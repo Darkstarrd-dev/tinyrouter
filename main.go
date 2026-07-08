@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -40,6 +42,23 @@ func main() {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
+	}
+
+	// Single-instance check: create an exclusive lockfile next to config.yaml.
+	// This prevents multiple processes from racing on config.yaml / state.yaml
+	// file writes, which was a root cause of the "config.yaml locked on Windows"
+	// issue during iterative debugging.
+	configDir := filepath.Dir(*configPath)
+	lockPath := filepath.Join(configDir, ".tinyrouter.lock")
+	lockFile, lockErr := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if lockErr != nil {
+		if os.IsExist(lockErr) {
+			log.Fatalf("另一个 TinyRouter 实例已在运行。请先关闭它，或删除 %s 后重试。", lockPath)
+		}
+	} else {
+		fmt.Fprintf(lockFile, "%d\n", os.Getpid())
+		lockFile.Close()
+		defer os.Remove(lockPath)
 	}
 
 	// Sync ID counter with existing IDs to prevent collisions after restart.

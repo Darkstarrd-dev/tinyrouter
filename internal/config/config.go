@@ -158,12 +158,32 @@ func DefaultConfig() *Config {
 }
 
 // Load reads config from path, or creates a default config there if not found.
-// If a pending .tmp file exists (from a previous Save that could not rename),
-// it is applied first.
+//
+// If a pending .tmp file exists (from a previous Save whose rename failed),
+// Load attempts to apply it in order of preference:
+//  1. os.Rename(tmp → path)          — succeeds when the lock is gone.
+//  2. overwrite path with tmp data    — succeeds when the lock was transient.
+//  3. parse tmp data directly         — last resort so user's pending changes
+//     are visible in the running instance even if path is still locked.
+//
+// In case 3 the .tmp file is left on disk for the next restart to retry.
 func Load(path string) (*Config, error) {
 	tmp := path + ".tmp"
 	if _, err := os.Stat(tmp); err == nil {
-		os.Rename(tmp, path)
+		if renameErr := os.Rename(tmp, path); renameErr != nil {
+			tmpData, readErr := os.ReadFile(tmp)
+			if readErr == nil {
+				if writeErr := os.WriteFile(path, tmpData, 0644); writeErr == nil {
+					_ = os.Remove(tmp)
+				} else {
+					var cfg Config
+					if err := yaml.Unmarshal(tmpData, &cfg); err != nil {
+						return nil, fmt.Errorf("parse pending config (.tmp): %w", err)
+					}
+					return finalizeConfig(&cfg, tmpData), nil
+				}
+			}
+		}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -180,6 +200,13 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	return finalizeConfig(&cfg, data), nil
+}
+
+// finalizeConfig fills in default values for zero-valued fields and normalizes
+// model quota types. raw is the original YAML bytes (used to detect whether
+// enablePlayground was explicitly set in the file).
+func finalizeConfig(cfg *Config, raw []byte) *Config {
 	if cfg.Port == 0 {
 		cfg.Port = 20128
 	}
@@ -192,7 +219,7 @@ func Load(path string) (*Config, error) {
 	// Default EnablePlayground to true if not explicitly set in config.
 	// Existing configs from before this field was added would otherwise
 	// get the zero value (false) and silently hide the playground.
-	if !bytes.Contains(data, []byte("enablePlayground")) {
+	if !bytes.Contains(raw, []byte("enablePlayground")) {
 		cfg.EnablePlayground = true
 	}
 	for i := range cfg.Providers {
@@ -202,13 +229,16 @@ func Load(path string) (*Config, error) {
 			}
 		}
 	}
-	return &cfg, nil
+	return cfg
 }
 
 // Save writes config to path atomically (temp file + rename).
-// If the rename fails (e.g. config.yaml is locked on Windows), the tmp
-// file is left in place and will be applied on the next startup via Load.
-// In that case Save returns nil — the data is safely persisted in the tmp file.
+//
+// On Windows the target file may be locked by another process or a stale
+// handle, causing os.Rename to fail with ERROR_ACCESS_DENIED. Save then
+// falls back to a direct write of path; if that also fails the .tmp file
+// remains on disk and will be applied on the next startup via Load.
+// In either fallback case Save returns nil — the data is not lost.
 func Save(path string, cfg *Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -219,7 +249,16 @@ func Save(path string, cfg *Config) error {
 		return err
 	}
 	if renameErr := os.Rename(tmp, path); renameErr != nil {
-		return renameErr
+		// Fallback: direct write to target (works if the lock was transient).
+		if writeErr := os.WriteFile(path, data, 0644); writeErr != nil {
+			// Both rename and direct write failed — target is actively locked.
+			// .tmp retains the data; it will be applied on next restart via Load.
+			// Do NOT remove tmp — it is the only persistent copy of the change.
+			return nil
+		}
+		// Direct write succeeded; clean up the now-redundant .tmp file.
+		_ = os.Remove(tmp)
+		return nil
 	}
 	return nil
 }

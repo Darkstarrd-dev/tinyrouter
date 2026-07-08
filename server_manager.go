@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/console"
@@ -44,6 +47,9 @@ func (m *ServerManager) startLocked() {
 	go func() {
 		m.logger.Info("TinyRouter v%s starting on http://%s", Version, m.addr)
 		if err := m.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if errors.Is(err, syscall.EADDRINUSE) || strings.Contains(err.Error(), "address already in use") {
+				log.Fatalf("端口 %s 已被占用，可能已有另一个 TinyRouter 实例在运行", m.addr)
+			}
 			log.Fatalf("server error: %v", err)
 		}
 	}()

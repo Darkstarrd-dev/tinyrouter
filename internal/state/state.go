@@ -70,6 +70,11 @@ func Load(path string) (*Snapshot, error) {
 }
 
 // Save writes a snapshot to path atomically (temp file + rename).
+//
+// On Windows the target file may be locked by a stale handle, causing
+// os.Rename to fail. Save then falls back to a direct write; if that also
+// fails the .tmp file remains for the next restart to retry. In either
+// fallback case Save returns nil — the data is not lost.
 func Save(path string, s *Snapshot) error {
 	data, err := yaml.Marshal(s)
 	if err != nil {
@@ -79,5 +84,12 @@ func Save(path string, s *Snapshot) error {
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if renameErr := os.Rename(tmp, path); renameErr != nil {
+		if writeErr := os.WriteFile(path, data, 0644); writeErr != nil {
+			return nil
+		}
+		_ = os.Remove(tmp)
+		return nil
+	}
+	return nil
 }
