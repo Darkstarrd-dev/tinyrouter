@@ -19,6 +19,7 @@ window.PG_I18N = {
     pgRespProvider: 'Provider: {0}', pgRespKey: 'Key: {0}', pgNoProvider: 'N/A',
     pgClearConfirm: 'Clear all messages?', pgCopiedMsg: 'Message copied', pgExportCfg: 'Export', pgImportCfg: 'Import',
     pgResetCfg: 'Reset', pgCfgExported: 'Config exported', pgCfgImported: 'Config imported', pgCfgReset: 'Config reset',
+    pgResetConfirm: 'Reset all settings to defaults? Messages will be kept.',
     pgSeed: 'Seed', pgSeedPlaceholder: 'Random seed (blank = random)',
     pgParamToggle: 'Toggle parameter',
     pgSystemPrompt: 'System Prompt', pgSystemPromptPlaceholder: 'Optional system prompt sent as the first message',
@@ -89,6 +90,7 @@ window.PG_I18N = {
     pgPassHint: 'glanced at the messages',
     pgAutoChatSummaryPrefix: '[Summary] ',
     pgGcTokenBar: 'Context Usage',
+    pgContextLimit: 'Context Limit',
   },
   cn: {
     pgSelectModel: '选择模型', pgNoModels: '未配置模型', pgSendMessage: '发送', pgStop: '停止', pgClear: '清空对话',
@@ -108,6 +110,7 @@ window.PG_I18N = {
     pgRespProvider: '服务商: {0}', pgRespKey: '密钥: {0}', pgNoProvider: '无',
     pgClearConfirm: '清空所有消息？', pgCopiedMsg: '消息已复制', pgExportCfg: '导出', pgImportCfg: '导入',
     pgResetCfg: '重置', pgCfgExported: '配置已导出', pgCfgImported: '配置已导入', pgCfgReset: '配置已重置',
+    pgResetConfirm: '将所有设置恢复为默认值？消息将保留。',
     pgSeed: 'Seed', pgSeedPlaceholder: '随机种子 (留空为随机)',
     pgParamToggle: '切换参数',
     pgSystemPrompt: '系统提示', pgSystemPromptPlaceholder: '可选，作为第一条消息发送',
@@ -178,5 +181,6 @@ window.PG_I18N = {
     pgPassHint: '看了一眼消息',
     pgAutoChatSummaryPrefix: '[摘要] ',
     pgGcTokenBar: '上下文用量',
+    pgContextLimit: '上下文限制',
   }
 };

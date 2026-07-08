@@ -121,7 +121,6 @@ function pgAutoChatRenderPerspective(winIdx) {
 
   for (var i = 0; i < pgState.autoChat.timeline.length; i++) {
     var entry = pgState.autoChat.timeline[i];
-    if (entry.id <= w.lastReadTimelineId) continue;
 
     if (entry.senderType === 'system') {
       msgs.push({ role: 'system', content: entry.content });
@@ -754,9 +753,6 @@ function pgAutoChatEstimateWindowTokens(winIdx) {
 var pgAutoChatSummaryThreshold = 30; // trigger when timeline exceeds this count
 var pgAutoChatSummaryKeep = 10;      // keep this many most-recent entries
 var pgAutoChatIsSummarizing = false;
-// Assumed context window size (tokens) for the water-level bar. Simplified;
-// ideally derived per-model from the model registry.
-var pgAutoChatContextWindow = 8000;
 
 // Summarize the oldest portion of the shared timeline into a single system
 // entry, keeping the conversation within the model's context budget. Runs
@@ -867,14 +863,15 @@ function pgGcUpdateTokenBar() {
     if (!w.config.model) continue;
     var tokens = pgAutoChatEstimateWindowTokens(i);
     var name = pgAutoChatGetAgentName(i);
-    var pct = Math.min(100, (tokens / pgAutoChatContextWindow) * 100);
+    var ctxLimit = w.config.contextLimit || 8000;
+    var pct = Math.min(100, (tokens / ctxLimit) * 100);
     var color = pct > 80 ? '#ff6b6b' : (pct > 50 ? '#ffd93d' : '#6bcf7f');
     html += '<div class="pg-gc-token-item">' +
       '<span class="pg-gc-token-name">' + pgEscapeHtml(name) + '</span>' +
       '<div class="pg-gc-token-bar-bg">' +
         '<div class="pg-gc-token-bar-fill" style="width:' + pct + '%;background:' + color + '"></div>' +
       '</div>' +
-      '<span class="pg-gc-token-num">' + tokens + '</span>' +
+      '<span class="pg-gc-token-num">' + tokens + '/' + ctxLimit + '</span>' +
     '</div>';
   }
   bar.innerHTML = html;
@@ -927,12 +924,16 @@ function pgOpenGroupChatModal() {
     '<button class="pg-modal-close" onclick="pgCloseGroupChatModal()">✕</button>' +
   '</div>' +
   '<div class="pg-modal-body pg-gc-body">' +
-    '<div class="pg-gc-token-bar" id="pg-gc-token-bar"></div>' +
-    '<div class="pg-gc-messages" id="pg-gc-messages"></div>' +
-    '<div class="pg-gc-new-msgs" id="pg-gc-new-msgs" style="display:none" onclick="pgGcScrollToBottom()"></div>' +
-    '<div class="pg-gc-input-bar">' +
-      '<textarea class="pg-gc-input" id="pg-gc-input" placeholder="' + pgEscapeHtml(pgT('pgEnterMessage')) + '" onkeydown="pgOnGroupChatInputKey(event)"></textarea>' +
-      '<button class="pg-send" onclick="pgGroupChatSend()">' + pgEscapeHtml(pgT('pgSendMessage')) + '</button>' +
+    '<div class="pg-gc-sidebar">' +
+      '<div class="pg-gc-token-bar" id="pg-gc-token-bar"></div>' +
+    '</div>' +
+    '<div class="pg-gc-main">' +
+      '<div class="pg-gc-messages" id="pg-gc-messages"></div>' +
+      '<div class="pg-gc-new-msgs" id="pg-gc-new-msgs" style="display:none" onclick="pgGcScrollToBottom()"></div>' +
+      '<div class="pg-gc-input-bar">' +
+        '<textarea class="pg-gc-input" id="pg-gc-input" placeholder="' + pgEscapeHtml(pgT('pgEnterMessage')) + '" onkeydown="pgOnGroupChatInputKey(event)"></textarea>' +
+        '<button class="pg-send" onclick="pgGroupChatSend()">' + pgEscapeHtml(pgT('pgSendMessage')) + '</button>' +
+      '</div>' +
     '</div>' +
   '</div>';
 

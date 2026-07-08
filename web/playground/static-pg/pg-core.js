@@ -34,6 +34,7 @@ var PG_DEFAULT_CFG = {
   systemPrompt: '',
   // Agent nickname (group-chat identity); empty => "Agent N"
   agentName: '',
+  contextLimit: 8000,
 };
 
 // parameterEnabled mirrors new-api defaults: max_tokens + seed off.

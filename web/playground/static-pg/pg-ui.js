@@ -252,6 +252,18 @@ function pgSetActiveWin(i) {
   pgRenderSidebar();
 }
 
+function pgResetSettings() {
+  var w = pgWin();
+  if (!w) return;
+  if (!confirm(pgT('pgResetConfirm'))) return;
+  w.config = JSON.parse(JSON.stringify(PG_DEFAULT_CFG));
+  w.parameterEnabled = JSON.parse(JSON.stringify(PG_DEFAULT_PARAMS));
+  pgSave();
+  pgRenderSidebar();
+  pgRenderMessages(pgState.activeWin);
+  pgToast(pgT('pgCfgReset'), 'success');
+}
+
 // ----- Sidebar: model select + params + image + system + debug -----
 function pgRenderSidebar() {
   var side = document.getElementById('pg-side');
@@ -283,6 +295,7 @@ function pgRenderSidebar() {
         '<select onchange="pgSetSplitCount(parseInt(this.value,10))"' + (generating ? ' disabled' : '') + '>' + splitOpts + '</select>' +
       '</div>' +
       '<div class="pg-winbar-hint">' + pgEscapeHtml(pgT('pgEditWindow', [pgState.activeWin + 1])) + '</div>' +
+      '<button class="pg-btn" style="width:100%;margin-top:6px" onclick="pgResetSettings()">' + pgEscapeHtml(pgT('pgResetCfg')) + '</button>' +
     '</div>';
 
   // --- Model select ---
@@ -410,6 +423,7 @@ function pgRenderSidebar() {
     '</div>' +
     '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgAutoChatAgentName')) + '</div>' +
       '<input type="text" class="pg-agent-name" placeholder="' + pgEscapeHtml(pgT('pgAutoChatAgentNamePlaceholder')) + '" value="' + pgEscapeHtml(cfg.agentName || '') + '" oninput="pgOnAgentName(this.value)">' +
+      '<div class="pg-param-row" style="margin-top:8px"><label>' + pgEscapeHtml(pgT('pgContextLimit')) + '</label><input type="number" min="1000" step="1000" value="' + (cfg.contextLimit || 8000) + '" onchange="pgOnContextLimit(this.value)"></div>' +
     '</div>' +
     '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
     '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgParams')) + '</div>' + params + '</div>' +
@@ -574,6 +588,14 @@ function pgOnParam(name, v) {
   pgSave();
 }
 function pgOnSystemPrompt(v) { var w = pgWin(); if (w) { w.config.systemPrompt = v; pgSave(); } }
+function pgOnContextLimit(v) {
+  var w = pgWin();
+  if (!w) return;
+  var n = parseInt(v, 10) || 8000;
+  if (n < 1000) n = 1000;
+  w.config.contextLimit = n;
+  pgSave();
+}
 function pgToggleParam(name) {
   var w = pgWin();
   if (!w) return;
