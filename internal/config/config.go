@@ -125,6 +125,13 @@ type Combo struct {
 	DisabledModels []string `yaml:"disabledModels,omitempty" json:"disabledModels,omitempty"`
 }
 
+// SecurityConfig controls password protection for the admin UI.
+type SecurityConfig struct {
+	PasswordEnabled   bool   `yaml:"passwordEnabled" json:"passwordEnabled"`
+	PasswordEncrypted string `yaml:"passwordEncrypted,omitempty" json:"passwordEncrypted,omitempty"`
+	EncryptionKey     string `yaml:"encryptionKey,omitempty" json:"encryptionKey,omitempty"`
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Port               int            `yaml:"port" json:"port"`
@@ -134,6 +141,7 @@ type Config struct {
 	EnablePlayground   bool           `yaml:"enablePlayground" json:"enablePlayground"`
 	Providers          []Provider     `yaml:"providers" json:"providers"`
 	Combos             []Combo        `yaml:"combos" json:"combos"`
+	Security           SecurityConfig `yaml:"security" json:"security"`
 }
 
 // DefaultConfig returns a sane default configuration.

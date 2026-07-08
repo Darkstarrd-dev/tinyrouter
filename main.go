@@ -109,6 +109,9 @@ func main() {
 	sm := NewServerManager(handler, addr, logger)
 	sm.Start()
 	apiRouter.SetRestartFunc(sm.Restart)
+	if stateManager != nil {
+		apiRouter.SetStateSaveFunc(stateManager.ScheduleWrite)
+	}
 
 	// Auto-open browser on the default (console) host; tray/webview hosts override
 	// openBrowserOnStartHost to false so the tray/window is the entry point, not a popped browser.

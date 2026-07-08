@@ -18,6 +18,12 @@ import (
 
 func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 	cfg := rt.reg.Config()
+	password := ""
+	if cfg.Security.PasswordEnabled && cfg.Security.PasswordEncrypted != "" && cfg.Security.EncryptionKey != "" {
+		if decrypted, err := config.Decrypt(cfg.Security.EncryptionKey, cfg.Security.PasswordEncrypted); err == nil {
+			password = decrypted
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"port":               cfg.Port,
@@ -26,6 +32,10 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 		"rotation":           cfg.Rotation,
 		"enablePlayground":   cfg.EnablePlayground,
 		"debugMode":          rt.DebugMode(),
+		"security": map[string]any{
+			"passwordEnabled": cfg.Security.PasswordEnabled,
+			"password":        password,
+		},
 	})
 }
 
@@ -37,6 +47,10 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		Rotation           *config.RotationConfig `json:"rotation"`
 		EnablePlayground   *bool                  `json:"enablePlayground"`
 		DebugMode          *bool                  `json:"debugMode"`
+		Security           *struct {
+			PasswordEnabled *bool  `json:"passwordEnabled"`
+			Password        string `json:"password"`
+		} `json:"security"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
@@ -74,6 +88,30 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if updates.DebugMode != nil {
 		rt.SetDebugMode(*updates.DebugMode)
+	}
+	if updates.Security != nil {
+		if updates.Security.PasswordEnabled != nil {
+			cfg.Security.PasswordEnabled = *updates.Security.PasswordEnabled
+			if !*updates.Security.PasswordEnabled {
+				cfg.Security.PasswordEncrypted = ""
+				cfg.Security.EncryptionKey = ""
+			}
+		}
+		if updates.Security.Password != "" {
+			key, err := config.GenerateKey()
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "failed to generate encryption key")
+				return
+			}
+			encrypted, err := config.Encrypt(key, updates.Security.Password)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "failed to encrypt password")
+				return
+			}
+			cfg.Security.EncryptionKey = key
+			cfg.Security.PasswordEncrypted = encrypted
+			cfg.Security.PasswordEnabled = true
+		}
 	}
 
 	if err := config.Save(rt.configPath, &cfg); err != nil {

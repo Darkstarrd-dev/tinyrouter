@@ -184,3 +184,21 @@ func (s *KeyRuntimeState) GetQuota(model string) *QuotaInfo {
 	defer s.Unlock()
 	return s.ModelQuotas[model]
 }
+
+// ResetAllCooldowns clears all cooldown/lock timers on every key, making all
+// keys immediately available for selection. Does not affect rotation strategy
+// state (LastUsedAt, ConsecCount, RotatedAt) or NIM request counts.
+func (r *Registry) ResetAllCooldowns() {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	for _, ks := range r.states {
+		ks.Lock()
+		ks.ModelLocks = make(map[string]time.Time)
+		ks.ModelStatus = make(map[string]string)
+		ks.ModelErrors = make(map[string]string)
+		ks.BackoffLevel = 0
+		ks.NIMCooldownLevel = 0
+		ks.NIMLast429Time = time.Time{}
+		ks.Unlock()
+	}
+}

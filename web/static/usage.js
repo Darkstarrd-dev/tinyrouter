@@ -295,7 +295,7 @@ async function renderUsage(c) {
   var quotaBars = quotas.quotas || [];
   quotaBarItems = {};
   lastQuotaSig = '';
-  var quotaCardHtml = '<div class="card"><div class="card-title">' + t('quotaMonitor') + '</div><div class="quota-section quota-section-scroll"></div></div>';
+  var quotaCardHtml = '<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center"><span>' + t('quotaMonitor') + '</span><button type="button" class="btn btn-sm btn-ghost" onclick="resetQuotaTimers()">' + t('resetQuota') + '</button></div><div class="quota-section quota-section-scroll"></div></div>';
   c.innerHTML = '\
     <div class="usage-header usage-fullscreen">\
       <div class="charts-row usage-body-grid">\
@@ -762,7 +762,6 @@ function updateQuotaBars(bars) {
   }
 }
 
-// (C) Hover a quota-bar track to see exact used/remain/total/per-key numbers.
 function attachQuotaBarHover() {
   var tracks = document.querySelectorAll('.quota-bar-track');
   tracks.forEach(function(track) {
@@ -1069,7 +1068,28 @@ function usageInfoModalEscapeHandler(e) {
 }
 
 function closeUsageEntryInfo() {
-  var overlay = document.getElementById('info-modal-overlay');
-  overlay.classList.remove('show');
-  document.removeEventListener('keydown', usageInfoModalEscapeHandler);
+	var overlay = document.getElementById('info-modal-overlay');
+	overlay.classList.remove('show');
+	document.removeEventListener('keydown', usageInfoModalEscapeHandler);
+}
+
+async function resetQuotaTimers() {
+	var ok = await confirmModal(t('confirmResetQuota'));
+	if (!ok) return;
+	try {
+		var resp = await apiPost('/usage/reset-quota', {});
+		if (resp && resp.ok) {
+			toast(t('quotaReset'), 'success');
+			refreshQuotaMonitor();
+		} else {
+			toast(t('failed', [resp.error || '']), 'error');
+		}
+	} catch(e) {
+		toast(t('failed', [e.message]), 'error');
+	}
+}
+
+function refreshQuotaMonitor() {
+	var c = document.getElementById('page-content');
+	if (c) renderUsage(c);
 }

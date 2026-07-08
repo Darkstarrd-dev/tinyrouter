@@ -8,18 +8,16 @@ let importTarget = 'models';
 var usageEventSource = null;
 var navGen = 0;
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initTheme();
   initFontSize();
   initLang();
-  initHeaderStats();
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.addEventListener('click', () => {
-      const page = el.dataset.page;
-      if (page) navigateTo(page);
-    });
-  });
-  navigateTo('endpoint');
+  var authStatus = await checkAuthStatus();
+  if (authStatus.passwordEnabled && !authStatus.authenticated) {
+    renderLoginScreen();
+  } else {
+    initApp();
+  }
 });
 
 function navigateTo(page) {

@@ -35,6 +35,7 @@ type Router struct {
 	testClient   *http.Client
 	shutdown     context.CancelFunc
 	restartFn    func(string)
+	stateSaveFunc func()
 	debugMode    atomic.Bool
 }
 
@@ -64,6 +65,12 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 // server on a new address. Used by updateSettings when the port changes.
 func (rt *Router) SetRestartFunc(fn func(string)) {
 	rt.restartFn = fn
+}
+
+// SetStateSaveFunc configures a callback that triggers a debounced state
+// persistence write (state.yaml). Used by the reset-quota endpoint.
+func (rt *Router) SetStateSaveFunc(fn func()) {
+	rt.stateSaveFunc = fn
 }
 
 func (rt *Router) DebugMode() bool {
@@ -122,7 +129,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
-		// 1 MB API 请求体上限（管理 API 不应需要大 body）
+		// 1 MB API request body limit
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -130,61 +137,72 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			})
 		})
 
-		// Settings
-		r.Get("/settings", rt.getSettings)
-		r.Patch("/settings", rt.updateSettings)
-		r.Post("/reload", rt.reload)
-
-		// Shutdown
+		// --- Public routes (no auth required) ---
+		r.Get("/auth/status", rt.AuthStatusHandler)
+		r.Post("/auth/login", rt.LoginHandler)
 		r.Post("/shutdown", rt.handleShutdown)
 
-		// Providers
-		r.Get("/providers", rt.listProviders)
-		r.Post("/providers", rt.createProvider)
-		r.Post("/providers/validate", rt.validateProvider)
-		r.Put("/providers/{id}", rt.updateProvider)
-		r.Delete("/providers/{id}", rt.deleteProvider)
+		// --- Protected routes (auth required) ---
+		r.Group(func(r chi.Router) {
+			r.Use(rt.AuthMiddleware)
 
-		// Provider testing
-		r.Post("/providers/{id}/test", rt.testProviderKey)
+			// Settings
+			r.Get("/settings", rt.getSettings)
+			r.Patch("/settings", rt.updateSettings)
+			r.Post("/reload", rt.reload)
 
-		// Provider models
-		r.Get("/providers/{id}/models", rt.fetchProviderModels)
-		r.Post("/providers/{id}/models", rt.addProviderModel)
-		r.Post("/providers/{id}/models/test", rt.testProviderModel)
-		r.Post("/providers/{id}/models/test-all", rt.testProviderModelAllKeys)
-		r.Patch("/providers/{id}/models/quota", rt.updateModelQuota)
-		r.Delete("/providers/{id}/models", rt.deleteProviderModel)
+			// Providers
+			r.Get("/providers", rt.listProviders)
+			r.Post("/providers", rt.createProvider)
+			r.Post("/providers/validate", rt.validateProvider)
+			r.Put("/providers/{id}", rt.updateProvider)
+			r.Delete("/providers/{id}", rt.deleteProvider)
 
-		// Keys
-		r.Get("/providers/{id}/keys", rt.listKeys)
-		r.Post("/providers/{id}/keys", rt.createKey)
-		r.Post("/providers/{id}/keys/bulk", rt.bulkAddKeys)
-		r.Put("/providers/{id}/keys/{kid}", rt.updateKey)
-		r.Delete("/providers/{id}/keys/{kid}", rt.deleteKey)
-		r.Get("/providers/{id}/keys/{kid}/state", rt.getKeyState)
+			// Provider testing
+			r.Post("/providers/{id}/test", rt.testProviderKey)
 
-		// Combos
-		r.Get("/combos", rt.listCombos)
-		r.Post("/combos", rt.createCombo)
-		r.Put("/combos/{id}", rt.updateCombo)
-		r.Delete("/combos/{id}", rt.deleteCombo)
+			// Provider models
+			r.Get("/providers/{id}/models", rt.fetchProviderModels)
+			r.Post("/providers/{id}/models", rt.addProviderModel)
+			r.Post("/providers/{id}/models/test", rt.testProviderModel)
+			r.Post("/providers/{id}/models/test-all", rt.testProviderModelAllKeys)
+			r.Patch("/providers/{id}/models/quota", rt.updateModelQuota)
+			r.Delete("/providers/{id}/models", rt.deleteProviderModel)
 
-		// Usage
-		r.Get("/usage", rt.getUsage)
-		r.Get("/usage/summary", rt.getUsageSummary)
-		r.Get("/usage/quotas", rt.getQuotas)
-		r.Get("/usage/model-keys", rt.getModelKeys)
-		r.Get("/usage/events", rt.streamUsageEvents)
-		r.Delete("/usage", rt.clearUsage)
+			// Keys
+			r.Get("/providers/{id}/keys", rt.listKeys)
+			r.Post("/providers/{id}/keys", rt.createKey)
+			r.Post("/providers/{id}/keys/bulk", rt.bulkAddKeys)
+			r.Put("/providers/{id}/keys/{kid}", rt.updateKey)
+			r.Delete("/providers/{id}/keys/{kid}", rt.deleteKey)
+			r.Get("/providers/{id}/keys/{kid}/state", rt.getKeyState)
 
-		// Console logs
-		r.Get("/console-logs", rt.getConsoleLogs)
-		r.Get("/console-logs/stream", rt.streamConsoleLogs)
-		r.Delete("/console-logs", rt.clearConsoleLogs)
+			// Combos
+			r.Get("/combos", rt.listCombos)
+			r.Post("/combos", rt.createCombo)
+			r.Put("/combos/{id}", rt.updateCombo)
+			r.Delete("/combos/{id}", rt.deleteCombo)
 
-		// Models
-		r.Get("/models", rt.listModels)
+			// Usage
+			r.Get("/usage", rt.getUsage)
+			r.Get("/usage/summary", rt.getUsageSummary)
+			r.Get("/usage/quotas", rt.getQuotas)
+			r.Get("/usage/model-keys", rt.getModelKeys)
+			r.Get("/usage/events", rt.streamUsageEvents)
+			r.Delete("/usage", rt.clearUsage)
+			r.Post("/usage/reset-quota", rt.resetQuota)
+
+			// Console logs
+			r.Get("/console-logs", rt.getConsoleLogs)
+			r.Get("/console-logs/stream", rt.streamConsoleLogs)
+			r.Delete("/console-logs", rt.clearConsoleLogs)
+
+			// Auth - logout (requires auth)
+			r.Post("/auth/logout", rt.LogoutHandler)
+
+			// Models
+			r.Get("/models", rt.listModels)
+		})
 	})
 
 	// Embedded UI (fallback to index.html)

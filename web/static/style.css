@@ -903,4 +903,70 @@ tbody tr:last-child td{border-bottom:none}
   .settings-card-grid{grid-template-columns:1fr}
 }
 
+/* --- Login Overlay --- */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg, #12121a);
+}
+.login-card {
+  background: var(--card-bg, #1e1e2a);
+  border: 1px solid var(--border, #33334a);
+  border-radius: 12px;
+  padding: 32px;
+  max-width: 360px;
+  width: 90%;
+  text-align: center;
+}
+.login-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.login-logo img {
+  border-radius: 8px;
+}
+.login-logo h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #33334a);
+  border-radius: 8px;
+  background: var(--input-bg, #16162a);
+  color: var(--text, #e0e0e8);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+.login-input:focus {
+  outline: none;
+  border-color: var(--accent, #6c6cff);
+}
+.login-actions {
+  display: flex;
+  gap: 8px;
+}
+.login-submit-btn {
+  flex: 1;
+}
+.login-error {
+  color: var(--danger, #ff5252);
+  font-size: 0.8125rem;
+  display: none;
+  margin-top: 4px;
+}
+
 

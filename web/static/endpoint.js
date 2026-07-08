@@ -43,8 +43,32 @@ async function renderEndpoint(c) {
             <div class="form-group">\
               <label>&nbsp;</label>\
               <button type="button" class="btn btn-primary" style="width:100%" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
-            </div>\
+</div>\
+        <div class="settings-block">\
+          <div class="settings-block-header">\
+            <span class="settings-block-title">' + t('passwordProtection') + '</span>\
+            <label class="toggle-switch" for="password-toggle">\
+              <input type="checkbox" id="password-toggle" ' + (settings.security && settings.security.passwordEnabled ? 'checked' : '') + ' onchange="togglePasswordProtection(this.checked)">\
+              <span class="toggle-slider"></span>\
+            </label>\
           </div>\
+          <p class="muted mt-12">' + t('passwordProtectionDesc') + '</p>\
+          <div id="password-settings" style="display:' + (settings.security && settings.security.passwordEnabled ? 'block' : 'none') + ';margin-top:12px">\
+            <div class="form-group">\
+              <label>' + t('currentPassword') + '</label>\
+              <div style="display:flex;gap:8px;align-items:center">\
+                <input type="text" id="current-password" value="' + escapeHtml(settings.security ? settings.security.password : '') + '" readonly style="flex:1">\
+                <button type="button" class="btn btn-sm" onclick="copyToClipboard(document.getElementById(\'current-password\').value, t(\'password\'))">' + t('copy') + '</button>\
+              </div>\
+            </div>\
+            <div class="form-group">\
+              <label>' + t('newPassword') + '</label>\
+              <input type="password" id="new-password" placeholder="' + t('newPasswordPlaceholder') + '">\
+            </div>\
+            <button type="button" class="btn btn-primary" style="width:100%" onclick="withLoading(this, function() { return savePassword() })">' + t('savePassword') + '</button>\
+          </div>\
+        </div>\
+      </div>\
         </div>\
         <div class="settings-block">\
           <div class="settings-block-header">\
@@ -183,4 +207,47 @@ async function saveRotation() {
   };
   await apiPatch('/settings', { rotation });
   toast(t('rotationSaved'), 'success');
+}
+
+async function togglePasswordProtection(enabled) {
+  if (!enabled) {
+    var ok = await confirmModal(t('confirmDisablePassword'));
+    if (!ok) {
+      var toggle = document.getElementById('password-toggle');
+      if (toggle) toggle.checked = true;
+      return;
+    }
+  }
+  try {
+    await apiPatch('/settings', { security: { passwordEnabled: enabled } });
+    toast(enabled ? t('passwordEnabled') : t('passwordDisabled'), 'success');
+    var pwSettings = document.getElementById('password-settings');
+    if (pwSettings) pwSettings.style.display = enabled ? 'block' : 'none';
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+    var toggle = document.getElementById('password-toggle');
+    if (toggle) toggle.checked = !enabled;
+  }
+}
+
+async function savePassword() {
+  var newPw = document.getElementById('new-password');
+  if (!newPw || !newPw.value) {
+    toast(t('enterPassword'), 'error');
+    return;
+  }
+  try {
+    await apiPatch('/settings', { security: { password: newPw.value } });
+    toast(t('passwordSaved'), 'success');
+    newPw.value = '';
+    var settings = await apiGet('/settings');
+    var curPw = document.getElementById('current-password');
+    if (curPw && settings.security) curPw.value = settings.security.password || '';
+    var toggle = document.getElementById('password-toggle');
+    if (toggle) toggle.checked = true;
+    var pwSettings = document.getElementById('password-settings');
+    if (pwSettings) pwSettings.style.display = 'block';
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
 }
