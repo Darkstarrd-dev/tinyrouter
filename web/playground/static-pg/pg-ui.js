@@ -218,7 +218,9 @@ function pgRenderPanes() {
     var paneLabel = (w && w.config.agentName) ? w.config.agentName : pgT('pgPaneName', [i + 1]);
     html += '<div class="pg-pane" data-win="' + i + '">' +
       '<div class="pg-pane-head">' +
-        '<span class="pg-pane-idx">' + pgEscapeHtml(paneLabel) + '</span>' +
+        '<span class="pg-pane-idx">' + pgEscapeHtml(paneLabel) +
+          '<span class="pg-pane-typing" style="display:none"></span>' +
+        '</span>' +
         '<span class="pg-pane-model">' + modelLabel + '</span>' +
         '<button class="pg-pane-btn" onclick="event.stopPropagation();pgClearWindowMessages(' + i + ')" title="' + pgEscapeHtml(pgT('pgClearWin')) + '">' + PG_ICON_DELETE + '</button>' +
         '<button class="pg-pane-btn" onclick="event.stopPropagation();pgOpenDebugModal(' + i + ')" title="' + pgEscapeHtml(pgT('pgDebugWin')) + '">' + PG_ICON_DEBUG + '</button>' +

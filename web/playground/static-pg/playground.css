@@ -397,3 +397,34 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 .pg-gc-input-bar{display:flex;gap:8px;padding:12px;border-top:1px solid var(--glass-border)}
 .pg-gc-input{flex:1;resize:none;height:60px;padding:8px;background:var(--input-bg);border:1px solid var(--glass-border);border-radius:4px;color:inherit;font-size:13px}
 .pg-gc-input:focus{outline:none;border-color:var(--accent)}
+
+/* Typing indicator in pane header */
+.pg-pane-typing{font-size:11px;color:var(--accent);margin-left:6px;animation:pg-pulse 1.5s infinite}
+
+/* Typing indicator in group chat modal */
+.pg-gc-typing{font-size:12px;color:var(--accent);padding:4px 12px;opacity:.7;font-style:italic}
+.pg-gc-typing-dots::after{content:'';animation:pg-dots 1.5s infinite}
+@keyframes pg-dots{0%{content:''}33%{content:'.'}66%{content:'..'}100%{content:'...'}}
+
+/* New messages button */
+.pg-gc-new-msgs{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;cursor:pointer;display:none;z-index:10}
+
+/* System message in group chat */
+.pg-gc-msg.system{align-self:center;max-width:90%}
+.pg-gc-msg.system .pg-gc-content{background:rgba(255,255,255,0.08);font-size:12px;font-style:italic;text-align:center}
+
+/* Pass entry (agent chose not to speak) */
+.pg-gc-msg.pass{align-self:center;max-width:90%;opacity:.6;font-size:12px;font-style:italic;color:var(--text-muted);padding:2px 0}
+.pg-gc-pass-icon{font-style:normal}
+
+/* Token usage water-level bar */
+.pg-gc-token-bar{padding:8px 12px;border-bottom:1px solid var(--glass-border);display:flex;flex-direction:column;gap:6px;background:rgba(0,0,0,0.15)}
+.pg-gc-token-title{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.pg-gc-token-item{display:flex;align-items:center;gap:8px;font-size:12px}
+.pg-gc-token-name{flex-shrink:0;width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary)}
+.pg-gc-token-bar-bg{flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,0.1);overflow:hidden}
+.pg-gc-token-bar-fill{height:100%;border-radius:4px;transition:width .3s ease}
+.pg-gc-token-num{flex-shrink:0;width:48px;text-align:right;color:var(--text-muted);font-variant-numeric:tabular-nums}
+
+/* Summary entry content in group chat */
+.pg-gc-msg.summary .pg-gc-content{background:rgba(255,255,255,0.08);font-size:12px;font-style:italic;text-align:center}

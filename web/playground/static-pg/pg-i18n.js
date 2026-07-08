@@ -81,6 +81,14 @@ window.PG_I18N = {
     pgAutoChatRound: 'Round {0}/{1}',
     pgGroupChatTitle: 'Group Chat',
     pgAutoChatRunning: 'Auto chat running…',
+    pgTyping: 'typing…',
+    pgTypingPlural: ' are typing',
+    pgAutoChatFinishedReason: 'Conversation ended — {0} total replies',
+    pgGcNewMsgs: '↓ {0} new messages',
+    pgAutoChatRetryMsg: 'W{0}: retrying…',
+    pgPassHint: 'glanced at the messages',
+    pgAutoChatSummaryPrefix: '[Summary] ',
+    pgGcTokenBar: 'Context Usage',
   },
   cn: {
     pgSelectModel: '选择模型', pgNoModels: '未配置模型', pgSendMessage: '发送', pgStop: '停止', pgClear: '清空对话',
@@ -162,5 +170,13 @@ window.PG_I18N = {
     pgAutoChatRound: '第 {0}/{1} 轮',
     pgGroupChatTitle: '群聊',
     pgAutoChatRunning: '自动对话进行中…',
+    pgTyping: '正在输入…',
+    pgTypingPlural: ' 正在输入',
+    pgAutoChatFinishedReason: '对话结束 — 共 {0} 次回复',
+    pgGcNewMsgs: '↓ {0} 条新消息',
+    pgAutoChatRetryMsg: 'W{0}: 重试中…',
+    pgPassHint: '看了一眼消息',
+    pgAutoChatSummaryPrefix: '[摘要] ',
+    pgGcTokenBar: '上下文用量',
   }
 };

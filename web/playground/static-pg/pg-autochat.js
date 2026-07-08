@@ -55,12 +55,89 @@ function pgOnAgentName(v) {
   }
 }
 
+// ----- Default group-chat system prompt -------------------------------
+
+// Default rules injected when a window's systemPrompt is empty. Tells agents
+// they are in a group chat and may choose not to speak (output <pass/>).
+var PG_AUTOCHAT_DEFAULT_SYSTEM_PROMPT =
+  'You are a participant in a group chat. ' +
+  'Multiple AI agents and a human user are discussing together. ' +
+  'Messages from others are prefixed with [name]:. ' +
+  'Do NOT add any [name]: prefix to your own replies — just speak directly. ' +
+  'If you have nothing meaningful to add at this moment, ' +
+  'reply with exactly <pass/> and nothing else. ' +
+  'Use <pass/> when others are still discussing a topic you have no strong opinion on.';
+
 // ----- Helpers -------------------------------------------------------
+
+// Strip leading [name]: prefix from model replies (models often mimic the
+// input format and prepend their own or others' name in brackets).
+function pgAutoChatStripPrefix(content) {
+  if (!content) return content;
+  return content.replace(/^\s*\[[^\]]+\]\s*:\s*/, '');
+}
 
 function pgAutoChatGetAgentName(winIdx) {
   var w = pgWinAt(winIdx);
   var cfgName = w && w.config.agentName ? w.config.agentName : '';
   return cfgName || ('Agent ' + (winIdx + 1));
+}
+
+// ----- Shared timeline (single source of truth) ----------------------
+
+// Append an entry to the shared timeline and return it.
+function pgAutoChatAppendTimeline(sender, senderType, winIdx, content, status) {
+  pgState.autoChat.timelineId++;
+  var entry = {
+    id: pgState.autoChat.timelineId,
+    sender: sender,
+    senderType: senderType,
+    winIdx: winIdx,
+    content: content,
+    ts: Date.now(),
+    status: status || 'complete',
+  };
+  pgState.autoChat.timeline.push(entry);
+  return entry;
+}
+
+// Build the per-window messages perspective from the shared timeline.
+// Rules:
+//   - own previous replies -> role:assistant (no prefix)
+//   - other senders (user / other agents) -> role:user with [sender]: prefix
+//   - system entries -> role:system
+//   - systemPrompt empty -> inject PG_AUTOCHAT_DEFAULT_SYSTEM_PROMPT
+function pgAutoChatRenderPerspective(winIdx) {
+  var w = pgWinAt(winIdx);
+  var myName = pgAutoChatGetAgentName(winIdx);
+  var msgs = [];
+
+  // User-defined systemPrompt takes priority; otherwise inject the default
+  // group-chat prompt so agents understand the multi-party context + pass rule.
+  var sysPrompt = (w.config.systemPrompt && w.config.systemPrompt.trim())
+    ? w.config.systemPrompt
+    : PG_AUTOCHAT_DEFAULT_SYSTEM_PROMPT;
+  msgs.push({ role: 'system', content: sysPrompt });
+
+  for (var i = 0; i < pgState.autoChat.timeline.length; i++) {
+    var entry = pgState.autoChat.timeline[i];
+    if (entry.id <= w.lastReadTimelineId) continue;
+
+    if (entry.senderType === 'system') {
+      msgs.push({ role: 'system', content: entry.content });
+    } else if (entry.senderType === 'agent' && entry.winIdx === winIdx) {
+      msgs.push({ role: 'assistant', content: entry.content });
+    } else {
+      msgs.push({ role: 'user', content: '[' + entry.sender + ']: ' + entry.content });
+    }
+  }
+
+  return msgs;
+}
+
+// Send using the perspective already rebuilt into w.messages by pgAutoChatDoSend.
+function pgAutoChatSendWithPerspective(winIdx, perspectiveMsgs, lastIdx) {
+  pgSend(winIdx, lastIdx);
 }
 
 // Indices of windows that currently have a model selected.
@@ -92,21 +169,29 @@ function pgAutoChatStart(text) {
     pgToast(pgT('pgSelectModel'), 'warning');
     return;
   }
+  pgState.autoChat.session++;
   pgState.autoChat.isRunning = true;
   pgState.autoChat.abortFlag = false;
+  pgState.autoChat.timeline = [];        // reset shared timeline
+  pgState.autoChat.timelineId = 0;
+  pgAutoChatRetryCount = {};             // reset retry counters
 
-  var now = Date.now();
-  var userLine = '[' + (pgState.autoChat.userName || 'User') + ']: ' + text;
+  // User message appended to the shared timeline (single source of truth).
+  pgAutoChatAppendTimeline(
+    pgState.autoChat.userName || 'User',
+    'user', -1, text, 'complete'
+  );
 
-  // Inject user message into every model window's inbox, then process.
+  // Reset every model window's per-window state.
   modelWins.forEach(function(i) {
     var w = pgWinAt(i);
     w.replyCount = 0;
     w.autoChatDone = false;
     w.autoChatPending = false;
+    w.lastReadTimelineId = 0;            // reset read cursor
     if (w.autoChatDelayTimer) { clearTimeout(w.autoChatDelayTimer); w.autoChatDelayTimer = null; }
-    w.inbox = [];
-    w.inbox.push({ sender: pgState.autoChat.userName || 'User', content: text, timestamp: now });
+    w.inbox = [];                        // deprecated field, kept for serialization
+    w.messages = [];                     // rebuilt from timeline on each send
   });
 
   pgSave();
@@ -127,9 +212,30 @@ function pgAutoChatStart(text) {
 function pgAutoChatProcessWindowInbox(winIdx) {
   if (!pgAutoChatCanReply(winIdx)) return;
   var w = pgWinAt(winIdx);
-  if (!w.inbox.length) return;
+  // Unread check is against the shared timeline (replaces the old inbox).
+  var hasUnread = pgState.autoChat.timeline.some(function(e) {
+    return e.id > w.lastReadTimelineId;
+  });
+  if (!hasUnread) return;
 
   var baseDelay = pgState.autoChat.delaySeconds || 0;
+
+  // If the most recent unread timeline message mentions this window by name,
+  // shorten its reaction delay to 30% so it responds promptly.
+  var myName = pgAutoChatGetAgentName(winIdx);
+  var mentioned = false;
+  for (var i = pgState.autoChat.timeline.length - 1; i >= 0; i--) {
+    var entry = pgState.autoChat.timeline[i];
+    if (entry.id <= w.lastReadTimelineId) break;
+    if (entry.content && entry.content.indexOf('@' + myName) >= 0) {
+      mentioned = true;
+      break;
+    }
+  }
+  if (mentioned && baseDelay > 0) {
+    baseDelay = baseDelay * 0.3;
+  }
+
   if (baseDelay <= 0) {
     pgAutoChatDoSend(winIdx);
     return;
@@ -143,34 +249,49 @@ function pgAutoChatProcessWindowInbox(winIdx) {
   w.autoChatPending = true;
   pgUpdateAutoChatUI();
 
+  var capturedSession = pgState.autoChat.session;
   w.autoChatDelayTimer = setTimeout(function() {
     w.autoChatDelayTimer = null;
     w.autoChatPending = false;
+    if (capturedSession !== pgState.autoChat.session) return;
     if (pgState.autoChat.abortFlag || !pgState.autoChat.isRunning) return;
     pgAutoChatDoSend(winIdx);
   }, delay);
 }
 
-// Actually merge inbox, push messages, and send (no delay).
+// Actually render the window's perspective from the timeline and send (no delay).
 function pgAutoChatDoSend(winIdx) {
   if (!pgAutoChatCanReply(winIdx)) return;
   var w = pgWinAt(winIdx);
-  if (!w.inbox.length) {
+
+  // Unread check against the shared timeline.
+  var hasUnread = pgState.autoChat.timeline.some(function(e) {
+    return e.id > w.lastReadTimelineId;
+  });
+  if (!hasUnread) {
     pgAutoChatCheckAllDone();
     return;
   }
-  // Use the latest inbox timestamp so the same message injected into
-  // multiple windows gets an identical createdAt (for dedup in group chat).
-  var now = w.inbox.reduce(function(max, m) { return Math.max(max, m.timestamp); }, 0) || Date.now();
-  var merged = w.inbox.map(function(m) {
-    return '[' + m.sender + ']: ' + m.content;
-  }).join('\n\n');
-  w.inbox = [];
-  w.messages.push({ role: 'user', content: merged, createdAt: now });
+
+  // Rebuild this window's messages view from the timeline.
+  var perspectiveMsgs = pgAutoChatRenderPerspective(winIdx);
+
+  // Advance the read cursor to the latest timeline entry.
+  var lastEntry = pgState.autoChat.timeline[pgState.autoChat.timeline.length - 1];
+  w.lastReadTimelineId = lastEntry ? lastEntry.id : w.lastReadTimelineId;
+
+  // Rebuild the messages render-cache.
+  w.messages = perspectiveMsgs.map(function(m) {
+    return { role: m.role, content: m.content, status: 'complete' };
+  });
+
+  // Append the assistant placeholder that will receive the reply.
+  var now = Date.now();
   w.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: now });
   var lastIdx = w.messages.length - 1;
   pgRenderMessages(winIdx);
-  pgSend(winIdx, lastIdx);
+
+  pgAutoChatSendWithPerspective(winIdx, perspectiveMsgs, lastIdx);
 }
 
 // ----- Finish hook (called from pgFinish / pgFail) -------------------
@@ -181,7 +302,44 @@ function pgAutoChatOnFinish(winIdx) {
   var w = pgWinAt(winIdx);
   if (!w) return;
 
-  // Count this reply (completed = success or failure).
+  // Clear this window's retry counter: the reply attempt has completed
+  // (success OR pass), so any pending retry state is now stale. This runs
+  // regardless of pass vs. normal reply.
+  pgAutoChatRetryCount[winIdx] = 0;
+
+  // Read the final reply content (strip leading [name]: prefix).
+  var rawContent = pgTextContent(w.messages[w.messages.length - 1].content);
+  var content = pgAutoChatStripPrefix(rawContent);
+
+  // Detect a deliberate pass: the agent chose not to speak.
+  var isPass = /^\s*<pass\s*\/>\s*$/i.test(content);
+
+  if (isPass) {
+    // Pass: record a pass entry on the timeline (visible in the modal) but do
+    // NOT count it as a reply and do NOT mark the window done.
+    pgAutoChatAppendTimeline(
+      pgAutoChatGetAgentName(winIdx), 'agent', winIdx, '', 'pass'
+    );
+    // Mark the pass entry as read so this window does not re-trigger on itself.
+    w.lastReadTimelineId = pgState.autoChat.timelineId;
+
+    if (typeof pgUpdateAutoChatUI === 'function') pgUpdateAutoChatUI();
+    if (typeof pgGcRefreshModalIncremental === 'function') pgGcRefreshModalIncremental();
+
+    // Process own inbox + trigger other windows (they may now have unread).
+    pgAutoChatProcessWindowInbox(winIdx);
+    for (var k = 0; k < pgState.splitCount; k++) {
+      if (k === winIdx) continue;
+      pgAutoChatProcessWindowInbox(k);
+    }
+
+    // A pass does not advance the conversation; still let the done-check run
+    // (e.g. everyone passed -> natural end). Pass does NOT trigger summarization.
+    pgAutoChatCheckAllDone();
+    return;
+  }
+
+  // Normal reply: count this reply toward the iteration limit.
   w.replyCount++;
 
   // Check iteration limit.
@@ -190,32 +348,29 @@ function pgAutoChatOnFinish(winIdx) {
     w.autoChatDone = true;
   }
 
-  // Broadcast this window's reply to other windows that can still reply.
-  var content = pgTextContent(w.messages[w.messages.length - 1].content);
+  // Append this window's reply to the shared timeline (replaces broadcast).
   if (content && content.trim()) {
     var sender = pgAutoChatGetAgentName(winIdx);
-    var ts = Date.now();
-    for (var j = 0; j < pgState.splitCount; j++) {
-      if (j === winIdx) continue;
-      var other = pgWinAt(j);
-      if (!other.config.model) continue;
-      if (other.autoChatDone) continue;
-      other.inbox.push({ sender: sender, content: content, timestamp: ts });
-    }
+    pgAutoChatAppendTimeline(sender, 'agent', winIdx, content, 'complete');
   }
 
-  pgUpdateAutoChatUI();
-  pgRefreshGroupChatModal();
+  // Mark own reply as read so this window does not re-trigger on itself.
+  w.lastReadTimelineId = pgState.autoChat.timelineId;
 
-  // Try to process this window's own inbox (it may have received messages
-  // while it was busy replying).
+  if (typeof pgUpdateAutoChatUI === 'function') pgUpdateAutoChatUI();
+  if (typeof pgGcRefreshModalIncremental === 'function') pgGcRefreshModalIncremental();
+
+  // Try to process this window's own timeline (may have new messages).
   pgAutoChatProcessWindowInbox(winIdx);
 
-  // Try to process other idle windows' inboxes (they just received our broadcast).
+  // Try to process other idle windows (they just received our timeline entry).
   for (var k = 0; k < pgState.splitCount; k++) {
     if (k === winIdx) continue;
     pgAutoChatProcessWindowInbox(k);
   }
+
+  // Rolling summarization (only after a real reply, not a pass).
+  if (typeof pgAutoChatMaybeSummarize === 'function') pgAutoChatMaybeSummarize();
 
   // Check if the entire auto-chat should end.
   pgAutoChatCheckAllDone();
@@ -232,9 +387,12 @@ function pgAutoChatCheckAllDone() {
     if (w.autoChatPending) return false;
     // Hit iteration limit.
     if (w.autoChatDone) return true;
-    // Idle but has pending inbox messages — will trigger soon.
-    if (w.inbox.length > 0) return false;
-    // Idle, no inbox, but can still reply (under limit) — waiting for
+    // Idle but has unread timeline messages — will trigger soon.
+    var hasUnread = pgState.autoChat.timeline.some(function(e) {
+      return e.id > w.lastReadTimelineId;
+    });
+    if (hasUnread) return false;
+    // Idle, nothing unread, but can still reply (under limit) — waiting for
     // someone to say something. If EVERY window is in this state, nobody
     // will speak → conversation ends.
     return true;
@@ -257,6 +415,7 @@ function pgAutoChatClearWindowTimers() {
 
 function pgAutoChatStop() {
   pgState.autoChat.abortFlag = true;
+  pgState.autoChat.session++;
   pgState.autoChat.isRunning = false;
   pgAutoChatClearWindowTimers();
   if (typeof pgStop === 'function') pgStop();
@@ -266,11 +425,20 @@ function pgAutoChatStop() {
     w.inbox = [];
     w.autoChatDone = false;
     w.replyCount = 0;
+    w.lastReadTimelineId = 0;
+  }
+  pgAutoChatRetryCount = {};
+  // Append a system message explaining why the chat stopped (only if there
+  // was actual conversation in the timeline). Timeline is kept so the user
+  // can still read the transcript (it is reset on the next start).
+  if (pgState.autoChat.timeline.length > 0) {
+    pgAutoChatAppendTimeline('', 'system', -1, pgT('pgAutoChatStopped'), 'complete');
   }
   pgSave();
   pgRenderSidebar();
   pgRenderInputBar();
   pgUpdateAutoChatUI();
+  pgGcRefreshModalIncremental();
   pgToast(pgT('pgAutoChatStopped'), 'info');
 }
 
@@ -286,38 +454,76 @@ function pgAutoChatFinish() {
     w.autoChatDone = false;
     totalReplies += w.replyCount;
     w.replyCount = 0;
+    w.lastReadTimelineId = 0;
   }
+  // Append a system message describing the end reason.
+  var reason;
+  if (pgState.autoChat.iterations > 0) {
+    reason = pgT('pgAutoChatFinishedReason', [totalReplies]);
+  } else {
+    reason = pgT('pgAutoChatNoNewContent');
+  }
+  pgAutoChatAppendTimeline('', 'system', -1, reason, 'complete');
+  pgAutoChatRetryCount = {};
   pgSave();
   pgRenderSidebar();
   pgRenderInputBar();
   pgUpdateAutoChatUI();
-  if (pgState.autoChat.iterations > 0) {
-    pgToast(pgT('pgAutoChatFinished', [totalReplies]), 'success');
-  } else {
-    pgToast(pgT('pgAutoChatNoNewContent'), 'success');
-  }
+  pgGcRefreshModalIncremental();
+  pgToast(reason, 'success');
 }
 
 // ----- User send during auto chat -----------------------------------
 
 function pgAutoChatUserSend(text) {
   if (pgState.autoChat.isRunning) {
-    var now = Date.now();
-    var modelWins = pgAutoChatModelWindows();
-    modelWins.forEach(function(i) {
-      var w = pgWinAt(i);
-      if (w.autoChatDone) return;
-      w.inbox.push({ sender: pgState.autoChat.userName || 'User', content: text, timestamp: now });
-    });
-    // Trigger any idle windows that can reply.
-    modelWins.forEach(function(i) {
-      pgAutoChatProcessWindowInbox(i);
-    });
-    pgUpdateAutoChatUI();
-    pgRefreshGroupChatModal();
+    // Parse @mentions to support directed speech.
+    var mentions = pgAutoChatParseMentions(text);
+
+    // Append the user's message to the shared timeline.
+    pgAutoChatAppendTimeline(
+      pgState.autoChat.userName || 'User',
+      'user', -1, text, 'complete'
+    );
+
+    // Directed delivery: only the mentioned windows respond; otherwise all.
+    if (mentions && mentions.length) {
+      mentions.forEach(function(i) { pgAutoChatProcessWindowInbox(i); });
+    } else {
+      var modelWins = pgAutoChatModelWindows();
+      modelWins.forEach(function(i) {
+        pgAutoChatProcessWindowInbox(i);
+      });
+    }
+
+    if (typeof pgUpdateAutoChatUI === 'function') pgUpdateAutoChatUI();
+    if (typeof pgGcRefreshModalIncremental === 'function') pgGcRefreshModalIncremental();
   } else {
     pgAutoChatStart(text);
   }
+}
+
+// Parse @name mentions from a message. Returns an array of window indices that
+// were mentioned, or null if none. Matches against config.agentName first, then
+// the "Agent N" fallback name. @name contains no whitespace.
+function pgAutoChatParseMentions(text) {
+  var matches = text.match(/@(\S+)/g);
+  if (!matches) return null;
+
+  var mentionedWindows = [];
+  matches.forEach(function(m) {
+    var name = m.slice(1); // drop the leading @
+    for (var i = 0; i < pgState.splitCount; i++) {
+      var w = pgWinAt(i);
+      var agentName = pgAutoChatGetAgentName(i);
+      if (agentName === name || (w && w.config && w.config.agentName === name)) {
+        if (mentionedWindows.indexOf(i) < 0) mentionedWindows.push(i);
+        break;
+      }
+    }
+  });
+
+  return mentionedWindows.length ? mentionedWindows : null;
 }
 
 // ----- UI sync -------------------------------------------------------
@@ -348,6 +554,21 @@ function pgUpdateAutoChatUI() {
       hint.textContent = parts.join(' ') + limit;
     }
   }
+  // Lightweight update of each pane header's typing indicator (no full re-render).
+  for (var i = 0; i < pgState.splitCount; i++) {
+    var w = pgWinAt(i);
+    var span = document.querySelector('.pg-pane[data-win="' + i + '"] .pg-pane-typing');
+    if (!span) continue;
+    if (pgState.autoChat.isRunning && w.autoChatPending) {
+      span.textContent = pgT('pgTyping');
+      span.style.display = 'inline';
+    } else if (pgState.autoChat.isRunning && w.streaming) {
+      span.textContent = pgT('pgStreaming');
+      span.style.display = 'inline';
+    } else {
+      span.style.display = 'none';
+    }
+  }
 }
 
 // ----- Group chat modal (live-refreshing) ---------------------------
@@ -355,61 +576,27 @@ function pgUpdateAutoChatUI() {
 var pgGcRefreshTimer = null;
 
 function pgGetGroupChatMessages() {
-  var seen = {};
-  var allMsgs = [];
-  for (var i = 0; i < pgState.splitCount; i++) {
-    var w = pgWinAt(i);
-    if (!w) continue;
-    var agentName = pgAutoChatGetAgentName(i);
-    for (var j = 0; j < w.messages.length; j++) {
-      var msg = w.messages[j];
-      if (msg.status === 'loading') continue;
-      var content = pgTextContent(msg.content);
-      if (!content) continue;
-
-      var sender, displayContent, isUser;
-      if (msg.role === 'assistant') {
-        sender = agentName;
-        displayContent = content;
-        isUser = false;
-      } else {
-        var match = content.match(/^\[([^\]]+)\]:\s*([\s\S]*)$/);
-        if (match) {
-          sender = match[1];
-          displayContent = match[2];
-          isUser = (sender === (pgState.autoChat.userName || 'User'));
-        } else {
-          sender = pgState.autoChat.userName || 'User';
-          displayContent = content;
-          isUser = true;
-        }
-      }
-
-      // Deduplicate: same sender + content + timestamp = same message
-      // appearing in multiple windows' histories.
-      var dedupeKey = sender + '\x00' + displayContent + '\x00' + (msg.createdAt || msg.startedAt || 0);
-      if (seen[dedupeKey]) continue;
-      seen[dedupeKey] = true;
-
-      allMsgs.push({
-        sender: sender,
-        content: displayContent,
-        reasoning: msg.reasoning || '',
-        timestamp: msg.createdAt || msg.startedAt || 0,
-        winIdx: i,
-        isUser: isUser,
-      });
-    }
-  }
-  allMsgs.sort(function(a, b) { return a.timestamp - b.timestamp; });
-  return allMsgs;
+  // The shared timeline is the single source of truth — no dedup needed.
+  return pgState.autoChat.timeline.map(function(entry) {
+    return {
+      id: entry.id,
+      sender: entry.sender,
+      content: entry.content,
+      reasoning: '',
+      timestamp: entry.ts,
+      winIdx: entry.winIdx,
+      isUser: entry.senderType === 'user',
+      isSystem: entry.senderType === 'system',
+      status: entry.status,
+    };
+  });
 }
 
 function pgRenderGroupChatMessagesHtml(msgs) {
   return msgs.map(function(m) {
     var timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
-    var cls = m.isUser ? 'pg-gc-msg user' : 'pg-gc-msg agent';
-    return '<div class="' + cls + '">' +
+    var cls = m.isSystem ? 'pg-gc-msg system' : (m.isUser ? 'pg-gc-msg user' : 'pg-gc-msg agent');
+    return '<div class="' + cls + '"' + (m.id ? (' data-gc-id="' + m.id + '"') : '') + '>' +
       '<div class="pg-gc-sender">' + pgEscapeHtml(m.sender) +
       '<span class="pg-gc-time">' + timeStr + '</span></div>' +
       '<div class="pg-gc-content">' + pgRenderMarkdown(m.content) + '</div>' +
@@ -417,28 +604,332 @@ function pgRenderGroupChatMessagesHtml(msgs) {
   }).join('');
 }
 
-// Refresh the messages div if the group chat modal is open.
+// ----- Incremental group chat modal rendering -------------------------
+
+// Rendered timeline ids (avoid re-rendering existing nodes).
+var pgGcRenderedIds = {};
+// Currently-streaming DOM node managed by pgGcOnStreamChunk.
+var pgGcStreamingNode = null;
+// Timeline id currently streaming (kept for API parity; our timeline has no
+// streaming entries — live nodes are tracked by class streaming-agent-N).
+var pgGcStreamingId = 0;
+// Whether to follow the conversation to the bottom automatically.
+var pgGcAutoScroll = true;
+
+// Deprecated full re-render — kept as a thin alias for backward compatibility.
 function pgRefreshGroupChatModal() {
-  var box = document.getElementById('pg-gc-messages');
-  if (!box) return;
+  pgGcRefreshModalIncremental();
+}
+
+function pgGcUnreadCount() {
+  var total = pgState.autoChat.timeline.length;
+  var rendered = 0;
+  for (var k in pgGcRenderedIds) {
+    if (pgGcRenderedIds.hasOwnProperty(k)) rendered++;
+  }
+  return Math.max(0, total - rendered);
+}
+
+function pgGcScrollToBottom() {
+  var msgBox = document.getElementById('pg-gc-messages');
+  if (!msgBox) return;
+  msgBox.scrollTop = msgBox.scrollHeight;
+  pgGcAutoScroll = true;
+  var newMsgBtn = document.getElementById('pg-gc-new-msgs');
+  if (newMsgBtn) newMsgBtn.style.display = 'none';
+}
+
+// Append newly arrived timeline entries to the modal without re-rendering the
+// whole list. Also manages the live typing indicator and the "new messages"
+// button.
+function pgGcRefreshModalIncremental() {
+  var msgBox = document.getElementById('pg-gc-messages');
+  if (!msgBox) return;
+
+  // Remove stale streaming-agent temp nodes for windows that are no longer
+  // streaming (their real timeline entry is now rendered). Keep nodes for
+  // windows still streaming so live content is preserved between hook calls.
+  var tempNodes = msgBox.querySelectorAll('[class*="streaming-agent-"]');
+  for (var t = 0; t < tempNodes.length; t++) {
+    var tn = tempNodes[t];
+    var m = tn.className.match(/streaming-agent-(\d+)/);
+    var wi = m ? parseInt(m[1], 10) : -1;
+    var ww = pgWinAt(wi);
+    if (!m || !ww || !ww.streaming) tn.remove();
+  }
+
   var msgs = pgGetGroupChatMessages();
-  box.innerHTML = pgRenderGroupChatMessagesHtml(msgs);
-  box.scrollTop = box.scrollHeight;
+  var newHtml = '';
+  for (var i = 0; i < msgs.length; i++) {
+    var msg = msgs[i];
+    if (pgGcRenderedIds[msg.id]) continue;
+    pgGcRenderedIds[msg.id] = true;
+    // A pass entry is rendered specially (no content bubble).
+    if (msg.status === 'pass') {
+      newHtml += '<div class="pg-gc-msg pass" data-gc-id="' + msg.id + '">' +
+        '<span class="pg-gc-pass-icon">👀</span> ' +
+        pgEscapeHtml(msg.sender) + ' ' + pgEscapeHtml(pgT('pgPassHint')) +
+        '</div>';
+      continue;
+    }
+    var timeStr = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : '';
+    var cls = msg.isSystem ? 'pg-gc-msg system' : (msg.isUser ? 'pg-gc-msg user' : 'pg-gc-msg agent');
+    if (msg.status === 'summary') cls += ' summary';
+    newHtml += '<div class="' + cls + '" data-gc-id="' + msg.id + '">' +
+      '<div class="pg-gc-sender">' + pgEscapeHtml(msg.sender) +
+      '<span class="pg-gc-time">' + timeStr + '</span></div>' +
+      '<div class="pg-gc-content">' + pgRenderMarkdown(msg.content) + '</div>' +
+    '</div>';
+  }
+
+  if (newHtml) {
+    var tempDiv = document.createElement('div');
+    tempDiv.innerHTML = newHtml;
+    while (tempDiv.firstChild) {
+      msgBox.appendChild(tempDiv.firstChild);
+    }
+    if (pgGcAutoScroll) msgBox.scrollTop = msgBox.scrollHeight;
+  }
+
+  pgGcUpdateTypingIndicator(msgBox);
+
+  // Update the "new messages" button for when the user has scrolled up.
+  if (!pgGcAutoScroll) {
+    var newBtn = document.getElementById('pg-gc-new-msgs');
+    var unread = pgGcUnreadCount();
+    if (newBtn && unread > 0) {
+      newBtn.textContent = pgT('pgGcNewMsgs', [unread]);
+      newBtn.style.display = 'block';
+    } else if (newBtn) {
+      newBtn.style.display = 'none';
+    }
+  }
+
+  // Keep the token-usage water-level bar in sync.
+  if (typeof pgGcUpdateTokenBar === 'function') pgGcUpdateTokenBar();
+}
+
+function pgGcUpdateTypingIndicator(msgBox) {
+  var old = msgBox.querySelector('.pg-gc-typing');
+  if (old) old.remove();
+  if (!pgState.autoChat.isRunning) return;
+  var typingAgents = [];
+  for (var i = 0; i < pgState.splitCount; i++) {
+    var w = pgWinAt(i);
+    if (!w.config.model || w.autoChatDone) continue;
+    if (w.autoChatPending || w.streaming) typingAgents.push(pgAutoChatGetAgentName(i));
+  }
+  if (typingAgents.length) {
+    var div = document.createElement('div');
+    div.className = 'pg-gc-typing';
+    div.innerHTML = pgEscapeHtml(typingAgents.join(', ') + pgT('pgTypingPlural')) +
+      '<span class="pg-gc-typing-dots"></span>';
+    msgBox.appendChild(div);
+    if (pgGcAutoScroll) msgBox.scrollTop = msgBox.scrollHeight;
+  }
+}
+
+// ----- Token estimation & rolling summary ----------------------------
+
+// Rough token estimate: Chinese ~1.5 chars/token, other text ~4 chars/token.
+function pgAutoChatEstimateTokens(text) {
+  if (!text) return 0;
+  var cnChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+  var otherChars = text.length - cnChars;
+  return Math.ceil(cnChars * 1.5 + otherChars / 4);
+}
+
+// Estimate the token footprint of a window's current perspective (its full
+// effective context window).
+function pgAutoChatEstimateWindowTokens(winIdx) {
+  var msgs = pgAutoChatRenderPerspective(winIdx);
+  var total = 0;
+  msgs.forEach(function(m) {
+    total += pgAutoChatEstimateTokens(m.content);
+  });
+  return total;
+}
+
+// Rolling summarization thresholds and guard flags.
+var pgAutoChatSummaryThreshold = 30; // trigger when timeline exceeds this count
+var pgAutoChatSummaryKeep = 10;      // keep this many most-recent entries
+var pgAutoChatIsSummarizing = false;
+// Assumed context window size (tokens) for the water-level bar. Simplified;
+// ideally derived per-model from the model registry.
+var pgAutoChatContextWindow = 8000;
+
+// Summarize the oldest portion of the shared timeline into a single system
+// entry, keeping the conversation within the model's context budget. Runs
+// asynchronously and never blocks the conversation.
+function pgAutoChatMaybeSummarize() {
+  if (pgAutoChatIsSummarizing) return;
+  if (pgState.autoChat.timeline.length < pgAutoChatSummaryThreshold) return;
+
+  // Capture the session so a stale response after stop/restart is ignored.
+  var capturedSession = pgState.autoChat.session;
+
+  pgAutoChatIsSummarizing = true;
+
+  // Oldest entries to summarize; keep the most recent pgAutoChatSummaryKeep.
+  var toSummarize = pgState.autoChat.timeline.slice(0,
+    pgState.autoChat.timeline.length - pgAutoChatSummaryKeep);
+
+  if (!toSummarize.length) {
+    pgAutoChatIsSummarizing = false;
+    return;
+  }
+
+  var summaryText = toSummarize.map(function(e) {
+    return '[' + e.sender + ']: ' + e.content;
+  }).join('\n');
+
+  // Use window 0's model for the summary (simplified; ideally a configured
+  // small model). Guard against a missing model.
+  var summaryWin = pgWinAt(0);
+  var summaryModel = summaryWin && summaryWin.config ? summaryWin.config.model : '';
+  if (!summaryModel) {
+    pgAutoChatIsSummarizing = false;
+    return;
+  }
+
+  var summaryBody = {
+    model: summaryModel,
+    messages: [
+      { role: 'system', content: 'Summarize the following group chat conversation as a brief narrative (2-3 sentences). Do not use [name]: prefixes. Write in third person.' },
+      { role: 'user', content: summaryText },
+    ],
+    stream: false,
+  };
+
+  fetch('/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(summaryBody),
+  }).then(function(resp) {
+    return resp.json();
+  }).then(function(j) {
+    // Ignore if the auto-chat session changed while the request was in flight.
+    if (capturedSession !== pgState.autoChat.session) return;
+    var summary = (j.choices && j.choices[0] && j.choices[0].message)
+      ? j.choices[0].message.content : '';
+    if (!summary) return;
+
+    var prefix = (typeof pgT === 'function') ? pgT('pgAutoChatSummaryPrefix') : '[Summary] ';
+    var summaryEntry = {
+      id: ++pgState.autoChat.timelineId,
+      sender: '',
+      senderType: 'system',
+      winIdx: -1,
+      content: prefix + summary,
+      ts: toSummarize[toSummarize.length - 1].ts,
+      status: 'summary',
+    };
+
+    // Atomically replace the old entries with the summary entry.
+    var kept = pgState.autoChat.timeline.slice(toSummarize.length);
+    pgState.autoChat.timeline = [summaryEntry].concat(kept);
+
+    // The timeline changed shape; reset every window's read cursor so the
+    // summary becomes part of everyone's rebuilt perspective.
+    for (var i = 0; i < pgState.splitCount; i++) {
+      var w = pgWinAt(i);
+      if (w) w.lastReadTimelineId = 0;
+    }
+
+    // The old entries were collapsed into the summary, so drop the previously
+    // rendered DOM nodes and re-render from the new timeline (this avoids
+    // orphaned/duplicate messages). Streaming temp nodes are left intact.
+    var msgBox = document.getElementById('pg-gc-messages');
+    if (msgBox) {
+      var rendered = msgBox.querySelectorAll('[data-gc-id]');
+      for (var r = 0; r < rendered.length; r++) rendered[r].remove();
+    }
+    pgGcRenderedIds = {};
+
+    if (typeof pgGcRefreshModalIncremental === 'function') pgGcRefreshModalIncremental();
+  }).catch(function(e) {
+    // Summary failure must not disturb the ongoing conversation.
+  }).finally(function() {
+    pgAutoChatIsSummarizing = false;
+  });
+}
+
+// Render the per-window token usage water-level bar. No-op if the modal's bar
+// element is not present (modal closed).
+function pgGcUpdateTokenBar() {
+  var bar = document.getElementById('pg-gc-token-bar');
+  if (!bar) return;
+
+  var title = (typeof pgT === 'function') ? pgT('pgGcTokenBar') : 'Context Usage';
+  var html = '<div class="pg-gc-token-title">' + pgEscapeHtml(title) + '</div>';
+  for (var i = 0; i < pgState.splitCount; i++) {
+    var w = pgWinAt(i);
+    if (!w.config.model) continue;
+    var tokens = pgAutoChatEstimateWindowTokens(i);
+    var name = pgAutoChatGetAgentName(i);
+    var pct = Math.min(100, (tokens / pgAutoChatContextWindow) * 100);
+    var color = pct > 80 ? '#ff6b6b' : (pct > 50 ? '#ffd93d' : '#6bcf7f');
+    html += '<div class="pg-gc-token-item">' +
+      '<span class="pg-gc-token-name">' + pgEscapeHtml(name) + '</span>' +
+      '<div class="pg-gc-token-bar-bg">' +
+        '<div class="pg-gc-token-bar-fill" style="width:' + pct + '%;background:' + color + '"></div>' +
+      '</div>' +
+      '<span class="pg-gc-token-num">' + tokens + '</span>' +
+    '</div>';
+  }
+  bar.innerHTML = html;
+}
+
+// Live stream hook: render a streaming window's partial reply into the modal.
+function pgGcOnStreamChunk(winIdx, assistantIdx) {
+  var overlay = document.getElementById('pg-modal-overlay');
+  if (!overlay || !overlay.classList.contains('show')) return;
+  if (!pgState.autoChat.isRunning) return;
+  var w = pgWinAt(winIdx);
+  if (!w || !w.streaming) return;
+
+  var content = pgTextContent(w.pendingContent);
+  if (!content) return;
+
+  var msgBox = document.getElementById('pg-gc-messages');
+  if (!msgBox) return;
+
+  var agentName = pgAutoChatGetAgentName(winIdx);
+  var streamingNode = msgBox.querySelector('.pg-gc-msg.streaming-agent-' + winIdx);
+
+  if (!streamingNode) {
+    streamingNode = document.createElement('div');
+    streamingNode.className = 'pg-gc-msg agent streaming-agent-' + winIdx;
+    streamingNode.innerHTML =
+      '<div class="pg-gc-sender">' + pgEscapeHtml(agentName) +
+      '<span class="pg-gc-time">' + new Date().toLocaleTimeString() + '</span></div>' +
+      '<div class="pg-gc-content">' + pgRenderMarkdown(content) + '</div>';
+    msgBox.appendChild(streamingNode);
+  } else {
+    var contentNode = streamingNode.querySelector('.pg-gc-content');
+    if (contentNode) contentNode.innerHTML = pgRenderMarkdown(content);
+  }
+
+  if (pgGcAutoScroll) msgBox.scrollTop = msgBox.scrollHeight;
 }
 
 function pgOpenGroupChatModal() {
   // Clear any existing refresh timer.
   if (pgGcRefreshTimer) { clearInterval(pgGcRefreshTimer); pgGcRefreshTimer = null; }
 
-  var msgs = pgGetGroupChatMessages();
-  var msgsHtml = pgRenderGroupChatMessagesHtml(msgs);
+  pgGcRenderedIds = {};
+  pgGcStreamingNode = null;
+  pgGcStreamingId = 0;
+  pgGcAutoScroll = true;
 
   var html = '<div class="pg-modal-header">' +
     '<span class="pg-modal-title">💬 ' + pgEscapeHtml(pgT('pgGroupChatTitle')) + '</span>' +
     '<button class="pg-modal-close" onclick="pgCloseGroupChatModal()">✕</button>' +
   '</div>' +
   '<div class="pg-modal-body pg-gc-body">' +
-    '<div class="pg-gc-messages" id="pg-gc-messages">' + msgsHtml + '</div>' +
+    '<div class="pg-gc-token-bar" id="pg-gc-token-bar"></div>' +
+    '<div class="pg-gc-messages" id="pg-gc-messages"></div>' +
+    '<div class="pg-gc-new-msgs" id="pg-gc-new-msgs" style="display:none" onclick="pgGcScrollToBottom()"></div>' +
     '<div class="pg-gc-input-bar">' +
       '<textarea class="pg-gc-input" id="pg-gc-input" placeholder="' + pgEscapeHtml(pgT('pgEnterMessage')) + '" onkeydown="pgOnGroupChatInputKey(event)"></textarea>' +
       '<button class="pg-send" onclick="pgGroupChatSend()">' + pgEscapeHtml(pgT('pgSendMessage')) + '</button>' +
@@ -447,10 +938,30 @@ function pgOpenGroupChatModal() {
 
   pgShowModal(html);
 
-  var box = document.getElementById('pg-gc-messages');
-  if (box) box.scrollTop = box.scrollHeight;
+  // First full render from the timeline.
+  pgGcRefreshModalIncremental();
 
-  // Start live-refresh interval (self-cleaning when modal closes).
+  var msgBox = document.getElementById('pg-gc-messages');
+  if (msgBox) {
+    msgBox.scrollTop = msgBox.scrollHeight;
+    msgBox.addEventListener('scroll', function() {
+      var atBottom = msgBox.scrollHeight - msgBox.scrollTop - msgBox.clientHeight < 50;
+      pgGcAutoScroll = atBottom;
+      var newMsgBtn = document.getElementById('pg-gc-new-msgs');
+      if (!newMsgBtn) return;
+      if (atBottom) {
+        newMsgBtn.style.display = 'none';
+      } else {
+        var unread = pgGcUnreadCount();
+        if (unread > 0) {
+          newMsgBtn.textContent = pgT('pgGcNewMsgs', [unread]);
+          newMsgBtn.style.display = 'block';
+        }
+      }
+    });
+  }
+
+  // Keep-alive fallback refresh (self-cleaning when modal closes).
   pgGcRefreshTimer = setInterval(function() {
     var overlay = document.getElementById('pg-modal-overlay');
     if (!overlay || !overlay.classList.contains('show')) {
@@ -458,8 +969,8 @@ function pgOpenGroupChatModal() {
       pgGcRefreshTimer = null;
       return;
     }
-    pgRefreshGroupChatModal();
-  }, 500);
+    pgGcRefreshModalIncremental();
+  }, 2000);
 }
 
 function pgCloseGroupChatModal() {
@@ -476,8 +987,8 @@ function pgGroupChatSend() {
   var mainTa = document.getElementById('pg-input');
   if (mainTa) mainTa.value = text;
   pgUserSend();
-  // Immediate refresh; interval will keep it updated.
-  pgRefreshGroupChatModal();
+  // Immediate incremental refresh; the interval keeps it updated.
+  pgGcRefreshModalIncremental();
 }
 
 function pgOnGroupChatInputKey(e) {
@@ -485,4 +996,44 @@ function pgOnGroupChatInputKey(e) {
     e.preventDefault();
     pgGroupChatSend();
   }
+}
+
+// ----- Failure retry (auto chat) --------------------------------------
+
+// Per-window retry counter: { winIdx: count }.
+var pgAutoChatRetryCount = {};
+
+// Decide whether to retry a failed auto-chat reply. Returns true (and schedules
+// a retry) when the window has not yet exhausted its single retry.
+function pgAutoChatShouldRetry(winIdx, assistantIdx) {
+  var retries = pgAutoChatRetryCount[winIdx] || 0;
+  if (retries >= 1) return false;
+
+  pgAutoChatRetryCount[winIdx] = retries + 1;
+  var capturedSession = pgState.autoChat.session;
+  var w = pgWinAt(winIdx);
+
+  // Block other triggers while we wait (pending => pgAutoChatCanReply false).
+  w.autoChatPending = true;
+
+  // Show a retry notice in the console log.
+  try { pgConsoleLog('[auto-chat] W' + (winIdx + 1) + ': ' + pgT('pgAutoChatRetryMsg', [winIdx + 1])); } catch (e) {}
+
+  setTimeout(function() {
+    w.autoChatPending = false;
+    if (capturedSession !== pgState.autoChat.session) return;
+    if (!pgState.autoChat.isRunning) return;
+    if (w.autoChatDone) return;
+    if (!pgAutoChatCanReply(winIdx)) return;
+    var last = w.messages[w.messages.length - 1];
+    if (last) {
+      last.status = 'loading';
+      last.content = '';
+      last.error = null;
+    }
+    pgRenderMessages(winIdx);
+    pgSend(winIdx, w.messages.length - 1);
+  }, 3000);
+
+  return true;
 }

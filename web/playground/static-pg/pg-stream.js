@@ -187,6 +187,10 @@ function pgFlushRender(i, assistantIdx) {
     pgRenderBubble(i, assistantIdx);
     pgRenderDebug();
     pgScrollBottom(i);
+    // Group chat modal live-stream hook (guarded; optional module).
+    if (typeof pgGcOnStreamChunk === 'function') {
+      pgGcOnStreamChunk(i, assistantIdx);
+    }
   }, 50);
 }
 
@@ -316,6 +320,14 @@ function pgFail(i, assistantIdx, errMsg, errorCode) {
   pgRenderBubble(i, assistantIdx);
   pgRenderDebug();
   pgUpdateInputBar();
+  // Auto chat failure retry (guarded; optional module). Returns true and
+  // schedules a retry without triggering onFinish.
+  if (typeof pgAutoChatShouldRetry === 'function' &&
+      pgState.autoChat && pgState.autoChat.isRunning) {
+    if (pgAutoChatShouldRetry(i, assistantIdx)) {
+      return;
+    }
+  }
   // Auto chat: a failed window still counts as a completed reply.
   if (typeof pgAutoChatOnFinish === 'function' && pgState.autoChat && pgState.autoChat.isRunning) {
     pgAutoChatOnFinish(i);
@@ -327,6 +339,7 @@ function pgStop() {
   // Signal auto chat to suppress finish hooks during shutdown.
   if (pgState.autoChat && pgState.autoChat.isRunning) {
     pgState.autoChat.abortFlag = true;
+    pgState.autoChat.session++;
   }
   for (var i = 0; i < pgState.windows.length; i++) {
     var w = pgWinAt(i);

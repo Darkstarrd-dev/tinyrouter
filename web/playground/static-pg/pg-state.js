@@ -28,6 +28,7 @@ function makeWin() {
     autoChatDone: false,       // whether this window reached its iteration limit
     autoChatPending: false,    // reply scheduled (waiting for delay timer)
     autoChatDelayTimer: null,  // setTimeout id for random delay before reply
+    lastReadTimelineId: 0,     // highest timeline id this window has consumed
   };
 }
 
@@ -47,7 +48,10 @@ var pgState = {
     userName: 'User',      // user nickname
     delaySeconds: 0,       // random delay base before each reply (0 = no delay)
     isRunning: false,      // loop active
-    abortFlag: false,      // termination signal
+    abortFlag: false,        // termination signal
+    session: 0,            // epoch — incremented on start/stop to invalidate stale setTimeout callbacks
+    timeline: [],           // shared timeline — single source of truth for group chat
+    timelineId: 0,          // auto-increment id counter for timeline entries
   },
 };
 
