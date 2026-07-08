@@ -171,10 +171,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 				}
 				h.Inflight.AddBytes(reqID, n)
 				if time.Since(lastSSEPush) > 1500*time.Millisecond {
-					select {
-					case h.InflightUpdateCh <- struct{}{}:
-					default:
-					}
+					h.InflightUpdates.Signal()
 					lastSSEPush = time.Now()
 				}
 			}

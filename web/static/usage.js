@@ -9,6 +9,7 @@ var lockCountdownInterval = null;
 var quotaBarItems = {};
 var lastQuotaSig = '';
 var usageDebugMode = false;
+var usageVisibilityHandler = null;
 
 var TREND_PALETTE = [
   '#4fc3f7', '#10a37f', '#d97706', '#4285f4', '#a855f7', '#ff6a00',
@@ -386,10 +387,8 @@ async function refreshQuotaData() {
   } catch(e) { console.warn('refreshQuotaData failed:', e); }
 }
 
-function startUsageRefresh() {
-  stopUsageRefresh();
-  usageEventSource = new EventSource('/api/usage/events');
-  usageEventSource.onmessage = function(ev) {
+function applyUsageSSEHandlers(es) {
+  es.onmessage = function(ev) {
     try {
       var data = JSON.parse(ev.data);
       if (data.type === 'usage-updated' || data.type === 'key-inflight') {
@@ -397,17 +396,39 @@ function startUsageRefresh() {
       }
     } catch(e) {}
   };
-  usageEventSource.onerror = function() {
+  es.onerror = function() {
     var status = document.getElementById('console-status');
     if (status) status.textContent = t('disconnected');
   };
-  usageEventSource.onopen = function() {
+  es.onopen = function() {
     var status = document.getElementById('console-status');
     if (status) status.textContent = t('connected');
   };
 }
 
+function startUsageRefresh() {
+  stopUsageRefresh();
+  usageEventSource = new EventSource('/api/usage/events');
+  applyUsageSSEHandlers(usageEventSource);
+
+  usageVisibilityHandler = function() {
+    if (document.visibilityState === 'visible' && currentPage === 'usage') {
+      if (!usageEventSource || usageEventSource.readyState === EventSource.CLOSED) {
+        if (usageEventSource) usageEventSource.close();
+        usageEventSource = new EventSource('/api/usage/events');
+        applyUsageSSEHandlers(usageEventSource);
+      }
+      refreshQuotaData();
+    }
+  };
+  document.addEventListener('visibilitychange', usageVisibilityHandler);
+}
+
 function stopUsageRefresh() {
+  if (usageVisibilityHandler) {
+    document.removeEventListener('visibilitychange', usageVisibilityHandler);
+    usageVisibilityHandler = null;
+  }
   if (usageEventSource) {
     usageEventSource.close();
     usageEventSource = null;

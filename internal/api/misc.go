@@ -28,6 +28,7 @@ func (rt *Router) getUsage(w http.ResponseWriter, r *http.Request) {
 		end = total
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]any{
 		"total":   total,
 		"entries": all[offset:end],
@@ -37,12 +38,14 @@ func (rt *Router) getUsage(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) getUsageSummary(w http.ResponseWriter, r *http.Request) {
 	summary := rt.usage.Summary()
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(summary)
 }
 
 func (rt *Router) clearUsage(w http.ResponseWriter, r *http.Request) {
 	rt.usage.Clear()
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
@@ -119,6 +122,7 @@ func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]any{
 		"quotas": bars,
 	})
@@ -324,6 +328,7 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]any{
 		"provider":         providerName,
 		"model":            model,
@@ -350,8 +355,10 @@ func (rt *Router) streamUsageEvents(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n")
 	flusher.Flush()
 
-	ch := rt.proxyHandler.UsageUpdateCh
-	infCh := rt.proxyHandler.InflightUpdateCh
+	ch, unsubUsage := rt.proxyHandler.UsageUpdates.Subscribe()
+	infCh, unsubInflight := rt.proxyHandler.InflightUpdates.Subscribe()
+	defer unsubUsage()
+	defer unsubInflight()
 	ctx := r.Context()
 	for {
 		select {

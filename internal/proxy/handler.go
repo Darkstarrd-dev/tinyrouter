@@ -23,8 +23,8 @@ type Handler struct {
 	quotaTracker      *usage.QuotaTracker
 	logger            *console.Logger
 	client            *http.Client
-	UsageUpdateCh     chan struct{}
-	InflightUpdateCh  chan struct{}
+	UsageUpdates      *Broadcaster
+	InflightUpdates   *Broadcaster
 	Inflight          *InflightTracker
 	debugModeProvider func() bool
 }
@@ -37,8 +37,8 @@ func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.
 		usage:            usageBuf,
 		quotaTracker:     quotaTracker,
 		logger:           logger,
-		UsageUpdateCh:    make(chan struct{}, 1),
-		InflightUpdateCh: make(chan struct{}, 1),
+		UsageUpdates:     NewBroadcaster(4),
+		InflightUpdates:  NewBroadcaster(4),
 		Inflight:         NewInflightTracker(),
 		client: &http.Client{
 			Timeout: 300 * time.Second,
@@ -207,10 +207,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			if keyState != nil {
 				keyState.DecInFlight()
 			}
-			select {
-			case h.InflightUpdateCh <- struct{}{}:
-			default:
-			}
+			h.InflightUpdates.Signal()
 			continue
 		}
 
@@ -219,10 +216,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			if keyState != nil {
 				keyState.DecInFlight()
 			}
-			select {
-			case h.InflightUpdateCh <- struct{}{}:
-			default:
-			}
+			h.InflightUpdates.Signal()
 			continue
 		}
 
@@ -231,10 +225,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			if keyState != nil {
 				keyState.DecInFlight()
 			}
-			select {
-			case h.InflightUpdateCh <- struct{}{}:
-			default:
-			}
+			h.InflightUpdates.Signal()
 			continue
 		}
 
@@ -265,10 +256,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		if keyState != nil {
 			keyState.DecInFlight()
 		}
-		select {
-		case h.InflightUpdateCh <- struct{}{}:
-		default:
-		}
+		h.InflightUpdates.Signal()
 		return true
 	}
 }
@@ -364,10 +352,7 @@ func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey,
 		entry.RespStatus = respStatus
 	}
 	h.usage.Add(entry)
-	select {
-	case h.UsageUpdateCh <- struct{}{}:
-	default:
-	}
+	h.UsageUpdates.Signal()
 }
 
 // parseAndUpdateQuota extracts rate-limit info from upstream response headers
