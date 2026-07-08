@@ -352,12 +352,30 @@ function renderRecentRequestsInline(entries) {
 
 function updateRecentRequestsInline(entries) {
   var tbody = document.getElementById('recent-tbody');
-  if (!tbody) return;
+  if (!tbody) {
+    if (entries.length > 0) {
+      var card = document.querySelector('.recent-requests-card');
+      if (card && card.parentNode) {
+        var temp = document.createElement('div');
+        temp.innerHTML = renderRecentRequestsInline(entries);
+        var newCard = temp.firstElementChild;
+        if (newCard) card.parentNode.replaceChild(newCard, card);
+      }
+    }
+    return;
+  }
   var limit = 50;
   var rows = entries.slice(0, limit);
   tbody.innerHTML = rows.map(renderUsageRow).join('');
   var countEl = document.querySelector('.recent-requests-card .recent-count');
   if (countEl) countEl.textContent = String(entries.length);
+}
+
+function formatCompactTokens(n) {
+  var v = Number(n || 0);
+  if (v >= 1000000) return (v / 1000000).toFixed(2) + 'M';
+  if (v >= 1000) return (v / 1000).toFixed(1) + 'K';
+  return String(v);
 }
 
 // --- Quota refresh with debounce ---
@@ -442,7 +460,7 @@ function stopUsageRefresh() {
 
 function computeQuotaSig(bars) {
   if (!bars) return '';
-  try { return JSON.stringify(bars.map(function(b) { return b.provider + '|' + b.model + '|' + b.totalUsed + '|' + b.totalCapacity + '|' + (b.inFlightKeyNames ? b.inFlightKeyNames.join(',') : '') + '|' + (b.currentKeyName||'') + '|' + (b.currentKeyId||'') + '|' + b.successCount + '|' + b.errorCount + '|' + (b.hasQuota ? 1 : 0) + '|' + (b.perKeyLimit||''); })); } catch(e) { return ''; }
+  try { return JSON.stringify(bars.map(function(b) { return b.provider + '|' + b.model + '|' + b.totalUsed + '|' + b.totalCapacity + '|' + (b.inFlightKeyNames ? b.inFlightKeyNames.join(',') : '') + '|' + (b.currentKeyName||'') + '|' + (b.currentKeyId||'') + '|' + b.successCount + '|' + b.errorCount + '|' + b.inputTokens + '|' + b.outputTokens + '|' + (b.hasQuota ? 1 : 0) + '|' + (b.perKeyLimit||''); })); } catch(e) { return ''; }
 }
 
 function setBarWidth(fillEl, pctStr) {
@@ -492,6 +510,12 @@ function renderQuotaBarItem(bar) {
     '<span style="color:var(--accent2);font-weight:700">' + bar.successCount + '</span>' +
     '<span style="color:var(--text-muted);font-weight:400"> / </span>' +
     '<span style="color:var(--danger);font-weight:700">' + bar.errorCount + '</span>' +
+    '<span style="color:var(--text-muted);margin:0 4px">|</span>' +
+    '<span style="color:var(--text-muted)">in:</span>' +
+    '<span style="color:var(--accent2);font-weight:600">' + formatCompactTokens(bar.inputTokens) + '</span>' +
+    '<span style="color:var(--text-muted);margin:0 4px">|</span>' +
+    '<span style="color:var(--text-muted)">out:</span>' +
+    '<span style="color:var(--accent);font-weight:600">' + formatCompactTokens(bar.outputTokens) + '</span>' +
     '</span>';
   if (bar.hasQuota) {
     var pct = bar.totalCapacity > 0 ? (bar.totalUsed / bar.totalCapacity * 100) : 0;
@@ -567,6 +591,12 @@ function patchQuotaBarItem(el, bar) {
     '<span style="color:var(--accent2);font-weight:700">' + bar.successCount + '</span>' +
     '<span style="color:var(--text-muted);font-weight:400"> / </span>' +
     '<span style="color:var(--danger);font-weight:700">' + bar.errorCount + '</span>' +
+    '<span style="color:var(--text-muted);margin:0 4px">|</span>' +
+    '<span style="color:var(--text-muted)">in:</span>' +
+    '<span style="color:var(--accent2);font-weight:600">' + formatCompactTokens(bar.inputTokens) + '</span>' +
+    '<span style="color:var(--text-muted);margin:0 4px">|</span>' +
+    '<span style="color:var(--text-muted)">out:</span>' +
+    '<span style="color:var(--accent);font-weight:600">' + formatCompactTokens(bar.outputTokens) + '</span>' +
     '</span>';
   var currentKeyHtml = '';
   if (bar.currentKeyName) {
