@@ -220,6 +220,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 				"pg-request.js", "pg-stream.js", "pg-render.js",
 				"pg-ui.js", "pg-modal.js", "pg-lifecycle.js",
 				"pg-autochat.js",
+				"pg-setup.js", "pg-director.js",
 			}
 			for _, f := range pgJSFiles {
 				r.Get("/"+f, pgFSRoot.ServeHTTP)

@@ -354,10 +354,9 @@ function pgAutoChatOnFinish(winIdx) {
   }
 
   // Append this window's reply to the shared timeline (replaces broadcast).
-  if (content && content.trim()) {
-    var sender = pgAutoChatGetAgentName(winIdx);
-    pgAutoChatAppendTimeline(sender, 'agent', winIdx, content, 'complete');
-  }
+  var sender = pgAutoChatGetAgentName(winIdx);
+  var replyContent = (content && content.trim()) ? content : pgT('(no response)');
+  pgAutoChatAppendTimeline(sender, 'agent', winIdx, replyContent, 'complete');
 
   // Mark own reply as read so this window does not re-trigger on itself.
   w.lastReadTimelineId = pgState.autoChat.timelineId;
@@ -384,36 +383,40 @@ function pgAutoChatOnFinish(winIdx) {
   pgAutoChatCheckAllDone();
 }
 
-// Check if all windows are done (hit limit) or idle with empty inbox.
 function pgAutoChatCheckAllDone() {
-  // Not running (stopped/finished) — no-op, prevents post-end re-entry loops.
   if (!pgState.autoChat.isRunning) return;
-  // Director/narrator in-flight: defer the done-check to avoid finishing mid-narration (guarded).
   if (typeof pgDirectorEvalInFlight === 'function' && (pgDirectorEvalInFlight() || (typeof pgDirectorNarratorPending === 'function' && pgDirectorNarratorPending()))) return;
   var modelWins = pgAutoChatModelWindows();
-  var allDone = modelWins.every(function(i) {
+  var anyActive = false;
+  var allHitLimit = true;
+  var stalled = [];
+  modelWins.forEach(function(i) {
     var w = pgWinAt(i);
-    // Still replying — not done.
-    if (w.streaming) return false;
-    // Reply scheduled (waiting for delay) — not done.
-    if (w.autoChatPending) return false;
-    // Hit iteration limit.
-    if (w.autoChatDone) return true;
-    // Idle but has unread timeline messages — will trigger soon.
+    if (w.streaming || w.autoChatPending) { anyActive = true; allHitLimit = false; return; }
+    if (w.autoChatDone) return;
+    allHitLimit = false;
     var hasUnread = pgState.autoChat.timeline.some(function(e) {
       return e.id > w.lastReadTimelineId;
     });
-    if (hasUnread) return false;
-    // Idle, nothing unread, but can still reply (under limit) — waiting for
-    // someone to say something. If EVERY window is in this state, nobody
-    // will speak → conversation ends.
-    return true;
+    if (hasUnread) { anyActive = true; return; }
+    stalled.push(i);
   });
-  if (allDone) {
-    // Director final-chance: if plot isn't resolved, defer finish once (guarded).
+  if (anyActive) return;
+  if (allHitLimit) {
     if (typeof pgDirectorOnBeforeFinish === 'function' && pgDirectorOnBeforeFinish()) return;
     pgAutoChatFinish();
+    return;
   }
+  var iters = pgState.autoChat.iterations;
+  if (iters > 0 && stalled.length > 0) {
+    stalled.sort(function(a, b) { return pgWinAt(a).replyCount - pgWinAt(b).replyCount; });
+    var w = pgWinAt(stalled[0]);
+    w.lastReadTimelineId = 0;
+    pgAutoChatProcessWindowInbox(stalled[0]);
+    return;
+  }
+  if (typeof pgDirectorOnBeforeFinish === 'function' && pgDirectorOnBeforeFinish()) return;
+  pgAutoChatFinish();
 }
 
 // ----- Stop / finish -------------------------------------------------

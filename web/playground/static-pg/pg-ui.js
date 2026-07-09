@@ -299,20 +299,8 @@ function pgRenderSidebar() {
     '</div>';
 
   // --- Model select ---
-  var optGroups = '<option value="">' + pgEscapeHtml(pgT('pgSelectModel')) + '</option>';
-  var byType = { provider: [], combo: [] };
-  pgState.models.forEach(function(m) { if (byType[m.type]) byType[m.type].push(m); });
-  if (byType.combo.length) {
-    optGroups += '<optgroup label="Combos">';
-    byType.combo.forEach(function(m) { optGroups += '<option value="' + pgEscapeHtml(m.id) + '"' + (cfg.model === m.id ? ' selected' : '') + '>' + pgEscapeHtml(m.id) + '</option>'; });
-    optGroups += '</optgroup>';
-  }
-  if (byType.provider.length) {
-    optGroups += '<optgroup label="Providers">';
-    byType.provider.forEach(function(m) { optGroups += '<option value="' + pgEscapeHtml(m.id) + '"' + (cfg.model === m.id ? ' selected' : '') + '>' + pgEscapeHtml(m.id) + ' (' + pgEscapeHtml(m.provider) + ')</option>'; });
-    optGroups += '</optgroup>';
-  }
-  var modelSel = '<select id="pg-model" onchange="pgOnModelChange(this.value)"' + (customMode ? ' disabled' : '') + '>' + optGroups + '</select>';
+  var modelLabel = pgWin().config.model || pgT('pgSelectModel');
+  var modelSel = '<button class="pg-btn pg-model-btn"' + (customMode ? ' disabled' : '') + ' onclick="pgOpenModelPicker(pgWin().config.model, function(v){ pgOnModelChange(v); pgRenderSidebar(); })" style="width:100%;text-align:left;justify-content:flex-start">' + pgEscapeHtml(modelLabel) + ' <span style="float:right;opacity:0.5">▼</span></button>';
 
   // --- Parameters ---
   function paramRow(key, label, min, max, step, isNum) {
@@ -322,19 +310,12 @@ function pgRenderSidebar() {
     var valAttr = isNum ? 'value="' + (val || 0) + '"' : 'value="' + (val != null ? val : 0) + '"';
     var input = isNum
       ? '<input type="number" min="' + min + '" step="' + step + '" ' + valAttr + ' onchange="pgOnParam(\'' + key + '\', this.value==\'\'?0:'+ (min < 0 ? 'parseFloat(this.value)' : 'parseInt(this.value,10)||0') + ')">'
-      : '<input type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" oninput="pgOnParam(\'' + key + '\', parseFloat(this.value))"><span class="pg-val" id="pg-val-' + key + '">' + val + '</span>';
+      : '<input type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" oninput="pgOnParam(\'' + key + '\', parseFloat(this.value))"><span class="pg-val" id="pg-val-' + key + '">' + (typeof val === 'number' ? val.toFixed(2) : val) + '</span>';
     return '<div class="pg-param' + (disabled ? ' disabled' : '') + '">' +
       '<button class="pg-toggle' + (on ? ' on' : '') + '" onclick="pgToggleParam(\'' + key + '\')" title="' + pgEscapeHtml(pgT('pgParamToggle')) + '">' + (on ? '✓' : '✕') + '</button>' +
       '<label>' + pgEscapeHtml(pgT(label)) + '</label>' +
       input +
     '</div>';
-  }
-  function pgDirectorModelOpts(selected) {
-    var opts = '<option value="">' + pgEscapeHtml(pgT('Default (first window model)')) + '</option>';
-    pgState.models.forEach(function(m) {
-      opts += '<option value="' + pgEscapeHtml(m.id) + '"' + (selected === m.id ? ' selected' : '') + '>' + pgEscapeHtml(m.id) + '</option>';
-    });
-    return opts;
   }
   var params =
     paramRow('temperature', 'pgTemperature', 0, 2, 0.1, false) +
@@ -342,6 +323,7 @@ function pgRenderSidebar() {
     paramRow('frequencyPenalty', 'pgFreqPenalty', -2, 2, 0.1, false) +
     paramRow('presencePenalty', 'pgPresPenalty', -2, 2, 0.1, false) +
     paramRow('maxTokens', 'pgMaxTokens', 0, 1, 1, true) +
+    paramRow('thinkingBudget', 'pgThinking', 0, 100000, 100, true) +
     '<div class="pg-param' + (!en.seed || customMode ? ' disabled' : '') + '">' +
       '<button class="pg-toggle' + (en.seed ? ' on' : '') + '" onclick="pgToggleParam(\'seed\')" title="' + pgEscapeHtml(pgT('pgParamToggle')) + '">' + (en.seed ? '✓' : '✕') + '</button>' +
       '<label>' + pgEscapeHtml(pgT('pgSeed')) + '</label>' +
@@ -436,18 +418,14 @@ function pgRenderSidebar() {
         '<label>' + pgEscapeHtml(pgT('Director Enable')) + '</label>' +
         '<input type="checkbox" id="pg-director-enable"' + (pgState.autoChat.director.enabled ? ' checked' : '') + ' onchange="pgDirectorToggle(this.checked)">' +
       '</div>' +
-      '<div class="pg-param-row">' +
-        '<label>' + pgEscapeHtml(pgT('Director Model')) + '</label>' +
-        '<select onchange="pgDirectorSetDirectorModel(this.value)">' +
-          pgDirectorModelOpts(pgState.autoChat.director.directorModel) +
-        '</select>' +
-      '</div>' +
-      '<div class="pg-param-row">' +
-        '<label>' + pgEscapeHtml(pgT('Narrator Model')) + '</label>' +
-        '<select onchange="pgDirectorSetNarratorModel(this.value)">' +
-          pgDirectorModelOpts(pgState.autoChat.director.narratorModel) +
-        '</select>' +
-      '</div>' +
+       '<div class="pg-param-row">' +
+         '<label>' + pgEscapeHtml(pgT('Director Model')) + '</label>' +
+         '<button class="pg-btn pg-model-btn" onclick="pgOpenModelPicker(pgState.autoChat.director.directorModel, function(v){ pgDirectorSetDirectorModel(v); pgRenderSidebar(); }, {allowEmpty:true})" style="width:100%;text-align:left;justify-content:flex-start">' + pgEscapeHtml(pgState.autoChat.director.directorModel || pgT('Default (first window model)')) + ' <span style="float:right;opacity:0.5">▼</span></button>' +
+       '</div>' +
+       '<div class="pg-param-row">' +
+         '<label>' + pgEscapeHtml(pgT('Narrator Model')) + '</label>' +
+         '<button class="pg-btn pg-model-btn" onclick="pgOpenModelPicker(pgState.autoChat.director.narratorModel, function(v){ pgDirectorSetNarratorModel(v); pgRenderSidebar(); }, {allowEmpty:true})" style="width:100%;text-align:left;justify-content:flex-start">' + pgEscapeHtml(pgState.autoChat.director.narratorModel || pgT('Default (first window model)')) + ' <span style="float:right;opacity:0.5">▼</span></button>' +
+       '</div>' +
       '<div class="pg-param-row">' +
         '<label>' + pgEscapeHtml(pgT('Every N Replies')) + '</label>' +
         '<input type="number" min="1" value="' + pgState.autoChat.director.everyNReplies + '" onchange="pgDirectorSetEveryNReplies(this.value)">' +
@@ -621,7 +599,7 @@ function pgOnParam(name, v) {
   if (!w) return;
   w.config[name] = v;
   var valEl = document.getElementById('pg-val-' + name);
-  if (valEl) valEl.textContent = v;
+  if (valEl) valEl.textContent = typeof v === 'number' ? v.toFixed(2) : v;
   pgSave();
 }
 function pgOnSystemPrompt(v) { var w = pgWin(); if (w) { w.config.systemPrompt = v; pgSave(); } }

@@ -76,6 +76,7 @@ function pgBuildBodyForWin(i) {
     var seedNum = Number(cfg.seed);
     body.seed = isNaN(seedNum) ? cfg.seed : seedNum;
   }
+  if (en.thinkingBudget && cfg.thinkingBudget > 0) body.thinking = { type: 'enabled', budget_tokens: cfg.thinkingBudget };
   return body;
 }
 

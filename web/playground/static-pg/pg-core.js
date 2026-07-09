@@ -35,6 +35,7 @@ var PG_DEFAULT_CFG = {
   // Agent nickname (group-chat identity); empty => "Agent N"
   agentName: '',
   contextLimit: 8000,
+  thinkingBudget: 4096,
 };
 
 // parameterEnabled mirrors new-api defaults: max_tokens + seed off.
@@ -45,6 +46,7 @@ var PG_DEFAULT_PARAMS = {
   frequencyPenalty: true,
   presencePenalty: true,
   seed: false,
+  thinkingBudget: false,
 };
 
 var PG_ICON_COPY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';

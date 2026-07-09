@@ -44,6 +44,7 @@ var pgSetupState = {
   abortCtrl: null,     // AbortController for current LLM call
   scenario: null,      // built ScenarioProfile (after completion)
   characters: [],      // fully expanded character cards
+  model: '',           // selected LLM model id for generation ('' = first window model)
 };
 
 // ----- Utility: robust JSON extraction --------------------------------
@@ -90,12 +91,15 @@ function pgSetupExtractJSON(text) {
 // ----- Utility: LLM call (stream:false, AbortController + timeout) ----
 
 function pgSetupCallLLM(systemPrompt, userContent, timeoutMs) {
-  var modelWins = pgAutoChatModelWindows();
-  if (!modelWins.length) {
-    pgToast(pgT('pgSelectModel'), 'warning');
-    return Promise.reject(new Error('no model'));
+  var model = pgSetupState.model || '';
+  if (!model) {
+    var modelWins = pgAutoChatModelWindows();
+    if (!modelWins.length) {
+      pgToast(pgT('pgSelectModel'), 'warning');
+      return Promise.reject(new Error('no model'));
+    }
+    model = pgWinAt(modelWins[0]).config.model;
   }
-  var model = pgWinAt(modelWins[0]).config.model;
   if (!model) {
     pgToast(pgT('pgSelectModel'), 'warning');
     return Promise.reject(new Error('no model'));
@@ -150,16 +154,22 @@ function pgSetupMapAxesToParams(axes) {
   else maxTokens = 1024;
   // seed: random
   var seed = Math.floor(Math.random() * Math.pow(2, 31));
+  // thinkingBudget: conventionality >= 7 → 4096; >= 5 && expressiveness <= 4 → 2048; else 0
+  var thinkingBudget;
+  if (c >= 7) thinkingBudget = 4096;
+  else if (c >= 5 && e <= 4) thinkingBudget = 2048;
+  else thinkingBudget = 0;
   // Rationale text
   var rationale = 'conventionality=' + c + '（' + (c >= 7 ? '严谨' : c >= 4 ? '适中' : '自由') + '）, ';
   rationale += 'expressiveness=' + e + '（' + (e >= 7 ? '奔放' : e >= 4 ? '适中' : '内敛') + '）, ';
   rationale += 'verbosity=' + v + '（' + (v <= 3 ? '简洁' : v <= 6 ? '适中' : '话痨') + '）';
-  rationale += ' → temperature=' + temp.toFixed(2) + ', topP=' + topP + ', maxTokens=' + maxTokens;
+  rationale += ' → temperature=' + temp.toFixed(2) + ', topP=' + topP + ', maxTokens=' + maxTokens + ', thinking=' + (thinkingBudget > 0 ? thinkingBudget : 'off');
   return {
     temperature: temp,
     topP: topP,
     maxTokens: maxTokens,
     seed: seed,
+    thinkingBudget: thinkingBudget,
     rationale: rationale,
   };
 }
@@ -256,12 +266,14 @@ function pgSetupApplyProfile(profile) {
       w.config.topP = agent.params.topP;
       w.config.maxTokens = agent.params.maxTokens;
       w.config.seed = agent.params.seed;
+      w.config.thinkingBudget = agent.params.thinkingBudget || 0;
     }
     // Enable parameter overrides
     w.parameterEnabled.temperature = true;
     w.parameterEnabled.topP = true;
     w.parameterEnabled.maxTokens = true;
     w.parameterEnabled.seed = true;
+    w.parameterEnabled.thinkingBudget = (agent.params && agent.params.thinkingBudget > 0) ? true : false;
   }
   // Persist scenario
   pgState.autoChat.scenario = profile;
@@ -280,6 +292,7 @@ function pgSetupApplyProfile(profile) {
     if (inputEl) inputEl.value = seedMsg;
   }
   pgToast(pgT('Scenario applied'), 'success');
+  pgCloseModal();
 }
 
 // ----- §4.4: Export ------------------------------------------------
@@ -363,7 +376,7 @@ function pgSetupImportProfile(file) {
 }
 
 function pgSetupRenderImportPreview(profile) {
-  if (!profile) return '<p>Empty profile</p>';
+  if (!profile) return '<p>' + pgEscapeHtml(pgT('Empty profile')) + '</p>';
   var html = '';
   var sc = profile.scenario || {};
   html += '<div style="margin-bottom:12px">';
@@ -384,7 +397,7 @@ function pgSetupRenderImportPreview(profile) {
     // Show params if agents exist
     if (profile.agents && profile.agents[ci] && profile.agents[ci].params) {
       var p = profile.agents[ci].params;
-      html += '<div style="font-size:12px;opacity:0.7;margin-top:2px">temp=' + p.temperature + ' topP=' + p.topP + ' maxTokens=' + p.maxTokens + '</div>';
+      html += '<div style="font-size:12px;opacity:0.7;margin-top:2px">temp=' + p.temperature + ' topP=' + p.topP + ' maxTokens=' + p.maxTokens + ' thinking=' + (p.thinkingBudget > 0 ? p.thinkingBudget : 'off') + '</div>';
     }
     html += '</div>';
   }
@@ -577,6 +590,20 @@ function pgOpenSetupWizard() {
     pgToast(pgT('Need at least 2 windows with models for group chat'), 'warning');
     return;
   }
+  var existing = pgState.autoChat.scenario || pgSetupState.scenario;
+  if (existing && existing.characters && existing.characters.length > 0 && existing.scenario) {
+    pgSetupState.scenario = existing;
+    pgShowModal(
+      '<div class="pg-modal-header">' +
+        '<span class="pg-modal-title">' + pgEscapeHtml(pgT('AI Scenario Generator')) + '</span>' +
+        '<button class="pg-modal-close" onclick="pgCloseModal()">✕</button>' +
+      '</div>' +
+      '<div class="pg-modal-body" style="max-height:70vh;overflow-y:auto">' +
+        pgSetupBuildFinalReviewHTML(existing) +
+      '</div>'
+    );
+    return;
+  }
   var N = modelWins.length;
 
   // Build agent name inputs (one per window)
@@ -619,8 +646,8 @@ function pgOpenSetupWizard() {
       // Seed inputs
       '<div class="pg-setup-section">' +
         '<h3>' + pgEscapeHtml(pgT('Seed Inputs')) + '</h3>' +
-        '<div style="margin:4px 0"><input type="text" id="pg-setup-topic" class="pg-setup-input" placeholder="' + pgEscapeHtml(pgT('Topic (e.g. Sci-fi detective))')) + '"></div>' +
-        '<div style="margin:4px 0"><input type="text" id="pg-setup-genre" class="pg-setup-input" placeholder="' + pgEscapeHtml(pgT('Genre (e.g. mystery/thriller))')) + '"></div>' +
+        '<div style="margin:4px 0"><input type="text" id="pg-setup-topic" class="pg-setup-input" placeholder="' + pgEscapeHtml(pgT('Topic (e.g. Sci-fi detective)')) + '"></div>' +
+        '<div style="margin:4px 0"><input type="text" id="pg-setup-genre" class="pg-setup-input" placeholder="' + pgEscapeHtml(pgT('Genre (e.g. mystery/thriller)')) + '"></div>' +
         '<div style="margin:4px 0"><textarea id="pg-setup-guidance" class="pg-setup-textarea" placeholder="' + pgEscapeHtml(pgT('Guidance / plot outline (optional)')) + '"></textarea></div>' +
       '</div>' +
 
@@ -629,6 +656,12 @@ function pgOpenSetupWizard() {
         '<h3>' + pgEscapeHtml(pgT('Agent Names')) + ' (' + N + ' ' + pgEscapeHtml(pgT('windows')) + ')</h3>' +
         nameInputs +
         '<div style="font-size:12px;opacity:0.6;margin-top:4px">' + pgEscapeHtml(pgT('Leave blank for AI-generated names')) + '</div>' +
+      '</div>' +
+
+      // Model selection
+      '<div class="pg-setup-section">' +
+        '<h3>' + pgEscapeHtml(pgT('Model')) + '</h3>' +
+        '<button class="pg-btn pg-model-btn" id="pg-setup-model-btn" onclick="pgSetupOpenModelPicker()" style="width:100%;text-align:left;justify-content:flex-start">' + pgEscapeHtml(pgSetupState.model || pgT('Default (first window model)')) + ' <span style="float:right;opacity:0.5">▼</span></button>' +
       '</div>' +
 
       // Generate button
@@ -641,6 +674,26 @@ function pgOpenSetupWizard() {
     '</div>';
 
   pgShowModal(html);
+}
+
+function pgSetupOpenModelPicker() {
+  pgOpenModelPicker(pgSetupState.model, function(v) {
+    pgSetupState.model = v;
+    var btn = document.getElementById('pg-setup-model-btn');
+    if (btn) btn.innerHTML = pgEscapeHtml(v || pgT('Default (first window model)')) + ' <span style="float:right;opacity:0.5">▼</span>';
+  }, { allowEmpty: true });
+}
+
+function pgSetupReset() {
+  pgSetupState.scenario = null;
+  pgSetupState.characters = [];
+  pgSetupState.stageResults = [];
+  pgSetupState.currentStage = 0;
+  pgSetupState._importProfile = null;
+  pgState.autoChat.scenario = null;
+  pgSaveScenario();
+  pgCloseModal();
+  pgOpenSetupWizard();
 }
 
 // ----- pgSetupGenerate: dispatch generation by mode -------------------
@@ -1016,37 +1069,6 @@ function pgSetupM3Step1() {
 // UI: Stage rendering
 // =====================================================================
 
-function pgSetupRenderStageUI(stageNum, totalStages, content, showNext) {
-  var area = document.getElementById('pg-setup-stage-area');
-  if (!area) return;
-  var isLastStage = stageNum >= totalStages;
-  var html = '<div style="margin-top:8px;padding:10px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">';
-  html += '<div style="font-size:13px;font-weight:bold;margin-bottom:8px">' +
-    pgEscapeHtml(pgT('Stage')) + ' ' + stageNum + '/' + totalStages + '</div>';
-
-  if (typeof content === 'string' && content.length > 0 && content.indexOf(pgT('Generating')) !== 0) {
-    html += '<textarea class="pg-setup-textarea" id="pg-setup-stage-text" style="min-height:150px" readonly>' + pgEscapeHtml(content) + '</textarea>';
-  } else {
-    html += '<div style="padding:20px;text-align:center;opacity:0.7">' + pgEscapeHtml(content) + '</div>';
-  }
-
-  if (showNext && !isLastStage) {
-    var stageFn = pgSetupGetStageFn(stageNum + 1);
-    html += '<div class="pg-setup-btn-row">';
-    html += '<button class="pg-btn" onclick="' + stageFn + '()" style="background:var(--accent);color:#fff">' + pgEscapeHtml(pgT('Next Stage')) + ' →</button>';
-    html += '<button class="pg-btn" onclick="' + pgSetupGetStageFn(stageNum) + '()">' + pgEscapeHtml(pgT('Retry')) + '</button>';
-    html += '</div>';
-  } else if (isLastStage) {
-    html += '<div class="pg-setup-btn-row">';
-    html += '<button class="pg-btn" onclick="' + pgSetupGetStageFn(stageNum) + '()">' + pgEscapeHtml(pgT('Retry')) + '</button>';
-    html += '</div>';
-  }
-
-  html += '</div>';
-  area.innerHTML = html;
-  pgSetupGenerateDone();
-}
-
 function pgSetupRenderStageError(msg, retryFn) {
   var area = document.getElementById('pg-setup-stage-area');
   if (!area) return;
@@ -1177,6 +1199,7 @@ function pgSetupBuildFinalReviewHTML(profile) {
       '<button class="pg-btn" onclick="pgSetupExportProfile(pgSetupState.scenario)">' + pgEscapeHtml(pgT('Export')) + '</button>' +
       '<button class="pg-btn" onclick="document.getElementById(\'pg-setup-import-input\').click()">' + pgEscapeHtml(pgT('Import')) + '</button>' +
       '<input type="file" id="pg-setup-import-input" accept=".json" style="display:none" onchange="pgSetupImportProfile(this.files[0])">' +
+      '<button class="pg-btn" onclick="pgSetupReset()">' + pgEscapeHtml(pgT('Reset')) + '</button>' +
     '</div>';
 
   return html;
