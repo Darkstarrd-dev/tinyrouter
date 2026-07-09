@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -29,10 +28,6 @@ func (rt *Router) validateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.BaseURL == "" || req.APIKey == "" {
 		writeAPIError(w, http.StatusBadRequest, "baseUrl and apiKey required")
-		return
-	}
-	if err := validateBaseURL(req.BaseURL); err != nil {
-		writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("invalid baseUrl: %v", err))
 		return
 	}
 
