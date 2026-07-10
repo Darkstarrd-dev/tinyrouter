@@ -127,7 +127,7 @@ body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .nav-item:hover{color:var(--text);background:var(--glass-hover)}
 .nav-item.active{color:var(--accent);background:rgba(100,170,250,0.12);border-color:rgba(100,170,250,0.25)}
 .nav-item.active::before{display:none}
-.top-header-stats{flex:1;min-width:0;display:flex;justify-content:flex-end;overflow:hidden}
+.top-header-stats{flex-shrink:0;min-width:0;display:flex;justify-content:flex-end;overflow:hidden}
 #header-stat-grid.stat-grid{display:flex;flex-direction:row;gap:6px;padding:0;margin:0;background:none;backdrop-filter:none;height:40px;align-items:stretch}
 #header-stat-grid .stat-card{display:flex;flex-direction:column;justify-content:center;align-items:center;padding:2px 8px;border-radius:8px;border:1px solid var(--glass-border);background:rgba(128,128,128,0.04);min-width:56px;height:40px;box-sizing:border-box;line-height:1.1}
 #header-stat-grid .stat-value{font-size:13px;font-weight:700;white-space:nowrap;line-height:1.2}
@@ -162,6 +162,8 @@ h3{font-size:var(--font-h3);font-weight:600;color:var(--text-secondary);margin-b
 .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .card-title{font-weight:600;font-size:var(--font-card-title);color:var(--text)}
 .provider-card{cursor:pointer}
+.provider-card .card-title{color:var(--accent2)}
+.quickslot-header .qs-prefix{color:var(--accent2)}
 .provider-card:hover{box-shadow:0 8px 32px rgba(0,0,0,0.2)}
 .provider-detail{display:flex;flex-direction:column;height:100%;overflow:hidden}
 .provider-detail-header{display:flex;justify-content:space-between;align-items:flex-end;padding:16px 20px;border-bottom:1px solid var(--glass-border);flex-shrink:0}
@@ -224,7 +226,7 @@ tbody tr:last-child td{border-bottom:none}
 .stat-card{background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:16px;padding:20px;transition:all .2s cubic-bezier(0.4,0,0.2,1)}
 .stat-card:hover{border-color:var(--glass-border-hover);box-shadow:0 4px 12px rgba(0,0,0,0.15)}
 .stat-value{font-size:var(--font-stat-value);font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
-.stat-label{font-size:calc(var(--font-base) - 1.5px);color:var(--text-muted);margin-top:4px;font-weight:500;letter-spacing:0.2px}
+.stat-label{font-size:calc(var(--font-base) - 1.5px);color:var(--accent2);margin-top:4px;font-weight:500;letter-spacing:0.2px}
 .model-row{display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:10px 14px;border:1px solid var(--glass-border);border-radius:10px;margin-bottom:6px;background:var(--model-row-bg);transition:all .2s cubic-bezier(0.4,0,0.2,1)}
 .model-row:hover{border-color:var(--glass-border-hover);background:var(--glass-hover)}
 .model-row .model-id{font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-base);flex:1;min-width:0;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -875,6 +877,9 @@ tbody tr:last-child td{border-bottom:none}
   border-radius:0;
   padding:8px 12px
 }
+/* Combo & QuickSlot lists: always single column */
+#combo-list.settings-card-grid,
+#quickslot-list.settings-card-grid{grid-template-columns:1fr}
 
 /* Rotation Settings: two-column form layout */
 .settings-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
@@ -895,14 +900,114 @@ tbody tr:last-child td{border-bottom:none}
 .toggle-switch input:checked + .toggle-slider{background:var(--accent);border-color:var(--accent)}
 .toggle-switch input:checked + .toggle-slider::before{transform:translateX(20px);background:#fff}
 
-/* Responsive: narrow screens stack into single column */
+/* Responsive: narrow screens stack into single column and scroll internally */
 @media (max-width:900px){
-  .settings-layout{flex-direction:column;height:auto;overflow:visible}
-  .settings-panel-left{overflow-y:visible}
-  .settings-panel-right{overflow:visible}
+  .settings-layout{flex-direction:column;height:100%;overflow-y:auto;overflow-x:hidden}
+  .settings-panel-left{overflow-y:visible;flex:none}
+  .settings-panel-right{overflow:visible;flex:none}
   .settings-panel-section{flex:none;overflow-y:visible;border-bottom:1px solid var(--glass-border)}
   .settings-panel-body{overflow-y:visible}
   .settings-card-grid{grid-template-columns:1fr}
+  .settings-panel-split { flex-direction: column; }
+  .settings-panel-half + .settings-panel-half { border-left: none; border-top: 1px solid var(--glass-border); }
+}
+
+/* ===================== QuickSlot Settings Split ===================== */
+.settings-panel-split {
+  flex-direction: row;
+}
+.settings-panel-half {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.settings-panel-half + .settings-panel-half {
+  border-left: 1px solid var(--glass-border);
+}
+
+/* ===================== QuickSlot Header Buttons ===================== */
+.quickslot-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.quickslot-btn {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: rgba(128,128,128,0.04);
+  min-width: 56px;
+  height: 40px;
+  box-sizing: border-box;
+  line-height: 1.1;
+  cursor: pointer;
+  transition: all .2s;
+  flex-shrink: 0;
+}
+.quickslot-btn:hover {
+  border-color: var(--glass-border-hover);
+  background: var(--glass-hover);
+}
+.quickslot-btn .qs-name {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  line-height: 1.2;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quickslot-btn .qs-prefix {
+  font-size: 9px;
+  font-weight: 500;
+  opacity: 0.6;
+  white-space: nowrap;
+  line-height: 1.1;
+  margin-top: 1px;
+}
+
+/* ===================== QuickSlot Dropdown ===================== */
+.quickslot-dropdown {
+  position: fixed;
+  z-index: var(--z-dropdown, 10);
+  background: var(--modal-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  min-width: 180px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.quickslot-dropdown-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: var(--font-base);
+  transition: background .15s;
+  white-space: nowrap;
+}
+.quickslot-dropdown-item:hover {
+  background: var(--glass-hover);
+}
+.quickslot-dropdown-item.selected {
+  background: rgba(79,195,247,0.12);
+  color: var(--accent);
+}
+.quickslot-disabled {
+  opacity: 0.55;
 }
 
 /* --- Login Overlay --- */

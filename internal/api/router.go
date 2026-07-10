@@ -183,6 +183,12 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Put("/combos/{id}", rt.updateCombo)
 			r.Delete("/combos/{id}", rt.deleteCombo)
 
+			// QuickSlots
+			r.Get("/quickslots", rt.listQuickSlots)
+			r.Post("/quickslots", rt.createQuickSlot)
+			r.Put("/quickslots/{id}", rt.updateQuickSlot)
+			r.Delete("/quickslots/{id}", rt.deleteQuickSlot)
+
 			// Usage
 			r.Get("/usage", rt.getUsage)
 			r.Get("/usage/summary", rt.getUsageSummary)

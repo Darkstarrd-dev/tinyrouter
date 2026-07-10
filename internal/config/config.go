@@ -125,6 +125,17 @@ type Combo struct {
 	DisabledModels []string `yaml:"disabledModels,omitempty" json:"disabledModels,omitempty"`
 }
 
+// QuickSlot represents a quick model switch slot with an ordered position.
+type QuickSlot struct {
+	ID             string   `yaml:"id" json:"id"`
+	Name           string   `yaml:"name" json:"name"`
+	Models         []string `yaml:"models" json:"models"`
+	Disabled       bool     `yaml:"disabled,omitempty" json:"disabled,omitempty"`
+	DisabledModels []string `yaml:"disabledModels,omitempty" json:"disabledModels,omitempty"`
+	Order          int      `yaml:"order" json:"order"`
+	SelectedIndex  int      `yaml:"selectedIndex" json:"selectedIndex"`
+}
+
 // SecurityConfig controls password protection for the admin UI.
 type SecurityConfig struct {
 	PasswordEnabled   bool   `yaml:"passwordEnabled" json:"passwordEnabled"`
@@ -141,6 +152,7 @@ type Config struct {
 	EnablePlayground   bool           `yaml:"enablePlayground" json:"enablePlayground"`
 	Providers          []Provider     `yaml:"providers" json:"providers"`
 	Combos             []Combo        `yaml:"combos" json:"combos"`
+	QuickSlots         []QuickSlot    `yaml:"quickSlots" json:"quickSlots"`
 	Security           SecurityConfig `yaml:"security" json:"security"`
 }
 
@@ -162,6 +174,7 @@ func DefaultConfig() *Config {
 		EnablePlayground: true,
 		Providers:        []Provider{},
 		Combos:           []Combo{},
+		QuickSlots:       []QuickSlot{},
 	}
 }
 

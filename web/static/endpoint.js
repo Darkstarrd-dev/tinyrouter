@@ -3,9 +3,10 @@
 async function renderEndpoint(c) {
   showSkeleton(c, 2);
   const settings = await apiGet('/settings');
-  const [provData, comboData] = await Promise.all([apiGet('/providers'), apiGet('/combos')]);
+  const [provData, comboData, qsData] = await Promise.all([apiGet('/providers'), apiGet('/combos'), apiGet('/quickslots')]);
   providersCache = provData.providers || [];
   const combos = comboData.combos || [];
+  const quickslots = qsData.quickslots || [];
   c.innerHTML = '\
     <div class="settings-layout">\
       <div class="settings-panel-left">\
@@ -91,19 +92,32 @@ async function renderEndpoint(c) {
             <div id="provider-list" class="settings-card-grid"></div>\
           </div>\
         </div>\
-        <div class="settings-panel-section">\
-          <div class="settings-panel-header">\
-            <span class="settings-panel-title">' + t('combos') + '</span>\
-            <button type="button" class="btn btn-primary btn-sm" onclick="showAddCombo()">' + t('addCombo') + '</button>\
+        <div class="settings-panel-section settings-panel-split">\
+          <div class="settings-panel-half">\
+            <div class="settings-panel-header">\
+              <span class="settings-panel-title">' + t('combos') + '</span>\
+              <button type="button" class="btn btn-primary btn-sm" onclick="showAddCombo()">' + t('addCombo') + '</button>\
+            </div>\
+            <div class="settings-panel-body">\
+              <div id="combo-list" class="settings-card-grid"></div>\
+            </div>\
           </div>\
-          <div class="settings-panel-body">\
-            <div id="combo-list" class="settings-card-grid"></div>\
+          <div class="settings-panel-half">\
+            <div class="settings-panel-header">\
+              <span class="settings-panel-title">' + t('quickSlots') + '</span>\
+              <button type="button" class="btn btn-primary btn-sm" onclick="showAddQuickSlot()">' + t('addQuickSlot') + '</button>\
+            </div>\
+            <div class="settings-panel-body">\
+              <div id="quickslot-list" class="settings-card-grid"></div>\
+            </div>\
           </div>\
         </div>\
       </div>\
     </div>';
   renderProviderList();
   renderComboListInline(combos);
+  if (typeof renderQuickSlotListInline === 'function') renderQuickSlotListInline(quickslots);
+  if (typeof renderHeaderQuickSlots === 'function') renderHeaderQuickSlots();
 }
 
 function renderComboListInline(combos) {

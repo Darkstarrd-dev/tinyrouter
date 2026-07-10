@@ -135,11 +135,15 @@ function getProviderBrand(name) {
   return '';
 }
 
-function toast(message, type, duration) {
+function toast(message, type, duration, key) {
   if (type === undefined) type = 'info';
   if (duration === undefined) duration = 3500;
   const container = document.getElementById('toast-container');
   if (!container) return;
+  if (key) {
+    var prev = container.querySelectorAll('[data-toast-key="' + key + '"]');
+    for (var pi = 0; pi < prev.length; pi++) prev[pi].remove();
+  }
   var svgCheck = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
   var svgX = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
   var svgInfo = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
@@ -147,6 +151,7 @@ function toast(message, type, duration) {
   const icons = { success: svgCheck, error: svgX, info: svgInfo, warning: svgWarn };
   const el = document.createElement('div');
   el.className = 'toast toast-' + type;
+  if (key) el.setAttribute('data-toast-key', key);
   el.setAttribute('role', type === 'error' ? 'alert' : 'status');
   el.innerHTML = '<span class="toast-icon">' + icons[type] + '</span><span class="toast-message">' + escapeHtml(message) + '</span><div class="toast-progress"></div>';
   container.appendChild(el);
@@ -264,3 +269,32 @@ function showSkeleton(container, count) {
   }
   container.replaceChildren.apply(container, cards);
 }
+
+// ===================== Global Keyboard Shortcuts =====================
+document.addEventListener('keydown', function(e) {
+  var tag = document.activeElement ? document.activeElement.tagName : '';
+  var isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement && document.activeElement.isContentEditable);
+  var modalOpen = document.getElementById('modal-overlay') && document.getElementById('modal-overlay').classList.contains('show');
+
+  // F1-F4: page navigation (preventDefault browser help, works even in inputs, but not when modal is open)
+  if (e.key === 'F1') { e.preventDefault(); if (!modalOpen) navigateTo('usage'); return; }
+  if (e.key === 'F2') { e.preventDefault(); if (!modalOpen) navigateTo('endpoint'); return; }
+  if (e.key === 'F3') { e.preventDefault(); if (!modalOpen) navigateTo('console'); return; }
+  if (e.key === 'F4') { e.preventDefault(); if (!modalOpen) { var pgNav = document.querySelector('.nav-item[data-page="playground"]'); if (pgNav) navigateTo('playground'); } return; }
+
+  // Number keys 1-4: cycle quickslot models (only when not in input and no modal)
+  if (!isInput && !modalOpen) {
+    if (e.key >= '1' && e.key <= '4') {
+      e.preventDefault();
+      var orderNum = parseInt(e.key, 10);
+      if (typeof cycleQuickSlotModel === 'function') cycleQuickSlotModel(orderNum);
+      return;
+    }
+    // ESC: shutdown (when no modal is open; modals handle their own ESC)
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      shutdownServer();
+      return;
+    }
+  }
+});
