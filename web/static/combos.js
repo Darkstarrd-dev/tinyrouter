@@ -77,7 +77,6 @@ function showAddCombo() {
     </div>\
   </div>';
   requestAnimationFrame(function() { overlay.classList.add('show'); });
-  overlay.onclick = function(e) { if (e.target === overlay) closeModalOverlay(); };
   var sel = overlay.querySelector('#c-strategy');
   var hintBox = overlay.querySelector('#greedy-squirrel-hint');
   if (sel && hintBox) {
@@ -150,7 +149,6 @@ async function showEditCombo(id) {
     </div>\
   </div>';
   requestAnimationFrame(function() { overlay.classList.add('show'); });
-  overlay.onclick = function(e) { if (e.target === overlay) closeModalOverlay(); };
   var sel = overlay.querySelector('#c-strategy');
   var hintBox = overlay.querySelector('#greedy-squirrel-hint');
   if (sel && hintBox) {
@@ -221,6 +219,7 @@ async function importModelsFromProvider(target) {
   importOverlay.innerHTML = html;
   document.body.appendChild(importOverlay);
   requestAnimationFrame(function() { importOverlay.classList.add('show'); });
+  importOverlay.__close = closeImport;
   var filterInput = importOverlay.querySelector('#import-filter');
   if (filterInput) filterInput.focus();
   function closeImport() {
@@ -265,7 +264,6 @@ async function importModelsFromProvider(target) {
     }
     closeImport();
   };
-  importOverlay.onclick = function(e) { if (e.target === importOverlay) closeImport(); };
 }
 
 function toggleImportModel(el) {

@@ -99,7 +99,6 @@ function showAddProvider() {
     </div>\
   </div>';
   requestAnimationFrame(function() { overlay.classList.add('show'); });
-  overlay.onclick = function(e) { if (e.target === overlay) closeModalOverlay(); };
 }
 
 async function checkProvider() {

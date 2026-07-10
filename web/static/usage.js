@@ -1035,7 +1035,6 @@ function openRecentRequests() {
   '</div>';
 
   requestAnimationFrame(function() { overlay.classList.add('show'); });
-  overlay.onclick = function(e) { if (e.target === overlay) closeRecentRequests(); };
 }
 
 function closeRecentRequests() {

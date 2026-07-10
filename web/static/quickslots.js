@@ -38,7 +38,8 @@ function showAddQuickSlot() {
     <div class="modal-title">' + t('newQuickSlot') + '</div>\
     <div class="form-group"><label for="qs-name">' + t('name') + '</label><input id="qs-name" placeholder="' + t('name') + '"></div>\
     <div class="form-group"><label for="qs-order">' + t('quickSlotOrder') + '</label>\
-      <input type="number" id="qs-order" min="1" max="4" value="1">\
+      <input type="number" id="qs-order" min="1" max="9" value="1">\
+      <p class="muted mt-12">' + t('quickSlotOrderHint') + '</p>\
     </div>\
     <div class="form-group"><label>' + t('quickSlotModels') + '</label>\
       <div style="display:flex;gap:8px;margin-bottom:8px">\
@@ -52,7 +53,6 @@ function showAddQuickSlot() {
     </div>\
   </div>';
   requestAnimationFrame(function() { overlay.classList.add('show'); });
-  overlay.onclick = function(e) { if (e.target === overlay) closeModalOverlay(); };
   qsEditingModels = [];
   qsEditingDisabledModels = [];
   loadQuickSlotProvidersAndRender();
@@ -111,7 +111,8 @@ async function showEditQuickSlot(id) {
     <div class="modal-title">' + t('quickSlotEdit') + '</div>\
     <div class="form-group"><label for="qs-name">' + t('name') + '</label><input id="qs-name" value="' + escapeHtml(qs.name) + '"></div>\
     <div class="form-group"><label for="qs-order">' + t('quickSlotOrder') + '</label>\
-      <input type="number" id="qs-order" min="1" max="4" value="' + (qs.order || 1) + '">\
+      <input type="number" id="qs-order" min="1" max="9" value="' + (qs.order || 1) + '">\
+      <p class="muted mt-12">' + t('quickSlotOrderHint') + '</p>\
     </div>\
     <div class="form-group"><label>' + t('quickSlotModels') + '</label>\
       <div style="display:flex;gap:8px;margin-bottom:8px">\
@@ -197,6 +198,7 @@ async function importModelsForQuickSlot() {
   importOverlay.innerHTML = html;
   document.body.appendChild(importOverlay);
   requestAnimationFrame(function() { importOverlay.classList.add('show'); });
+  importOverlay.__close = closeImport;
   var filterInput = importOverlay.querySelector('#import-filter');
   if (filterInput) filterInput.focus();
   function closeImport() {
@@ -241,7 +243,6 @@ async function importModelsForQuickSlot() {
     }
     closeImport();
   };
-  importOverlay.onclick = function(e) { if (e.target === importOverlay) closeImport(); };
 }
 
 async function loadQuickSlotProvidersAndRender() {

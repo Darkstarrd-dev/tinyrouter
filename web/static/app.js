@@ -167,18 +167,16 @@ function confirmModal(message) {
     var overlay = document.getElementById('modal-overlay');
     if (overlay.classList.contains('show')) { resolve(false); return; }
     overlay.innerHTML = '<div class="modal"><div class="modal-title">' + t('confirmTitle') + '</div><div class="modal-body">' + escapeHtml(message) + '</div><div class="modal-footer"><button type="button" class="btn btn-ghost" id="modal-cancel">' + t('cancel') + '</button><button type="button" class="btn btn-primary" id="modal-confirm">' + t('confirm') + '</button></div></div>';
+    window.__confirmResolver = resolve;
     requestAnimationFrame(function() { overlay.classList.add('show'); });
     function close(result) {
-      document.removeEventListener('keydown', escHandler);
+      window.__confirmResolver = null;
       overlay.classList.remove('show');
       overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
       resolve(result);
     }
     document.getElementById('modal-cancel').onclick = function() { close(false); };
     document.getElementById('modal-confirm').onclick = function() { close(true); };
-    overlay.onclick = function(e) { if (e.target === overlay) close(false); };
-    var escHandler = function(e) { if (e.key === 'Escape') { close(false); document.removeEventListener('keydown', escHandler); } };
-    document.addEventListener('keydown', escHandler);
   });
 }
 
@@ -270,31 +268,78 @@ function showSkeleton(container, count) {
   container.replaceChildren.apply(container, cards);
 }
 
-// ===================== Global Keyboard Shortcuts =====================
+// ===================== Global Modal & Keyboard =====================
+// Returns the topmost currently-open modal overlay (.modal-overlay or .info-modal-overlay).
+function topOpenModal() {
+  var ms = document.querySelectorAll('.modal-overlay.show, .info-modal-overlay.show');
+  return ms.length ? ms[ms.length - 1] : null;
+}
+
+// Unified dismissal: ESC / right-click / Cancel all funnel here.
+function dismissTopModal() {
+  var m = topOpenModal();
+  if (!m) return;
+  if (m.id === 'modal-overlay') {
+    if (typeof window.__confirmResolver === 'function') {
+      var r = window.__confirmResolver;
+      window.__confirmResolver = null;
+      r(false);
+      return;
+    }
+    if (typeof closeModalOverlay === 'function') closeModalOverlay();
+    return;
+  }
+  if (m.classList.contains('info-modal-overlay')) {
+    if (typeof closeInfoModal === 'function') closeInfoModal();
+    return;
+  }
+  if (typeof m.__close === 'function') { m.__close(); return; }
+  m.classList.remove('show');
+  setTimeout(function() { if (m.parentNode && m.id !== 'modal-overlay') m.parentNode.removeChild(m); }, 400);
+}
+
+// Right-click anywhere closes the topmost open modal.
+document.addEventListener('contextmenu', function(e) {
+  if (topOpenModal()) { e.preventDefault(); dismissTopModal(); }
+});
+
 document.addEventListener('keydown', function(e) {
   var tag = document.activeElement ? document.activeElement.tagName : '';
   var isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement && document.activeElement.isContentEditable);
-  var modalOpen = document.getElementById('modal-overlay') && document.getElementById('modal-overlay').classList.contains('show');
+  var modal = topOpenModal();
 
-  // F1-F4: page navigation (preventDefault browser help, works even in inputs, but not when modal is open)
-  if (e.key === 'F1') { e.preventDefault(); if (!modalOpen) navigateTo('usage'); return; }
-  if (e.key === 'F2') { e.preventDefault(); if (!modalOpen) navigateTo('endpoint'); return; }
-  if (e.key === 'F3') { e.preventDefault(); if (!modalOpen) navigateTo('console'); return; }
-  if (e.key === 'F4') { e.preventDefault(); if (!modalOpen) { var pgNav = document.querySelector('.nav-item[data-page="playground"]'); if (pgNav) navigateTo('playground'); } return; }
-
-  // Number keys 1-4: cycle quickslot models (only when not in input and no modal)
-  if (!isInput && !modalOpen) {
-    if (e.key >= '1' && e.key <= '4') {
-      e.preventDefault();
-      var orderNum = parseInt(e.key, 10);
-      if (typeof cycleQuickSlotModel === 'function') cycleQuickSlotModel(orderNum);
+  // ---- Modal is open: modal interactions take precedence ----
+  if (modal) {
+    if (e.key === 'Escape') { e.preventDefault(); dismissTopModal(); return; }
+    if (e.key === 'Enter') {
+      var ae = document.activeElement;
+      if (ae && ae.tagName === 'TEXTAREA') return; // allow newline in multi-line inputs
+      var primary = modal.querySelector('.btn-primary');
+      if (primary) { e.preventDefault(); primary.click(); }
       return;
     }
-    // ESC: shutdown (when no modal is open; modals handle their own ESC)
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      shutdownServer();
-      return;
-    }
+    // block page shortcuts while a modal is open
+    return;
+  }
+
+  // ---- No modal: global shortcuts ----
+  // F1-F4: page navigation (works even in inputs)
+  if (e.key === 'F1') { e.preventDefault(); navigateTo('usage'); return; }
+  if (e.key === 'F2') { e.preventDefault(); navigateTo('endpoint'); return; }
+  if (e.key === 'F3') { e.preventDefault(); navigateTo('console'); return; }
+  if (e.key === 'F4') { e.preventDefault(); var pgNav = document.querySelector('.nav-item[data-page="playground"]'); if (pgNav) navigateTo('playground'); return; }
+
+  // Number keys 1-9: cycle quickslot models (only when not in input)
+  if (!isInput && e.key >= '1' && e.key <= '9') {
+    e.preventDefault();
+    var orderNum = parseInt(e.key, 10);
+    if (typeof cycleQuickSlotModel === 'function') cycleQuickSlotModel(orderNum);
+    return;
+  }
+  // ESC: shutdown
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    shutdownServer();
+    return;
   }
 });
