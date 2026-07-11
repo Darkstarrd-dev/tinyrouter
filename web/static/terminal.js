@@ -3,8 +3,22 @@
 var terminalWebSocket = null;
 var terminalSession = null;
 var terminalFitAddon = null;
+var terminalDetachedContainer = null;
 
 function renderTerminalView(container) {
+  if (terminalSession && terminalWebSocket && terminalWebSocket.readyState === WebSocket.OPEN) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'xterm-container';
+    wrapper.id = 'terminal-container';
+    wrapper.appendChild(terminalDetachedContainer);
+    container.innerHTML = '';
+    container.appendChild(wrapper);
+    requestAnimationFrame(function() {
+      try { terminalFitAddon.fit(); } catch(e) {}
+      terminalSession.focus();
+    });
+    return;
+  }
   container.innerHTML = '<div id="terminal-container" class="xterm-container"><div id="terminal-xterm"></div></div>';
   setTimeout(initTerminal, 50);
 }
@@ -25,7 +39,9 @@ function initTerminal() {
   terminalSession.loadAddon(terminalFitAddon);
 
   terminalSession.open(container);
-  try { terminalFitAddon.fit(); } catch(e) {}
+  requestAnimationFrame(function() {
+    try { terminalFitAddon.fit(); } catch(e) {}
+  });
 
   var wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   var wsUrl = wsProtocol + '//' + window.location.host + '/api/terminal/ws';
@@ -33,7 +49,6 @@ function initTerminal() {
   terminalWebSocket = new WebSocket(wsUrl);
 
   terminalWebSocket.onopen = function() {
-    terminalSession.writeln('\x1b[32mTerminal connected.\x1b[0m');
     sendTerminalResize();
   };
 
@@ -50,11 +65,11 @@ function initTerminal() {
   };
 
   terminalWebSocket.onerror = function() {
-    terminalSession.writeln('\x1b[31mTerminal error.\x1b[0m');
+    if (terminalSession) terminalSession.writeln('\x1b[31mTerminal error.\x1b[0m');
   };
 
   terminalWebSocket.onclose = function() {
-    terminalSession.writeln('\x1b[33mTerminal disconnected.\x1b[0m');
+    if (terminalSession) terminalSession.writeln('\x1b[33mTerminal disconnected.\x1b[0m');
   };
 
   terminalSession.onData(function(data) {
@@ -98,19 +113,16 @@ function handleTerminalResize() {
 }
 
 function getTerminalTheme() {
-  var theme = document.documentElement.getAttribute('data-theme');
-  if (theme === 'light') {
-    return {
-      background: '#ffffff',
-      foreground: '#333333',
-      cursor: '#333333',
-      selection: 'rgba(0,0,255,0.2)'
-    };
-  }
+  var styles = getComputedStyle(document.documentElement);
+  var bg = styles.getPropertyValue('--log-bg').trim();
+  var fg = styles.getPropertyValue('--text').trim();
+  var cursor = styles.getPropertyValue('--text').trim();
+  if (!bg) bg = 'rgba(0,0,0,0.4)';
+  if (!fg) fg = '#f0f0f0';
   return {
-    background: '#1a1a2e',
-    foreground: '#e0e0e0',
-    cursor: '#e0e0e0',
+    background: bg,
+    foreground: fg,
+    cursor: cursor,
     selection: 'rgba(255,255,255,0.2)'
   };
 }
@@ -118,6 +130,21 @@ function getTerminalTheme() {
 function clearTerminalOutput() {
   if (terminalSession) {
     terminalSession.clear();
+  }
+}
+
+function detachTerminalView() {
+  if (!terminalSession) return;
+  var wrapper = document.getElementById('terminal-container');
+  if (wrapper) {
+    var xt = document.getElementById('terminal-xterm');
+    if (xt) {
+      terminalDetachedContainer = xt;
+      if (xt.parentNode) xt.parentNode.removeChild(xt);
+    }
+  }
+  if (terminalDetachedContainer && terminalDetachedContainer.parentNode) {
+    terminalDetachedContainer.parentNode.removeChild(terminalDetachedContainer);
   }
 }
 
@@ -131,9 +158,18 @@ function closeTerminalSession() {
     terminalSession = null;
   }
   terminalFitAddon = null;
+  terminalDetachedContainer = null;
   window.removeEventListener('resize', handleTerminalResize);
 }
 
-function cleanupTerminal() {
+function stopTerminalSession() {
+  apiPost('/terminal/stop', {}).then(function() {}).catch(function() {});
   closeTerminalSession();
+  if (consoleSubView === 'terminal') {
+    switchConsoleTab('logs');
+  }
+}
+
+function cleanupTerminal() {
+  detachTerminalView();
 }

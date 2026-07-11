@@ -301,9 +301,11 @@ tbody tr:last-child td{border-bottom:none}
 .monitor-line{padding:1px 0}
 
 /* Terminal */
-.xterm-container{flex:1;min-height:0;overflow:hidden;background:var(--log-bg);border:1px solid var(--glass-border)}
+.xterm-container{display:flex;flex:1;min-height:0;overflow:hidden;background:var(--log-bg);border:1px solid var(--glass-border)}
 .xterm-container .xterm{height:100%;padding:8px}
-#terminal-xterm{height:100%}
+#terminal-xterm{flex:1;min-height:0;display:flex}
+#terminal-xterm .xterm{flex:1}
+#terminal-cmd-slot{display:inline-flex;align-items:center;gap:4px;margin-left:4px}
 
 /* ===================== Usage Page ===================== */
 .usage-header{flex-shrink:0}

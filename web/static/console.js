@@ -38,6 +38,9 @@ async function renderConsole(c) {
             '<button type="button" class="btn btn-sm btn-primary" id="monitor-run-btn" onclick="startMonitorCommand()">' + t('run') + '</button>' +
             '<button type="button" class="btn btn-sm btn-danger" id="monitor-stop-btn" onclick="stopMonitorCommand()" style="display:none">' + t('stop') + '</button>' +
           '</span>' +
+          '<span id="terminal-cmd-slot" style="display:none">' +
+            '<button type="button" class="btn btn-sm btn-danger" onclick="stopTerminalSession()">' + t('stop') + ' ' + t('terminal') + '</button>' +
+          '</span>' +
         '</div>' +
         '<div class="flex" style="gap:8px">' +
           '<span class="muted" id="console-status">' + t('connecting') + '</span>' +
@@ -112,6 +115,8 @@ function switchConsoleTab(tab) {
   // Show/hide monitor command input slot
   var cmdSlot = document.getElementById('monitor-cmd-slot');
   if (cmdSlot) cmdSlot.style.display = (tab === 'monitor') ? 'inline-flex' : 'none';
+  var termCmdSlot = document.getElementById('terminal-cmd-slot');
+  if (termCmdSlot) termCmdSlot.style.display = (tab === 'terminal') ? 'inline-flex' : 'none';
 
   // Show/hide search box (hide when not in logs mode to save space, but keep visible per user request)
   // Per user: search box stays visible. Leave it as-is.
