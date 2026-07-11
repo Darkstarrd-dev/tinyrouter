@@ -128,12 +128,11 @@ function switchConsoleTab(tab) {
   } else if (tab === 'monitor') {
     subviewContainer.innerHTML = '';
     renderMonitorView(subviewContainer);
-    // Check if monitor is already running
+    startMonitorStream();
     apiGet('/monitor/status').then(function(data) {
       if (data && data.running) {
         monitorRunning = true;
         updateMonitorButtonState();
-        startMonitorStream();
       }
     });
   } else if (tab === 'terminal') {

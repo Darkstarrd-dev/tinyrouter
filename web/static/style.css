@@ -303,6 +303,7 @@ tbody tr:last-child td{border-bottom:none}
 /* Terminal */
 .xterm-container{flex:1;min-height:0;overflow:hidden;background:var(--log-bg);border:1px solid var(--glass-border)}
 .xterm-container .xterm{height:100%;padding:8px}
+#terminal-xterm{height:100%}
 
 /* ===================== Usage Page ===================== */
 .usage-header{flex-shrink:0}

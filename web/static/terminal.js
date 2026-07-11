@@ -25,7 +25,7 @@ function initTerminal() {
   terminalSession.loadAddon(terminalFitAddon);
 
   terminalSession.open(container);
-  terminalFitAddon.fit();
+  try { terminalFitAddon.fit(); } catch(e) {}
 
   var wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   var wsUrl = wsProtocol + '//' + window.location.host + '/api/terminal/ws';
@@ -73,7 +73,7 @@ function sendTerminalResize() {
   if (!terminalSession || !terminalFitAddon) return;
   if (!terminalWebSocket || terminalWebSocket.readyState !== WebSocket.OPEN) return;
 
-  terminalFitAddon.fit();
+  try { terminalFitAddon.fit(); } catch(e) {}
   var cols = terminalSession.cols;
   var rows = terminalSession.rows;
 
@@ -92,7 +92,7 @@ function handleTerminalResize() {
   if (terminalResizeTimer) clearTimeout(terminalResizeTimer);
   terminalResizeTimer = setTimeout(function() {
     if (terminalFitAddon) {
-      terminalFitAddon.fit();
+      try { terminalFitAddon.fit(); } catch(e) {}
     }
   }, 100);
 }
