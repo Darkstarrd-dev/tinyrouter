@@ -286,11 +286,7 @@ function renderQuickSlotModelsList() {
     html += '<div class="model-row" data-index="' + i + '" draggable="true"' + disabledRowStyle + '>' +
       '<div class="model-row-main">' +
         '<span class="drag-handle" title="' + t('dragToReorder') + '" draggable="false">⠿</span>' +
-        (ts
-          ? (ts.ok
-              ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">OK</span>'
-              : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
-          : '') +
+        '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="withLoading(this, () => testQuickSlotModel(' + i + '))">' + t('test') + '</button>' +
         '<button type="button" class="btn btn-sm" ' + (isFirst ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
         '<button type="button" class="btn btn-sm" ' + (isLast ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeQuickSlotModel(' + i + ')">' + t('delete') + '</button>' +

@@ -239,6 +239,8 @@ tbody tr:last-child td{border-bottom:none}
 .model-status{font-size:var(--font-model-status);padding:2px 8px;border-radius:100px;font-weight:600}
 .model-ok{color:var(--accent2);background:rgba(102,187,106,0.1)}
 .model-err{color:var(--danger);background:rgba(239,83,80,0.1)}
+.btn-test-ok{color:var(--accent2)}
+.btn-test-err{color:var(--danger)}
 .model-pending{color:var(--text-muted);background:var(--badge-inactive-bg)}
 .model-quota{font-size:var(--font-model-status);padding:2px 8px;border-radius:100px;font-weight:600;color:var(--text-muted);background:var(--badge-inactive-bg);font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
 .model-row .model-row-main{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer;border-radius:8px;padding:2px 0}

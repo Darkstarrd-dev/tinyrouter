@@ -315,15 +315,8 @@ function renderComboModelsList() {
         (isDisabled
           ? '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('enable') + '</button>'
           : '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('disable') + '</button>') +
-        (ts
-          ? (ts.ok
-              ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">OK</span>'
-              : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
-          : (isDisabled ? '<button type="button" class="btn btn-sm" disabled>' + t('test') + '</button>'
-            : '<button type="button" class="btn btn-sm" onclick="withLoading(this, () => testComboModel(' + i + '))">' + t('test') + '</button>')) +
-        (ts
-          ? '<button type="button" class="btn btn-sm btn-info" onclick="showModelInfo(\'' + escapeForJsString(modelIdEsc) + '\')">' + t('info') + '</button>'
-          : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
+        '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '"' + (isDisabled ? ' disabled' : '') + ' onclick="withLoading(this, () => testComboModel(' + i + '))">' + t('test') + '</button>' +
+        '<button type="button" class="btn btn-sm btn-info"' + (ts ? '' : ' disabled') + ' onclick="showModelInfo(\'' + escapeForJsString(modelIdEsc) + '\')">' + t('info') + '</button>' +
         '<button type="button" class="btn btn-sm" ' + (isFirst ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
         '<button type="button" class="btn btn-sm" ' + (isLast ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeComboModel(' + i + ')">' + t('delete') + '</button>' +

@@ -434,14 +434,8 @@ function buildModelRowMainInner(p, m) {
     : 'event.stopPropagation(); copyToClipboard(\'' + prefixJs + '/' + midJs + '\')';
   return '<div class="model-row-main" onclick="' + rowOnclick + '">' +
     chevronDown +
-    (ts
-      ? (ts.ok
-          ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
-          : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
-      : '<button type="button" class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midJs + '\'))">' + t('test') + '</button>') +
-    (ts
-      ? '<button type="button" class="btn btn-sm btn-info" onclick="event.stopPropagation(); showModelInfo(\'' + midJs + '\')">' + t('info') + '</button>'
-      : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
+    '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midJs + '\'))">' + t('test') + '</button>' +
+    '<button type="button" class="btn btn-sm btn-info"' + (ts ? '' : ' disabled') + ' onclick="event.stopPropagation(); showModelInfo(\'' + midJs + '\')">' + t('info') + '</button>' +
     '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
       '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
       '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
