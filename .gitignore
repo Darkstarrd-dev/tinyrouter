@@ -39,6 +39,7 @@ NUL
 
 # Test artifacts
 coverage
+coverage.out
 tests/**/results.jsonl
 
 # Build output (build.ps1 -All produces 13 variants here)
