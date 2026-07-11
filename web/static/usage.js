@@ -17,6 +17,15 @@ var currentInfoModalAssistantEl = null;
 var currentInfoModalUsageEl = null;
 var currentInfoModalStreamingDone = false;
 
+function sortEntriesByTimeDesc(entries) {
+  entries.sort(function(a, b) {
+    var ta = new Date(a.timestamp).getTime();
+    var tb = new Date(b.timestamp).getTime();
+    return tb - ta;
+  });
+  return entries;
+}
+
 var TREND_PALETTE = [
   '#4fc3f7', '#10a37f', '#d97706', '#4285f4', '#a855f7', '#ff6a00',
   '#ec4899', '#14b8a6', '#f59e0b', '#84cc16', '#7c3aed', '#06b6d4',
@@ -53,19 +62,20 @@ function renderUsageRow(e) {
   var dotHtml = '<span class="' + dotClass + '"></span>';
   var statusInner;
   if (usageDebugMode && (e.reqPayload || e.respPayload || e.respStatus || e.status === 'processing')) {
-    var ts = new Date(e.timestamp).getTime();
-    statusInner = '<button type="button" class="btn btn-sm btn-info" onclick="showUsageEntryInfo(\'' + ts + '\')">' + dotHtml + '</button>';
+    statusInner = '<button type="button" class="btn btn-sm btn-info" onclick="showUsageEntryInfoById(\'' + (e.id || '') + '\')">' + dotHtml + '</button>';
   } else {
     statusInner = dotHtml;
   }
+  var latencyDisplay = e.status === 'processing' ? '—' : e.latencyMs + 'ms';
+  var tokensDisplay = e.status === 'processing' ? '—' : e.inputTokens + '/' + e.outputTokens;
   return '<tr>\
     <td class="status-col-cell">' + statusInner + '</td>\
     <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
     <td>' + escapeHtml(e.provider) + '</td>\
     <td>' + escapeHtml(e.model) + '</td>\
     <td>' + escapeHtml(e.keyName) + '</td>\
-    <td>' + e.latencyMs + 'ms</td>\
-    <td>' + e.inputTokens + '/' + e.outputTokens + '</td>\
+    <td>' + latencyDisplay + '</td>\
+    <td>' + tokensDisplay + '</td>\
   </tr>';
 }
 
@@ -421,21 +431,25 @@ async function refreshQuotaData() {
       apiGet('/usage/quotas')
     ]);
     var newEntries = usage.entries || [];
-    var newIds = {};
+    var apiIds = {};
     newEntries.forEach(function(e) {
-      if (e.id) newIds[e.id] = true;
+      if (e.id) apiIds[e.id] = true;
     });
-    var merged = [];
-    var inflightKeys = Object.keys(inflightEntries);
-    inflightKeys.forEach(function(id) {
-      if (!newIds[id]) {
-        merged.push(inflightEntries[id]);
-        newIds[id] = true;
+    var merged = newEntries.map(function(e) {
+      var existing = lastUsageEntries.find(function(x) { return x.id === e.id; });
+      if (existing) {
+        if (existing.__streamingReasoning) e.__streamingReasoning = existing.__streamingReasoning;
+        if (existing.__streamingAssistant) e.__streamingAssistant = existing.__streamingAssistant;
+        if (existing.__streamingUsage) e.__streamingUsage = existing.__streamingUsage;
+      }
+      return e;
+    });
+    Object.keys(inflightEntries).forEach(function(id) {
+      if (!apiIds[id]) {
+        merged.unshift(inflightEntries[id]);
       }
     });
-    newEntries.forEach(function(e) {
-      if (!newIds[e.id]) merged.push(e);
-    });
+    sortEntriesByTimeDesc(merged);
     lastUsageEntries = merged;
     updateUsageSummary(summary);
     updateTrendChart(lastUsageEntries);
@@ -480,30 +494,18 @@ function handleRequestStart(entry) {
   if (!entry) return;
   if (!entry.id) entry.id = 'inflight-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
   inflightEntries[entry.id] = entry;
-  var ts = new Date(entry.timestamp).getTime();
-  var rowHtml = renderUsageRow(entry);
-  var row = document.createElement('tr');
-  row.innerHTML = rowHtml;
-  row = row.firstElementChild;
-  row.setAttribute('data-entry-id', entry.id);
-  row.setAttribute('data-entry-ts', ts);
-  var tbody = document.getElementById('recent-tbody');
-  if (tbody) {
-    var firstRow = tbody.firstElementChild;
-    if (firstRow) {
-      tbody.insertBefore(row, firstRow);
-    } else {
-      tbody.appendChild(row);
-    }
-    var countEl = document.querySelector('.recent-requests-card .recent-count');
-    if (countEl) countEl.textContent = String(parseInt(countEl.textContent || '0') + 1);
-  }
   var found = lastUsageEntries.findIndex(function(x) { return x.id === entry.id; });
   if (found >= 0) {
-    lastUsageEntries[found] = entry;
+    if (lastUsageEntries[found].status === 'processing') {
+      lastUsageEntries[found] = entry;
+    }
   } else {
     lastUsageEntries.unshift(entry);
   }
+  sortEntriesByTimeDesc(lastUsageEntries);
+  updateRecentRequestsInline(lastUsageEntries);
+  var countEl = document.querySelector('.recent-requests-card .recent-count');
+  if (countEl) countEl.textContent = String(lastUsageEntries.length);
 }
 
 function handleRequestDone(id, status, entry) {
@@ -511,23 +513,14 @@ function handleRequestDone(id, status, entry) {
   var inflightEntry = inflightEntries[id];
   if (!inflightEntry && !entry) return;
   var completeEntry = entry || inflightEntry;
+  if (inflightEntry) {
+    completeEntry.__streamingReasoning = inflightEntry.__streamingReasoning || '';
+    completeEntry.__streamingAssistant = inflightEntry.__streamingAssistant || '';
+    completeEntry.__streamingUsage = inflightEntry.__streamingUsage || '';
+  }
   if (completeEntry) {
     if (status) completeEntry.status = status;
     if (entry) inflightEntries[id] = entry;
-  }
-  var ts = new Date(completeEntry.timestamp).getTime();
-  var rowHtml = renderUsageRow(completeEntry);
-  var row = document.createElement('tr');
-  row.innerHTML = rowHtml;
-  row = row.firstElementChild;
-  row.setAttribute('data-entry-id', id);
-  row.setAttribute('data-entry-ts', ts);
-  var tbody = document.getElementById('recent-tbody');
-  if (tbody) {
-    var existingRow = tbody.querySelector('[data-entry-id="' + id + '"]');
-    if (existingRow) {
-      existingRow.parentNode.replaceChild(row, existingRow);
-    }
   }
   var found = lastUsageEntries.findIndex(function(x) { return x.id === id; });
   if (found >= 0) {
@@ -535,7 +528,11 @@ function handleRequestDone(id, status, entry) {
   } else {
     lastUsageEntries.unshift(completeEntry);
   }
+  sortEntriesByTimeDesc(lastUsageEntries);
   delete inflightEntries[id];
+  updateRecentRequestsInline(lastUsageEntries);
+  var countEl = document.querySelector('.recent-requests-card .recent-count');
+  if (countEl) countEl.textContent = String(lastUsageEntries.length);
   if (currentInfoModalRequestId === id) {
     currentInfoModalStreamingDone = true;
     if (completeEntry.respPayload) {
@@ -546,6 +543,16 @@ function handleRequestDone(id, status, entry) {
 
 function handleRequestChunk(id, section, delta) {
   if (!id || !delta) return;
+  var inflight = inflightEntries[id];
+  if (inflight) {
+    if (section === 'reasoning') {
+      inflight.__streamingReasoning = (inflight.__streamingReasoning || '') + delta;
+    } else if (section === 'assistant') {
+      inflight.__streamingAssistant = (inflight.__streamingAssistant || '') + delta;
+    } else if (section === 'usage') {
+      inflight.__streamingUsage = (inflight.__streamingUsage || '') + delta;
+    }
+  }
   if (currentInfoModalRequestId !== id) return;
   if (currentInfoModalStreamingDone) return;
   var targetEl;
@@ -1233,9 +1240,17 @@ async function clearUsageFromModal() {
 
 // ===================== Usage Entry Info Modal (Debug Mode) =====================
 
-function showUsageEntryInfo(ts) {
-  var e = lastUsageEntries.find(function(x) { return String(new Date(x.timestamp).getTime()) === ts; });
+function showUsageEntryInfoById(id) {
+  if (!id) return;
+  var e = lastUsageEntries.find(function(x) { return x.id === id; });
+  if (!e) {
+    e = inflightEntries[id];
+  }
   if (!e) return;
+  showUsageEntryInfoWithData(e);
+}
+
+function showUsageEntryInfoWithData(e) {
   var overlay = document.getElementById('info-modal-overlay');
   var titleEl = document.getElementById('info-modal-title');
   var bodyEl = document.getElementById('info-modal-body');
@@ -1303,6 +1318,12 @@ function showUsageEntryInfo(ts) {
     if (e.respPayload) {
       html += renderInfoSection('Response Body', e.respPayload);
     }
+    if (e.__streamingReasoning) {
+      html += '<div class="info-section"><div class="info-section-title">Reasoning</div><div class="info-field"><div class="info-field-value"><pre class="info-json" style="white-space:pre-wrap">' + escapeHtml(e.__streamingReasoning) + '</pre></div></div></div>';
+    }
+    if (e.__streamingAssistant) {
+      html += '<div class="info-section"><div class="info-section-title">Assistant Message</div><div class="info-field"><div class="info-field-value"><pre class="info-json" style="white-space:pre-wrap">' + escapeHtml(e.__streamingAssistant) + '</pre></div></div></div>';
+    }
   }
   bodyEl.innerHTML = html || '<div class="info-section">' + t('noData') + '</div>';
   postProcessRawFields();
@@ -1310,12 +1331,31 @@ function showUsageEntryInfo(ts) {
     currentInfoModalReasoningEl = document.getElementById('streaming-reasoning-text');
     currentInfoModalAssistantEl = document.getElementById('streaming-assistant-text');
     currentInfoModalUsageEl = document.getElementById('streaming-usage-text');
-    if (currentInfoModalReasoningEl && currentInfoModalReasoningEl.textContent.trim() === 'Thinking...') {
-      currentInfoModalReasoningEl.textContent = '';
+    var inflight = inflightEntries[e.id];
+    if (inflight) {
+      if (currentInfoModalReasoningEl && inflight.__streamingReasoning) {
+        currentInfoModalReasoningEl.textContent = inflight.__streamingReasoning;
+      }
+      if (currentInfoModalAssistantEl && inflight.__streamingAssistant) {
+        currentInfoModalAssistantEl.textContent = inflight.__streamingAssistant;
+      }
+      if (currentInfoModalUsageEl && inflight.__streamingUsage) {
+        currentInfoModalUsageEl.textContent = inflight.__streamingUsage;
+        var usageSection = document.getElementById('streaming-usage-section');
+        if (usageSection) usageSection.style.display = '';
+      }
     }
   }
   overlay.classList.add('show');
+  bodyEl.setAttribute('tabindex', '-1');
+  bodyEl.focus();
   document.addEventListener('keydown', usageInfoModalEscapeHandler);
+}
+
+function showUsageEntryInfo(ts) {
+  var e = lastUsageEntries.find(function(x) { return String(new Date(x.timestamp).getTime()) === ts; });
+  if (!e) return;
+  showUsageEntryInfoWithData(e);
 }
 
 function copyStreamingText(btn) {
@@ -1366,166 +1406,3 @@ function refreshQuotaMonitor() {
 	var c = document.getElementById('page-content');
 	if (c) renderUsage(c);
 }
-
-// ===================== Info Modal Search (Ctrl+F) =====================
-
-var infoModalMatches = [];
-var infoModalCurrentMatch = -1;
-
-function initInfoModalSearch() {
-  var searchInput = document.getElementById('info-modal-search-input');
-  var searchPrev = document.getElementById('info-modal-search-prev');
-  var searchNext = document.getElementById('info-modal-search-next');
-  if (!searchInput || !searchPrev || !searchNext) return;
-  searchInput.addEventListener('input', function() { performInfoModalSearch(); });
-  searchInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      clearInfoModalHighlights();
-      searchInput.value = '';
-      searchInput.blur();
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (e.shiftKey) {
-        navigateInfoModalMatch(-1);
-      } else {
-        navigateInfoModalMatch(1);
-      }
-    }
-  });
-  searchPrev.addEventListener('click', function() { navigateInfoModalMatch(-1); });
-  searchNext.addEventListener('click', function() { navigateInfoModalMatch(1); });
-}
-
-function performInfoModalSearch() {
-  clearInfoModalHighlights();
-  var query = document.getElementById('info-modal-search-input').value.trim();
-  if (!query) {
-    infoModalMatches = [];
-    infoModalCurrentMatch = -1;
-    updateInfoModalSearchCount();
-    return;
-  }
-  var bodyEl = document.getElementById('info-modal-body');
-  if (!bodyEl) return;
-  var walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT, null, false);
-  var textNodes = [];
-  var node;
-  while (node = walker.nextNode()) {
-    if (node.parentElement && (node.parentElement.tagName === 'SCRIPT' || node.parentElement.tagName === 'STYLE' || node.parentElement.closest('.info-toggle-view') || node.parentElement.closest('.info-collapse-btn') || node.parentElement.closest('.info-copy-btn') || node.parentElement.closest('.info-copy-all-btn'))) continue;
-    if (node.textContent && node.textContent.toLowerCase().indexOf(query.toLowerCase()) >= 0) {
-      textNodes.push(node);
-    }
-  }
-  infoModalMatches = [];
-  textNodes.forEach(function(textNode) {
-    var parent = textNode.parentElement;
-    var text = textNode.textContent;
-    var regex = new RegExp('(' + escapeRegExp(query) + ')', 'gi');
-    if (regex.test(text)) {
-      regex.lastIndex = 0;
-      var mark;
-      var nextSibling;
-      var match;
-      var lastIndex = 0;
-      while ((match = regex.exec(text)) !== null) {
-        if (match.index > lastIndex) {
-          var before = document.createTextNode(text.slice(lastIndex, match.index));
-          parent.insertBefore(before, textNode);
-        }
-        mark = document.createElement('mark');
-        mark.className = 'info-modal-search-highlight';
-        mark.textContent = match[0];
-        parent.insertBefore(mark, textNode);
-        infoModalMatches.push(mark);
-        lastIndex = regex.lastIndex;
-      }
-      if (lastIndex < text.length) {
-        var after = document.createTextNode(text.slice(lastIndex));
-        parent.insertBefore(after, textNode);
-      }
-      parent.removeChild(textNode);
-    }
-  });
-  infoModalCurrentMatch = -1;
-  updateInfoModalSearchCount();
-  if (infoModalMatches.length > 0) {
-    navigateInfoModalMatch(0);
-  }
-}
-
-function escapeRegExp(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function clearInfoModalHighlights() {
-  var highlights = document.querySelectorAll('.info-modal-search-highlight');
-  highlights.forEach(function(mark) {
-    var parent = mark.parentElement;
-    if (parent) {
-      var text = document.createTextNode(mark.textContent);
-      parent.replaceChild(text, mark);
-      parent.normalize();
-    }
-  });
-  infoModalMatches = [];
-  infoModalCurrentMatch = -1;
-  updateInfoModalSearchCount();
-}
-
-function navigateInfoModalMatch(direction) {
-  if (infoModalMatches.length === 0) return;
-  infoModalCurrentMatch += direction;
-  if (infoModalCurrentMatch >= infoModalMatches.length) infoModalCurrentMatch = 0;
-  if (infoModalCurrentMatch < 0) infoModalCurrentMatch = infoModalMatches.length - 1;
-  var mark = infoModalMatches[infoModalCurrentMatch];
-  if (!mark) return;
-  mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  updateInfoModalSearchCount();
-}
-
-function updateInfoModalSearchCount() {
-  var countEl = document.getElementById('info-modal-search-count');
-  if (!countEl) return;
-  if (infoModalMatches.length === 0) {
-    var query = document.getElementById('info-modal-search-input').value.trim();
-    countEl.textContent = query ? 'No results' : '';
-  } else {
-    countEl.textContent = (infoModalCurrentMatch + 1) + ' / ' + infoModalMatches.length;
-  }
-}
-
-function showInfoModalSearch() {
-  var search = document.getElementById('info-modal-search');
-  var input = document.getElementById('info-modal-search-input');
-  if (search) search.style.display = '';
-  if (input) { input.value = ''; input.focus(); }
-  updateInfoModalSearchCount();
-}
-
-function hideInfoModalSearch() {
-  var search = document.getElementById('info-modal-search');
-  if (search) search.style.display = 'none';
-  clearInfoModalHighlights();
-}
-
-function attachInfoModalCtrlFHandler() {
-  document.addEventListener('keydown', function(e) {
-    var overlay = document.getElementById('info-modal-overlay');
-    if (!overlay || !overlay.classList.contains('show')) return;
-    if ((e.ctrlKey && e.key === 'f') || (e.metaKey && e.key === 'f')) {
-      e.preventDefault();
-      var search = document.getElementById('info-modal-search');
-      if (search && search.style.display !== 'none') {
-        hideInfoModalSearch();
-      } else {
-        showInfoModalSearch();
-      }
-    }
-  });
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-  initInfoModalSearch();
-  attachInfoModalCtrlFHandler();
-});

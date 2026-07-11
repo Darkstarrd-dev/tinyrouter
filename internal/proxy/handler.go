@@ -297,6 +297,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		} else {
 			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, reqID)
 		}
+		h.EntryTracker.Remove(reqID)
 		// DecInFlight after the synchronous response handling completes — this
 		// key is no longer "in-use". Cannot use defer (see above).
 		if keyState != nil {
