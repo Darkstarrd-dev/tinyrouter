@@ -95,6 +95,20 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 		return
 	}
 
+	if qs, ok := h.reg.GetQuickSlotByName(modelStr); ok {
+		models := qs.Models
+		idx := qs.SelectedIndex
+		if idx < 0 || idx >= len(models) {
+			idx = 0
+		}
+		if idx < len(models) {
+			modelStr = models[idx]
+		} else {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("quickslot %s has no models", modelStr))
+			return
+		}
+	}
+
 	providerID, upstreamModel := util.SplitModel(modelStr)
 	if providerID == "" {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid model format: %s (expected provider/model)", modelStr))
@@ -306,6 +320,16 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 			ID:      c.Name,
 			Object:  "model",
 			OwnedBy: "combo",
+		})
+	}
+	for _, qs := range h.reg.ListQuickSlots() {
+		if qs.Disabled {
+			continue
+		}
+		models = append(models, modelObj{
+			ID:      qs.Name,
+			Object:  "model",
+			OwnedBy: "quickslot",
 		})
 	}
 

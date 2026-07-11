@@ -12,6 +12,19 @@ func (r *Registry) ListQuickSlots() []config.QuickSlot {
 	return out
 }
 
+// GetQuickSlotByName returns a pointer to the quickslot with the given name.
+func (r *Registry) GetQuickSlotByName(name string) (*config.QuickSlot, bool) {
+	r.cfgMu.RLock()
+	defer r.cfgMu.RUnlock()
+	for i := range r.config.QuickSlots {
+		if r.config.QuickSlots[i].Name == name {
+			qs := r.config.QuickSlots[i]
+			return &qs, true
+		}
+	}
+	return nil, false
+}
+
 // GetQuickSlot returns a pointer to the quickslot with the given ID.
 func (r *Registry) GetQuickSlot(id string) (*config.QuickSlot, bool) {
 	r.cfgMu.RLock()
