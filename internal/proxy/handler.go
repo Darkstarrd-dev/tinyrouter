@@ -237,7 +237,11 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		upstreamURL := BuildUpstreamURL(sel.Provider.BaseURL, path)
 		if h.debugMode() {
 			if len(bodyBytes) > 0 {
-				processingEntry.ReqPayload = append([]byte(nil), bodyBytes...)
+				rb := bodyBytes
+				if !json.Valid(rb) {
+					rb, _ = json.Marshal(map[string]string{"raw": string(rb)})
+				}
+				processingEntry.ReqPayload = append([]byte(nil), rb...)
 			}
 			processingEntry.ReqHeaders = r.Header.Clone()
 			processingEntry.UpstreamURL = upstreamURL
@@ -418,6 +422,9 @@ func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.S
 			const maxRespBody = 512 * 1024
 			if len(respBody) > maxRespBody {
 				respBody = respBody[:maxRespBody]
+			}
+			if !json.Valid(respBody) {
+				respBody, _ = json.Marshal(map[string]string{"raw": string(respBody)})
 			}
 			entry.RespPayload = append([]byte(nil), respBody...)
 		}
