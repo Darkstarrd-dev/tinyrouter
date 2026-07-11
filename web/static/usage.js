@@ -2,6 +2,31 @@
 
 var lastUsageSig = '';
 var lastUsageEntries = [];
+var _lastTrendConfigSig = '';
+
+var USAGE_CACHE_KEY = 'tinyrouter_usage_cache';
+
+function saveUsageCache() {
+  try {
+    var slim = lastUsageEntries.slice(0, 200).map(function(e) {
+      return {
+        id: e.id, timestamp: e.timestamp, provider: e.provider,
+        model: e.model, keyName: e.keyName, status: e.status,
+        latencyMs: e.latencyMs, inputTokens: e.inputTokens, outputTokens: e.outputTokens
+      };
+    });
+    localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(slim));
+  } catch(e) {}
+}
+
+function loadUsageCache() {
+  try {
+    var raw = localStorage.getItem(USAGE_CACHE_KEY);
+    if (!raw) return [];
+    var arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch(e) { return []; }
+}
 var modelColorMap = {};
 var expandedModels = new Set();
 var lockCountdownTimerStarted = false;
@@ -178,6 +203,16 @@ function buildTrendChartConfig(entries) {
     };
   });
 
+  if (datasets.length === 0) {
+    datasets.push({
+      label: '',
+      data: new Array(TREND_BUCKETS).fill(0),
+      backgroundColor: 'transparent',
+      borderColor: 'transparent',
+      borderWidth: 0
+    });
+  }
+
   var stackedMax = 0;
   for (var bi = 0; bi < TREND_BUCKETS; bi++) {
     var sum = 0;
@@ -257,6 +292,7 @@ function initTrendChart(entries) {
     trendChartInstance = null;
   }
   var config = buildTrendChartConfig(entries);
+  _lastTrendConfigSig = JSON.stringify(config.data);
   trendChartInstance = new Chart(canvas, config);
   requestAnimationFrame(function() {
     if (trendChartInstance) trendChartInstance.resize();
@@ -269,6 +305,9 @@ function updateTrendChart(entries) {
     return;
   }
   var config = buildTrendChartConfig(entries);
+  var sig = JSON.stringify(config.data);
+  if (sig === _lastTrendConfigSig) return;
+  _lastTrendConfigSig = sig;
   trendChartInstance.data = config.data;
   trendChartInstance.options.scales.y.max = config.options.scales.y.max;
   trendChartInstance.options.scales.y.ticks.stepSize = config.options.scales.y.ticks.stepSize;
@@ -277,6 +316,7 @@ function updateTrendChart(entries) {
 
 async function renderUsage(c) {
   try {
+  if (lastUsageEntries.length === 0) lastUsageEntries = loadUsageCache();
   var cachedEntries = lastUsageEntries.slice();
   var quotaCardHtml = '<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center"><span>' + t('quotaMonitor') + '</span><button type="button" class="btn btn-sm btn-ghost" onclick="resetQuotaTimers()">' + t('resetQuota') + '</button></div><div class="quota-section quota-section-scroll"></div></div>';
   c.innerHTML = '\
@@ -443,6 +483,7 @@ async function refreshQuotaData() {
     updateRecentRequestsModal();
     updateRecentRequestsInline(lastUsageEntries);
     maybeRefreshPerKeyDetails();
+    saveUsageCache();
   } catch(e) { console.warn('refreshQuotaData failed:', e); }
 }
 
