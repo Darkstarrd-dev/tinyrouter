@@ -73,7 +73,7 @@ func TestStreamResponse_NonNormalizeNoDuplicate(t *testing.T) {
 		Header:     http.Header{"Content-Type": {"text/event-stream"}},
 		Body:       io.NopCloser(strings.NewReader(raw)),
 	}
-	h.streamResponse(w, resp, "gpt-4", sel, 5, []byte("{}"), false, "test-req-id")
+	h.streamResponse(w, resp, "gpt-4", sel, 5, []byte("{}"), false, "test-req-id", nil, "")
 
 	out := w.Body.String()
 	count := strings.Count(out, "data: [DONE]")
@@ -98,7 +98,7 @@ func TestStreamResponse_NormalizePathVariable(t *testing.T) {
 		Header:     http.Header{"Content-Type": {"text/event-stream"}},
 		Body:       io.NopCloser(strings.NewReader(raw)),
 	}
-	h.streamResponse(w, resp, "gpt-4", sel, 5, []byte("{}"), true, "test-req-id")
+	h.streamResponse(w, resp, "gpt-4", sel, 5, []byte("{}"), true, "test-req-id", nil, "")
 
 	out := w.Body.String()
 	if strings.Count(out, "data: [DONE]") != 1 {
@@ -123,7 +123,7 @@ func TestStreamResponse_TokenExtraction(t *testing.T) {
 		Header:     http.Header{"Content-Type": {"text/event-stream"}},
 		Body:       io.NopCloser(strings.NewReader(raw)),
 	}
-	h.streamResponse(w, resp, "gpt-4", sel, 5, []byte("{}"), false, "test-req-id")
+	h.streamResponse(w, resp, "gpt-4", sel, 5, []byte("{}"), false, "test-req-id", nil, "")
 
 	rb, ok := h.usage.(*usage.RingBuffer)
 	if !ok {
@@ -157,7 +157,7 @@ func TestStreamResponse_ClientCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		h.streamResponse(w, resp, "gpt-4", sel, 5, []byte("{}"), false, "test-req-id")
+		h.streamResponse(w, resp, "gpt-4", sel, 5, []byte("{}"), false, "test-req-id", nil, "")
 		close(done)
 	}()
 

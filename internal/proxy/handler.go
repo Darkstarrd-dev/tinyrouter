@@ -234,8 +234,13 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			KeyName:   sel.KeyName,
 			Status:    "processing",
 		}
-		if h.debugMode() && len(bodyBytes) > 0 {
-			processingEntry.ReqPayload = append([]byte(nil), bodyBytes...)
+		upstreamURL := BuildUpstreamURL(sel.Provider.BaseURL, path)
+		if h.debugMode() {
+			if len(bodyBytes) > 0 {
+				processingEntry.ReqPayload = append([]byte(nil), bodyBytes...)
+			}
+			processingEntry.ReqHeaders = r.Header.Clone()
+			processingEntry.UpstreamURL = upstreamURL
 		}
 		h.EntryTracker.Register(processingEntry)
 		h.broadcastRequestStart(reqID, processingEntry)
@@ -244,7 +249,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		resp, err := h.forwardUpstream(r.Context(), sel, upstreamBody, r.Header, isStream, path)
 
 		if err != nil {
-			h.handleNetworkError(sel, providerID, upstreamModel, err, state, reqID)
+			h.handleNetworkError(sel, providerID, upstreamModel, err, state, reqID, r.Header, upstreamURL)
 			h.EntryTracker.Remove(reqID)
 			// DecInFlight before continue — cannot use defer in for loop (would
 			// accumulate across retry iterations).
@@ -256,7 +261,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode == 429 {
-			h.handle429(resp, sel, providerID, upstreamModel, startTime, state, r, reqID)
+			h.handle429(resp, sel, providerID, upstreamModel, startTime, state, r, reqID, upstreamURL)
 			h.EntryTracker.Remove(reqID)
 			if keyState != nil {
 				keyState.DecInFlight()
@@ -266,7 +271,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode >= 400 {
-			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state, r, reqID)
+			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state, r, reqID, upstreamURL, startTime)
 			h.EntryTracker.Remove(reqID)
 			if keyState != nil {
 				keyState.DecInFlight()
@@ -293,9 +298,9 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 
 		if isStream {
 			normalize := cfgProvider != nil && cfgProvider.NormalizeStreamChunks
-			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize, reqID)
+			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize, reqID, r.Header, upstreamURL)
 		} else {
-			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, reqID)
+			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, reqID, r.Header, upstreamURL)
 		}
 		h.EntryTracker.Remove(reqID)
 		// DecInFlight after the synchronous response handling completes — this
@@ -390,7 +395,7 @@ func (h *Handler) debugMode() bool {
 	return false
 }
 
-func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string, reqBody []byte, respBody []byte, respHeaders http.Header, respStatus int) {
+func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string, reqBody []byte, respBody []byte, respHeaders http.Header, respStatus int, reqHeaders http.Header, upstreamURL string) {
 	entry := usage.Entry{
 		ID:         id,
 		Timestamp:  time.Now(),
@@ -410,7 +415,7 @@ func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.S
 			entry.ReqPayload = append([]byte(nil), reqBody...)
 		}
 		if len(respBody) > 0 {
-			const maxRespBody = 64 * 1024
+			const maxRespBody = 512 * 1024
 			if len(respBody) > maxRespBody {
 				respBody = respBody[:maxRespBody]
 			}
@@ -420,6 +425,10 @@ func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.S
 			entry.RespHeaders = respHeaders.Clone()
 		}
 		entry.RespStatus = respStatus
+		if len(reqHeaders) > 0 {
+			entry.ReqHeaders = reqHeaders.Clone()
+		}
+		entry.UpstreamURL = upstreamURL
 	}
 	h.usage.Add(entry)
 

@@ -85,7 +85,7 @@ func normalizeSSEChunk(line string) string {
 	return "data: " + string(out)
 }
 
-func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool, reqID string) {
+func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool, reqID string, reqHeaders http.Header, upstreamURL string) {
 	defer resp.Body.Close()
 
 	streamStart := time.Now()
@@ -118,56 +118,58 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	inputTokens := 0
 	outputTokens := 0
 	sb := &SSELineBuffer{}
+	var sseBuf bytes.Buffer
 
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
-			if normalize {
-				// Line-based rewrite path: normalize each data: line before
-				// forwarding so malformed chunks (choices:null) are fixed.
-				for _, line := range sb.Feed(buf[:n]) {
-					out := normalizeSSEChunk(line)
-					if _, werr := w.Write([]byte(out + "\n")); werr != nil {
-						h.logger.Debug("client disconnected during SSE stream: %v", werr)
-						return
-					}
-					totalOutput += len(out) + 1
-					if strings.HasPrefix(strings.TrimSpace(line), "data:") {
-						payload := strings.TrimSpace(strings.TrimSpace(line)[5:])
-						if payload != "[DONE]" {
-							if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
-								inputTokens = in
-								outputTokens = out
-							}
-						}
-					}
-					if h.debugMode() && reqID != "" {
-						h.parseAndBroadcastChunk(reqID, line, sb)
-					}
-				}
-			} else {
-				if _, err := w.Write(buf[:n]); err != nil {
-					h.logger.Debug("client disconnected during SSE stream: %v", err)
+		if normalize {
+			for _, line := range sb.Feed(buf[:n]) {
+				out := normalizeSSEChunk(line)
+				if _, werr := w.Write([]byte(out + "\n")); werr != nil {
+					h.logger.Debug("client disconnected during SSE stream: %v", werr)
 					return
 				}
-				// Token extraction still needs to scan the raw lines.
-				for _, line := range sb.Feed(buf[:n]) {
-					line = strings.TrimSpace(line)
-					if strings.HasPrefix(line, "data:") {
-						payload := strings.TrimSpace(line[5:])
-						if payload == "[DONE]" {
-							continue
-						}
+				totalOutput += len(out) + 1
+				if strings.HasPrefix(strings.TrimSpace(line), "data:") {
+					payload := strings.TrimSpace(strings.TrimSpace(line)[5:])
+					if payload != "[DONE]" {
 						if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
 							inputTokens = in
 							outputTokens = out
 						}
 					}
-					if h.debugMode() && reqID != "" {
-						h.parseAndBroadcastChunk(reqID, line, sb)
-					}
+				}
+				if h.debugMode() && reqID != "" {
+					h.parseAndBroadcastChunk(reqID, line, sb)
+					sseBuf.WriteString(line)
+					sseBuf.WriteByte('\n')
 				}
 			}
+		} else {
+			if _, err := w.Write(buf[:n]); err != nil {
+				h.logger.Debug("client disconnected during SSE stream: %v", err)
+				return
+			}
+			for _, line := range sb.Feed(buf[:n]) {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "data:") {
+					payload := strings.TrimSpace(line[5:])
+					if payload == "[DONE]" {
+						continue
+					}
+					if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
+						inputTokens = in
+						outputTokens = out
+					}
+				}
+				if h.debugMode() && reqID != "" {
+					h.parseAndBroadcastChunk(reqID, line, sb)
+					sseBuf.WriteString(line)
+					sseBuf.WriteByte('\n')
+				}
+			}
+		}
 			flusher.Flush()
 			if inflightID != 0 {
 				if !firstChunkDone {
@@ -210,6 +212,8 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 			}
 			if h.debugMode() && reqID != "" {
 				h.parseAndBroadcastChunk(reqID, line, sb)
+				sseBuf.WriteString(line)
+				sseBuf.WriteByte('\n')
 			}
 		}
 		break
@@ -223,10 +227,14 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	totalLatencyMs := latencyMs + time.Since(streamStart).Milliseconds()
 	h.logger.Info("\U0001f4ca [stream] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", sel.Provider.Name, model, totalLatencyMs, resp.StatusCode)
-	h.recordUsage(reqID, sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, nil, resp.Header, resp.StatusCode)
+	var sseBody []byte
+	if h.debugMode() {
+		sseBody = sseBuf.Bytes()
+	}
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, sseBody, resp.Header, resp.StatusCode, reqHeaders, upstreamURL)
 }
 
-func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, reqID string) {
+func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, reqID string, reqHeaders http.Header, upstreamURL string) {
 	defer resp.Body.Close()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -257,7 +265,7 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	}
 	h.logger.Info("\U0001f4ca [response] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
-	h.recordUsage(reqID, sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, bodyBytes, resp.Header, resp.StatusCode)
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, bodyBytes, resp.Header, resp.StatusCode, reqHeaders, upstreamURL)
 }
 
 // parseAndBroadcastChunk extracts delta text from an SSE data: line in debug

@@ -24,7 +24,9 @@ type Entry struct {
 	ReqPayload json.RawMessage `json:"reqPayload,omitempty"`
 	RespPayload json.RawMessage `json:"respPayload,omitempty"`
 	RespHeaders http.Header    `json:"respHeaders,omitempty"`
-	RespStatus int             `json:"respStatus,omitempty"`
+	RespStatus  int             `json:"respStatus,omitempty"`
+	ReqHeaders  http.Header    `json:"reqHeaders,omitempty"`
+	UpstreamURL string          `json:"upstreamUrl,omitempty"`
 }
 
 // UsageStore provides write access to usage entries.

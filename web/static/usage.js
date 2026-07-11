@@ -62,7 +62,7 @@ function renderUsageRow(e) {
   else dotClass += ' status-dot-processing';
   var dotHtml = '<span class="' + dotClass + '"></span>';
   var statusInner;
-  if (usageDebugMode && (e.reqPayload || e.respPayload || e.respStatus || e.status === 'processing')) {
+  if (usageDebugMode && (e.reqPayload || e.respPayload || e.respHeaders || e.reqHeaders || e.upstreamUrl || e.respStatus || e.status === 'processing')) {
     statusInner = '<button type="button" class="btn btn-sm btn-info" onclick="showUsageEntryInfoById(\'' + (e.id || '') + '\')">' + dotHtml + '</button>';
   } else {
     statusInner = dotHtml;
@@ -1275,8 +1275,28 @@ function showUsageEntryInfoWithData(e) {
   currentInfoModalUsageEl = null;
   currentInfoModalStreamingDone = false;
   var html = '';
+  var summaryData = {};
+  if (e.id) summaryData['ID'] = e.id;
+  if (e.timestamp) summaryData['Timestamp'] = e.timestamp;
+  if (e.provider) summaryData['Provider'] = e.provider;
+  if (e.model) summaryData['Model'] = e.model;
+  if (e.keyName) summaryData['Key'] = e.keyName;
+  if (e.status) summaryData['Status'] = e.status;
+  if (e.latencyMs !== undefined && e.latencyMs !== null) summaryData['Latency'] = e.latencyMs + 'ms';
+  if (e.ttftMs) summaryData['TTFT'] = e.ttftMs + 'ms';
+  if (e.inputTokens) summaryData['Input Tokens'] = e.inputTokens;
+  if (e.outputTokens) summaryData['Output Tokens'] = e.outputTokens;
+  if (e.error) summaryData['Error'] = e.error;
+  if (e.upstreamUrl) summaryData['Upstream URL'] = e.upstreamUrl;
+  if (e.respStatus) summaryData['Response Status'] = e.respStatus;
+  if (Object.keys(summaryData).length > 0) {
+    html += renderInfoSection('Request Info', summaryData);
+  }
   if (e.reqPayload) {
     html += renderInfoSection('Request', e.reqPayload);
+  }
+  if (e.reqHeaders) {
+    html += renderInfoSection('Request Headers', e.reqHeaders);
   }
   if (e.status === 'processing' && usageDebugMode) {
     html += '<div class="info-section" id="streaming-reasoning-section">' +
