@@ -111,191 +111,102 @@ function buildTrendData(entries) {
   return { groups: groupList, max: globalMax, now: now };
 }
 
-function buildTrendChartSVG(entries) {
-  var data = buildTrendData(entries);
-  var groups = data.groups;
-  var maxVal = data.max;
-  var now = data.now;
+var CHART_JS_COLORS = [
+  'rgb(255, 99, 132)',
+  'rgb(255, 159, 64)',
+  'rgb(255, 205, 86)',
+  'rgb(75, 192, 192)',
+  'rgb(54, 162, 235)',
+  'rgb(153, 102, 255)',
+  'rgb(201, 203, 207)'
+];
 
-  var w = 680, h = 260;
-  var leftPad = 35, rightPad = 15, topPad = 12, bottomPad = 30, legendH = 28;
-  var chartX0 = leftPad, chartX1 = w - rightPad;
-  var chartY0 = topPad, chartY1 = h - bottomPad - legendH;
-  var chartW = chartX1 - chartX0;
-  var chartH = chartY1 - chartY0;
+var trendChartInstance = null;
+var trendChartRawData = null;
 
-  var bucketW = chartW / TREND_BUCKETS;
+function buildTrendChartConfig(entries) {
+  trendChartRawData = buildTrendData(entries);
+  var groups = trendChartRawData.groups;
 
-  var svg = '<svg class="trend-chart" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid meet">';
-
-  // Y-axis gridlines + labels (5 ticks)
-  for (var yi = 0; yi <= 4; yi++) {
-    var yVal = Math.round(maxVal * yi / 4);
-    var yPos = chartY1 - (yi / 4) * chartH;
-    svg += '<line x1="' + chartX0 + '" y1="' + yPos.toFixed(1) + '" x2="' + chartX1 + '" y2="' + yPos.toFixed(1) + '" stroke="var(--glass-border)" stroke-width="0.5" opacity="0.4"/>';
-    svg += '<text x="' + (chartX0 - 6) + '" y="' + (yPos + 3).toFixed(1) + '" text-anchor="end" fill="var(--text-muted)" font-size="10">' + yVal + '</text>';
+  var labels = [];
+  for (var i = 0; i < TREND_BUCKETS; i++) {
+    var hoursAgo = (TREND_BUCKETS - i) * 15 / 60;
+    labels.push(hoursAgo === 0 ? 'now' : '-' + hoursAgo + 'h');
   }
 
-  // X-axis labels (every 4 buckets = 1 hour)
-  for (var xi = 0; xi < TREND_BUCKETS; xi += 4) {
-    var xPos = chartX0 + xi * bucketW;
-    var hoursAgo = (TREND_BUCKETS - xi) * 15 / 60;
-    var label = hoursAgo === 0 ? 'now' : '-' + hoursAgo + 'h';
-    svg += '<text x="' + xPos.toFixed(1) + '" y="' + (chartY1 + 16) + '" text-anchor="middle" fill="var(--text-muted)" font-size="10">' + label + '</text>';
-    // vertical gridline
-    if (xi > 0) {
-      svg += '<line x1="' + xPos.toFixed(1) + '" y1="' + chartY0 + '" x2="' + xPos.toFixed(1) + '" y2="' + chartY1 + '" stroke="var(--glass-border)" stroke-width="0.5" opacity="0.3"/>';
-    }
-  }
-
-  // Polylines per model group
-  groups.forEach(function(g) {
-    var color = getModelColor(g.provider, g.model);
-    var pts = [];
-    for (var i = 0; i < TREND_BUCKETS; i++) {
-      var x = chartX0 + (i + 0.5) * bucketW;
-      var y = chartY1 - (g.buckets[i] / maxVal) * chartH;
-      pts.push(x.toFixed(1) + ',' + y.toFixed(1));
-    }
-    svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>';
+  var datasets = groups.map(function(g, idx) {
+    var baseColor = CHART_JS_COLORS[idx % CHART_JS_COLORS.length];
+    var rgbaColor = baseColor.replace('rgb(', 'rgba(').replace(')', ', 0.7)');
+    return {
+      label: g.provider + '/' + g.model,
+      data: g.buckets.slice(),
+      backgroundColor: rgbaColor,
+      borderColor: baseColor,
+      borderWidth: 1
+    };
   });
 
-  // Hover interaction elements (hidden by default)
-  svg += '<line id="trend-hover-line" x1="0" y1="' + chartY0 + '" x2="0" y2="' + chartY1 + '" stroke="var(--text-secondary)" stroke-width="1" stroke-dasharray="3,3" opacity="0"/>';
-  svg += '<circle id="trend-hover-dot" cx="0" cy="0" r="3" fill="var(--accent)" opacity="0"/>';
-
-  // Axis lines
-  svg += '<line x1="' + chartX0 + '" y1="' + chartY1 + '" x2="' + chartX1 + '" y2="' + chartY1 + '" stroke="var(--glass-border)" stroke-width="1"/>';
-  svg += '<line x1="' + chartX0 + '" y1="' + chartY0 + '" x2="' + chartX0 + '" y2="' + chartY1 + '" stroke="var(--glass-border)" stroke-width="1"/>';
-
-  svg += '</svg>';
-
-  // Legend
-  var legend = '<div class="trend-legend">';
-  groups.forEach(function(g) {
-    var color = getModelColor(g.provider, g.model);
-    legend += '<span class="trend-legend-item"><span class="trend-legend-dot" style="background:' + color + '"></span>' + escapeHtml(g.provider) + '/' + escapeHtml(g.model) + '</span>';
-  });
-  legend += '</div>';
-
-  return '<div class="trend-chart-wrap" id="trend-chart-wrap">' + svg + legend + '</div>';
+  return {
+    type: 'bar',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      plugins: {
+        title: { display: false },
+        legend: {
+          position: 'bottom',
+          labels: { boxWidth: 12, boxHeight: 12, padding: 8, font: { size: 11 } }
+        },
+        tooltip: {
+          callbacks: {
+            title: function(tooltipItems) {
+              var idx = tooltipItems[0].dataIndex;
+              var bucketEnd = trendChartRawData.now - (TREND_BUCKETS - 1 - idx) * TREND_BUCKET_MS;
+              var bucketStart = bucketEnd - TREND_BUCKET_MS;
+              var fmtTime = function(ts) {
+                var d = new Date(ts);
+                var hh = String(d.getHours()).padStart(2, '0');
+                var mm = String(d.getMinutes()).padStart(2, '0');
+                return hh + ':' + mm;
+              };
+              return fmtTime(bucketStart) + ' - ' + fmtTime(bucketEnd);
+            }
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false } },
+        y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(128,128,128,0.1)' } }
+      }
+    }
+  };
 }
 
 function renderTrendChart(entries) {
-  return '<div class="card" id="trend-chart-card"><div class="card-title">' + t('trendChart') + '</div>' + buildTrendChartSVG(entries) + '</div>';
+  return '<div class="card" id="trend-chart-card"><div class="card-title">' + t('trendChart') + '</div><div class="trend-canvas-wrap"><canvas id="trend-canvas"></canvas></div></div>';
+}
+
+function initTrendChart(entries) {
+  var canvas = document.getElementById('trend-canvas');
+  if (!canvas) return;
+  if (trendChartInstance) {
+    trendChartInstance.destroy();
+    trendChartInstance = null;
+  }
+  var config = buildTrendChartConfig(entries);
+  trendChartInstance = new Chart(canvas, config);
 }
 
 function updateTrendChart(entries) {
-  var card = document.getElementById('trend-chart-card');
-  if (!card) return;
-  card.innerHTML = '<div class="card-title">' + t('trendChart') + '</div>' + buildTrendChartSVG(entries);
-  attachTrendHover(entries);
-}
-
-function attachTrendHover(entries) {
-  var wrap = document.getElementById('trend-chart-wrap');
-  if (!wrap) return;
-  var svg = wrap.querySelector('svg');
-  if (!svg) return;
-
-  var data = buildTrendData(entries);
-  var maxVal = data.max;
-
-  var w = 680, h = 260;
-  var leftPad = 35, rightPad = 15, topPad = 12, bottomPad = 30, legendH = 28;
-  var chartX0 = leftPad, chartX1 = w - rightPad;
-  var chartY0 = topPad, chartY1 = h - bottomPad - legendH;
-  var chartW = chartX1 - chartX0;
-  var bucketW = chartW / TREND_BUCKETS;
-
-  var hoverLine = svg.querySelector('#trend-hover-line');
-  var hoverDot = svg.querySelector('#trend-hover-dot');
-
-  // Remove any existing tooltip
-  var existingTooltip = wrap.querySelector('.trend-tooltip');
-  if (existingTooltip) existingTooltip.remove();
-
-  var tooltip = document.createElement('div');
-  tooltip.className = 'trend-tooltip';
-  tooltip.style.display = 'none';
-  wrap.appendChild(tooltip);
-
-  wrap.onmousemove = function(ev) {
-    var rect = svg.getBoundingClientRect();
-    var scale = Math.min(rect.width / 680, rect.height / 260);
-    var renderedW = 680 * scale;
-    var renderedH = 260 * scale;
-    var offsetX = (rect.width - renderedW) / 2;
-    var offsetY = (rect.height - renderedH) / 2;
-    var svgX = (ev.clientX - rect.left - offsetX) / scale;
-    var svgY = (ev.clientY - rect.top - offsetY) / scale;
-
-    if (svgX < 0 || svgX > 680 || svgY < 0 || svgY > 260) {
-      hoverLine.setAttribute('opacity', '0');
-      hoverDot.setAttribute('opacity', '0');
-      tooltip.style.display = 'none';
-      return;
-    }
-
-    var bucketIdx = Math.floor((svgX - chartX0) / bucketW);
-    if (bucketIdx < 0) bucketIdx = 0;
-    if (bucketIdx >= TREND_BUCKETS) bucketIdx = TREND_BUCKETS - 1;
-
-    var lineX = chartX0 + (bucketIdx + 0.5) * bucketW;
-    hoverLine.setAttribute('x1', lineX);
-    hoverLine.setAttribute('x2', lineX);
-    hoverLine.setAttribute('opacity', '1');
-    hoverDot.setAttribute('opacity', '0');
-
-    // Compute bucket time range
-    var bucketEnd = data.now - (TREND_BUCKETS - 1 - bucketIdx) * TREND_BUCKET_MS;
-    var bucketStart = bucketEnd - TREND_BUCKET_MS;
-    var fmtTime = function(ts) {
-      var d = new Date(ts);
-      var hh = String(d.getHours()).padStart(2, '0');
-      var mm = String(d.getMinutes()).padStart(2, '0');
-      return hh + ':' + mm;
-    };
-
-    // Build tooltip rows
-    var rows = '';
-    var totalReq = 0;
-    data.groups.forEach(function(g) {
-      var count = g.buckets[bucketIdx];
-      if (count > 0) {
-        var color = getModelColor(g.provider, g.model);
-        rows += '<div class="trend-tooltip-row"><span class="trend-tooltip-dot" style="background:' + color + '"></span>' + escapeHtml(g.provider) + '/' + escapeHtml(g.model) + '<span class="trend-tooltip-count">' + count + ' ' + t('requests') + '</span></div>';
-        totalReq += count;
-      }
-    });
-    if (rows === '') {
-      rows = '<div class="trend-tooltip-row" style="color:var(--text-muted)">' + escapeHtml(t('noUsage')) + '</div>';
-    }
-
-    tooltip.innerHTML = '<div class="trend-tooltip-hour">' + fmtTime(bucketStart) + ' - ' + fmtTime(bucketEnd) + '</div>' + rows + '<div class="trend-tooltip-total">' + t('total') + ': ' + totalReq + '</div>';
-    tooltip.style.display = 'block';
-
-    // Position tooltip
-    var wrapRect = wrap.getBoundingClientRect();
-    var tipW = tooltip.offsetWidth;
-    var tipH = tooltip.offsetHeight;
-    var leftPx = ev.clientX - wrapRect.left + 12;
-    if (leftPx + tipW > wrapRect.width) {
-      leftPx = ev.clientX - wrapRect.left - tipW - 12;
-    }
-    var topPx = ev.clientY - wrapRect.top + 12;
-    if (topPx + tipH > wrapRect.height) {
-      topPx = ev.clientY - wrapRect.top - tipH - 12;
-    }
-    tooltip.style.left = leftPx + 'px';
-    tooltip.style.top = topPx + 'px';
-  };
-
-  wrap.onmouseleave = function() {
-    hoverLine.setAttribute('opacity', '0');
-    hoverDot.setAttribute('opacity', '0');
-    tooltip.style.display = 'none';
-  };
+  if (!trendChartInstance) {
+    initTrendChart(entries);
+    return;
+  }
+  var config = buildTrendChartConfig(entries);
+  trendChartInstance.data = config.data;
+  trendChartInstance.update();
 }
 
 async function renderUsage(c) {
@@ -351,7 +262,7 @@ async function renderUsage(c) {
       buildQuotaBarItems(quotaBars, section);
     }
   }
-  attachTrendHover(lastUsageEntries);
+  initTrendChart(lastUsageEntries);
   startUsageRefresh();
   } catch(e) {
     c.innerHTML = emptyState(t('loadFailed') || 'Load failed');
@@ -643,6 +554,10 @@ function stopUsageRefresh() {
     lockCountdownInterval = null;
   }
   lockCountdownTimerStarted = false;
+  if (trendChartInstance) {
+    trendChartInstance.destroy();
+    trendChartInstance = null;
+  }
 }
 
 function computeQuotaSig(bars) {
