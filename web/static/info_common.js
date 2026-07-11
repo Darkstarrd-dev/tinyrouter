@@ -12,7 +12,35 @@ var observer = new MutationObserver(function() { updateInfoModalStaticI18n(); })
 observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-lang'] });
 
 var __infoModalSections = [];
+var __rawFieldMap = {};
 updateInfoModalStaticI18n();
+
+function renderMarkdown(s) {
+  if (!s) return '';
+  var str = String(s);
+  str = str.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\r/g, '\n');
+  str = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  if (typeof marked !== 'undefined') {
+    try {
+      var html = marked.parse(str, { breaks: true, gfm: true });
+      if (typeof DOMPurify !== 'undefined') {
+        html = DOMPurify.sanitize(html);
+      }
+      return html;
+    } catch (e) {}
+  }
+  return str.replace(/\n/g, '<br>');
+}
+
+function postProcessRawFields() {
+  var elements = document.querySelectorAll('.info-json-raw');
+  for (var i = 0; i < elements.length; i++) {
+    var id = elements[i].getAttribute('data-raw-id');
+    if (id && __rawFieldMap[id] !== undefined) {
+      elements[i].textContent = String(__rawFieldMap[id]);
+    }
+  }
+}
 
 function renderInfoSection(title, data, rawOverrides) {
   __infoModalSections.push({title: title, data: data});
@@ -49,7 +77,7 @@ function buildInfoField(key, value, rawOverride) {
       }
     } catch (e) {}
     var raw = rawOverride != null ? rawOverride : value;
-    return buildSimpleField(key, escapeHtml(value), raw);
+    return buildSimpleField(key, value, raw);
   }
   if (typeof value === 'object') {
     var pretty = JSON.stringify(value, null, 2);
@@ -57,7 +85,7 @@ function buildInfoField(key, value, rawOverride) {
     return buildFieldWithSubFields(key, value, raw);
   }
   var raw = rawOverride != null ? rawOverride : String(value);
-  return buildSimpleField(key, escapeHtml(String(value)), raw);
+  return buildSimpleField(key, String(value), raw);
 }
 
 function countItems(obj) {
@@ -99,6 +127,9 @@ function truncateString(s) {
 function buildSimpleField(key, prettyHtml, rawStr) {
   var prettyId = 'ip-' + Math.random().toString(36).slice(2, 8);
   var rawId = 'ir-' + Math.random().toString(36).slice(2, 8);
+  var rawAttr = 'data-raw-id="' + rawId + '"';
+  __rawFieldMap[rawId] = rawStr || '';
+  var renderedContent = renderMarkdown(prettyHtml);
   return '<div class="info-field">' +
     '<span class="info-field-key">' +
       '<span class="info-field-key-name">' + escapeHtml(key) + '</span>' +
@@ -111,8 +142,8 @@ function buildSimpleField(key, prettyHtml, rawStr) {
       '</span>' +
     '</span>' +
     '<div class="info-field-value">' +
-      '<pre class="info-json info-json-pretty" id="' + prettyId + '">' + prettyHtml + '</pre>' +
-      '<pre class="info-json info-json-raw" id="' + rawId + '" style="display:none">' + escapeHtml(rawStr) + '</pre>' +
+      '<div class="info-json info-json-pretty info-json-markdown" id="' + prettyId + '">' + renderedContent + '</div>' +
+      '<pre class="info-json info-json-raw" id="' + rawId + '" style="display:none" ' + rawAttr + '></pre>' +
     '</div>' +
   '</div>';
 }
@@ -127,9 +158,11 @@ function buildFieldWithSubFields(key, obj, rawStr) {
       '<svg width="10" height="10" viewBox="0 0 10 10"><polygon points="2,2 8,5 2,8" fill="currentColor"/></svg></button>';
     previewHtml = '<div class="info-field-preview"><span class="info-preview-count">(' + n + ')</span> ' + buildPreview(obj) + '</div>';
   }
-  var prettyHtml = escapeHtml(JSON.stringify(obj, null, 2));
+  var prettyHtml = renderMarkdown(JSON.stringify(obj, null, 2));
   var prettyId = 'ip-' + Math.random().toString(36).slice(2, 8);
   var rawId = 'ir-' + Math.random().toString(36).slice(2, 8);
+  var rawAttr = 'data-raw-id="' + rawId + '"';
+  __rawFieldMap[rawId] = rawStr || '';
   return '<div class="info-field' + (needsCollapse ? ' collapsed' : '') + '">' +
     '<span class="info-field-key">' +
       '<span class="info-field-key-name">' + escapeHtml(key) + '</span>' +
@@ -144,8 +177,8 @@ function buildFieldWithSubFields(key, obj, rawStr) {
     '</span>' +
     previewHtml +
     '<div class="info-field-value">' +
-      '<pre class="info-json info-json-pretty" id="' + prettyId + '">' + prettyHtml + '</pre>' +
-      '<pre class="info-json info-json-raw" id="' + rawId + '" style="display:none">' + escapeHtml(rawStr) + '</pre>' +
+      '<div class="info-json info-json-pretty info-json-markdown" id="' + prettyId + '">' + prettyHtml + '</div>' +
+      '<pre class="info-json info-json-raw" id="' + rawId + '" style="display:none" ' + rawAttr + '></pre>' +
     '</div>' +
   '</div>';
 }
@@ -198,7 +231,7 @@ function copyInfoText(btn) {
   } else {
     pre = field.querySelector('.info-json');
   }
-  var text = pre ? pre.textContent : '';
+  var text = pre ? pre.innerText : '';
   navigator.clipboard.writeText(text).then(function() {
     var orig = btn.textContent;
     btn.textContent = t('copied');

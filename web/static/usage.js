@@ -1088,6 +1088,7 @@ function showUsageEntryInfo(ts) {
     html += renderInfoSection('Response Body', e.respPayload);
   }
   bodyEl.innerHTML = html || '<div class="info-section">' + t('noData') + '</div>';
+  postProcessRawFields();
   overlay.classList.add('show');
   document.addEventListener('keydown', usageInfoModalEscapeHandler);
 }
