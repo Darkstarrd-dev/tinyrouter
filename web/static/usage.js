@@ -10,6 +10,7 @@ var quotaBarItems = {};
 var lastQuotaSig = '';
 var usageDebugMode = false;
 var usageVisibilityHandler = null;
+var usagePeriodicTimer = null;
 var inflightEntries = {};
 var currentInfoModalRequestId = null;
 var currentInfoModalReasoningEl = null;
@@ -469,10 +470,12 @@ function applyUsageSSEHandlers(es) {
       }
       if (data.type === 'request-start') {
         handleRequestStart(data.entry);
+        scheduleQuotaRefresh();
         return;
       }
       if (data.type === 'request-done') {
         handleRequestDone(data.id, data.status, data.entry);
+        scheduleQuotaRefresh();
         return;
       }
       if (data.type === 'request-chunk') {
@@ -614,6 +617,12 @@ function startUsageRefresh() {
     }
   };
   document.addEventListener('visibilitychange', usageVisibilityHandler);
+
+  usagePeriodicTimer = setInterval(function() {
+    if (currentPage === 'usage') {
+      refreshQuotaData();
+    }
+  }, 5000);
 }
 
 function stopUsageRefresh() {
@@ -624,6 +633,10 @@ function stopUsageRefresh() {
   if (usageEventSource) {
     usageEventSource.close();
     usageEventSource = null;
+  }
+  if (usagePeriodicTimer) {
+    clearInterval(usagePeriodicTimer);
+    usagePeriodicTimer = null;
   }
   if (lockCountdownInterval) {
     clearInterval(lockCountdownInterval);
