@@ -5,38 +5,156 @@ var consoleFilters = { error: true, warn: true, info: true, debug: true };
 var consoleSearchQuery = '';
 var consoleAutoScroll = true;
 var consoleAllLines = [];
+var consoleSubView = 'logs';
+var consoleDebugMode = false;
 
 async function renderConsole(c) {
   consoleAllLines = [];
   consoleAutoScroll = true;
-  c.innerHTML = '\
-    <div class="console-layout">\
-      <div class="console-toolbar">\
-        <div class="console-controls">\
-          <button type="button" class="btn btn-sm btn-filter active" data-level="all" onclick="toggleConsoleFilter(this,\'all\')">' + t('all') + '</button>\
-          <button type="button" class="btn btn-sm btn-filter active" data-level="error" onclick="toggleConsoleFilter(this,\'error\')">ERROR</button>\
-          <button type="button" class="btn btn-sm btn-filter active" data-level="warn" onclick="toggleConsoleFilter(this,\'warn\')">WARN</button>\
-          <button type="button" class="btn btn-sm btn-filter active" data-level="info" onclick="toggleConsoleFilter(this,\'info\')">INFO</button>\
-          <button type="button" class="btn btn-sm btn-filter active" data-level="debug" onclick="toggleConsoleFilter(this,\'debug\')">DEBUG</button>\
-          <input type="text" id="console-search" class="console-search" placeholder="' + t('searchLogs') + '" oninput="onConsoleSearch(this.value)">\
-        </div>\
-        <div class="flex" style="gap:8px">\
-          <span class="muted" id="console-status">' + t('connecting') + '</span>\
-          <button type="button" class="btn btn-danger btn-sm" onclick="clearConsole()">' + t('clear') + '</button>\
-        </div>\
-      </div>\
-      <div class="log-container" id="log-container"></div>\
-    </div>';
-  var container = document.getElementById('log-container');
-  container.addEventListener('scroll', function() {
-    var atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 30;
-    consoleAutoScroll = atBottom;
-  });
+  consoleSubView = 'logs';
+
+  // Fetch debug mode status to decide whether to show the Terminal button
+  try {
+    var settings = await apiGet('/settings');
+    consoleDebugMode = !!(settings && settings.debugMode);
+  } catch (e) {
+    consoleDebugMode = false;
+  }
+
+  c.innerHTML =
+    '<div class="console-layout">' +
+      '<div class="console-toolbar">' +
+        '<div class="console-controls">' +
+          '<button type="button" class="btn btn-sm btn-filter active" data-level="all" onclick="toggleConsoleFilter(this,\'all\')">' + t('all') + '</button>' +
+          '<button type="button" class="btn btn-sm btn-filter active" data-level="error" onclick="toggleConsoleFilter(this,\'error\')">ERROR</button>' +
+          '<button type="button" class="btn btn-sm btn-filter active" data-level="warn" onclick="toggleConsoleFilter(this,\'warn\')">WARN</button>' +
+          '<button type="button" class="btn btn-sm btn-filter active" data-level="info" onclick="toggleConsoleFilter(this,\'info\')">INFO</button>' +
+          '<button type="button" class="btn btn-sm btn-filter active" data-level="debug" onclick="toggleConsoleFilter(this,\'debug\')">DEBUG</button>' +
+          '<button type="button" class="btn btn-sm btn-toggle" id="btn-toggle-monitor" onclick="toggleMonitorView()">' + t('monitor') + '</button>' +
+          (consoleDebugMode ? '<button type="button" class="btn btn-sm btn-toggle btn-toggle-terminal" id="btn-toggle-terminal" onclick="toggleTerminalView()">' + t('terminal') + '</button>' : '') +
+          '<input type="text" id="console-search" class="console-search" placeholder="' + t('searchLogs') + '" oninput="onConsoleSearch(this.value)">' +
+          '<span id="monitor-cmd-slot" style="display:none">' +
+            '<input type="text" id="monitor-command" class="monitor-input" placeholder="' + t('monitorCommandPlaceholder') + '" value="' + escapeHtml(getLastMonitorCommand()) + '" onkeydown="if(event.key===\'Enter\')startMonitorCommand()">' +
+            '<button type="button" class="btn btn-sm btn-primary" id="monitor-run-btn" onclick="startMonitorCommand()">' + t('run') + '</button>' +
+            '<button type="button" class="btn btn-sm btn-danger" id="monitor-stop-btn" onclick="stopMonitorCommand()" style="display:none">' + t('stop') + '</button>' +
+          '</span>' +
+        '</div>' +
+        '<div class="flex" style="gap:8px">' +
+          '<span class="muted" id="console-status">' + t('connecting') + '</span>' +
+          '<button type="button" class="btn btn-danger btn-sm" id="console-clear-btn" onclick="clearCurrentView()">' + t('clear') + '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="console-subview" style="flex:1;display:flex;flex-direction:column;min-height:0">' +
+        buildLogsViewHTML() +
+      '</div>' +
+    '</div>';
+
+  initLogsView();
   c.style.height = '100%';
   var mainEl = document.querySelector('.main');
   if (mainEl) mainEl.classList.add('main-no-scroll');
   startConsoleStream();
 }
+
+function buildLogsViewHTML() {
+  return '<div id="console-logs-view" style="flex:1;display:flex;flex-direction:column;min-height:0">' +
+      '<div class="log-container" id="log-container"></div>' +
+    '</div>';
+}
+
+function initLogsView() {
+  if (consoleSubView !== 'logs') return;
+  var container = document.getElementById('log-container');
+  if (!container) return;
+  container.addEventListener('scroll', function() {
+    var atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 30;
+    consoleAutoScroll = atBottom;
+  });
+}
+
+// ===================== View switching (toggle) =====================
+
+function toggleMonitorView() {
+  if (consoleSubView === 'monitor') {
+    switchConsoleTab('logs');
+  } else {
+    switchConsoleTab('monitor');
+  }
+}
+
+function toggleTerminalView() {
+  if (consoleSubView === 'terminal') {
+    switchConsoleTab('logs');
+  } else {
+    switchConsoleTab('terminal');
+  }
+}
+
+function switchConsoleTab(tab) {
+  // Cleanup previous tab
+  if (consoleSubView === 'monitor') cleanupMonitor();
+  if (consoleSubView === 'terminal') cleanupTerminal();
+  // Stop log SSE if leaving logs
+  if (consoleSubView === 'logs' && tab !== 'logs') {
+    if (consoleEventSource) { consoleEventSource.close(); consoleEventSource = null; }
+    var status = document.getElementById('console-status');
+    if (status) status.textContent = '';
+  }
+
+  consoleSubView = tab;
+
+  // Update toggle button states
+  var monitorBtn = document.getElementById('btn-toggle-monitor');
+  if (monitorBtn) monitorBtn.classList.toggle('active', tab === 'monitor');
+  var terminalBtn = document.getElementById('btn-toggle-terminal');
+  if (terminalBtn) terminalBtn.classList.toggle('active', tab === 'terminal');
+
+  // Show/hide monitor command input slot
+  var cmdSlot = document.getElementById('monitor-cmd-slot');
+  if (cmdSlot) cmdSlot.style.display = (tab === 'monitor') ? 'inline-flex' : 'none';
+
+  // Show/hide search box (hide when not in logs mode to save space, but keep visible per user request)
+  // Per user: search box stays visible. Leave it as-is.
+
+  var subviewContainer = document.getElementById('console-subview');
+  if (!subviewContainer) return;
+
+  if (tab === 'logs') {
+    subviewContainer.innerHTML = buildLogsViewHTML();
+    initLogsView();
+    startConsoleStream();
+    var st = document.getElementById('console-status');
+    if (st) st.textContent = t('connecting');
+  } else if (tab === 'monitor') {
+    subviewContainer.innerHTML = '';
+    renderMonitorView(subviewContainer);
+    // Check if monitor is already running
+    apiGet('/monitor/status').then(function(data) {
+      if (data && data.running) {
+        monitorRunning = true;
+        updateMonitorButtonState();
+        startMonitorStream();
+      }
+    });
+  } else if (tab === 'terminal') {
+    subviewContainer.innerHTML = '';
+    renderTerminalView(subviewContainer);
+  }
+}
+
+// ===================== Clear (delegates to current view) =====================
+
+function clearCurrentView() {
+  if (consoleSubView === 'logs') {
+    clearConsole();
+  } else if (consoleSubView === 'monitor') {
+    clearMonitorOutput();
+  } else if (consoleSubView === 'terminal') {
+    clearTerminalOutput();
+  }
+}
+
+// ===================== Log streaming =====================
 
 function startConsoleStream() {
   if (consoleEventSource) consoleEventSource.close();
@@ -132,6 +250,7 @@ function onConsoleSearch(val) {
 async function clearConsole() {
   await apiDelete('/console-logs');
   consoleAllLines = [];
-  document.getElementById('log-container').innerHTML = '';
+  var c = document.getElementById('log-container');
+  if (c) c.innerHTML = '';
   toast(t('consoleCleared'), 'info');
 }

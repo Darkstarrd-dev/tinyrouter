@@ -282,6 +282,28 @@ tbody tr:last-child td{border-bottom:none}
 [data-theme="light"] .btn-filter.active{background:rgba(14,165,233,0.12)}
 .console-search{width:180px;padding:4px 10px;font-size:var(--font-badge);margin-left:4px}
 
+/* Toggle buttons (Monitor / Terminal in console toolbar) */
+.btn-toggle{padding:4px 10px;font-size:var(--font-badge);font-weight:600;border-radius:6px;border:1px solid var(--glass-border);background:var(--glass-bg);color:var(--text-muted);cursor:pointer;transition:all .2s cubic-bezier(0.4,0,0.2,1);font-family:inherit}
+.btn-toggle:hover{background:var(--glass-hover);color:var(--text)}
+.btn-toggle.active{background:rgba(79,195,247,0.12);color:var(--accent);border-color:var(--accent)}
+[data-theme="light"] .btn-toggle.active{background:rgba(14,165,233,0.12)}
+.btn-toggle-terminal{color:var(--accent)}
+.btn-toggle-terminal.active{color:#fff;background:var(--accent)}
+
+/* Monitor command slot (inline in console toolbar) */
+#monitor-cmd-slot{display:inline-flex;align-items:center;gap:4px;margin-left:4px}
+#monitor-cmd-slot .monitor-input{width:200px;padding:4px 10px;font-size:var(--font-badge);border-radius:6px;border:1px solid var(--glass-border);background:var(--glass-bg);color:var(--text);font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace}
+#monitor-cmd-slot .monitor-input:focus{outline:none;border-color:var(--accent)}
+#monitor-cmd-slot .monitor-input:disabled{opacity:0.5;cursor:not-allowed}
+
+/* Monitor output */
+.monitor-output{background:var(--log-bg);border:1px solid var(--glass-border);border-radius:0;padding:12px;font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-log);flex:1;min-height:0;overflow-y:auto;white-space:pre-wrap;line-height:1.6}
+.monitor-line{padding:1px 0}
+
+/* Terminal */
+.xterm-container{flex:1;min-height:0;overflow:hidden;background:var(--log-bg);border:1px solid var(--glass-border)}
+.xterm-container .xterm{height:100%;padding:8px}
+
 /* ===================== Usage Page ===================== */
 .usage-header{flex-shrink:0}
 .usage-fullscreen{display:flex;flex-direction:column;height:100%;gap:0;overflow:hidden}

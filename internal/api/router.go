@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -13,9 +14,11 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/combo"
 	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/console"
+	"github.com/tinyrouter/tinyrouter/internal/monitor"
 	"github.com/tinyrouter/tinyrouter/internal/proxy"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
+	"github.com/tinyrouter/tinyrouter/internal/terminal"
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 	"github.com/tinyrouter/tinyrouter/web"
 )
@@ -37,6 +40,9 @@ type Router struct {
 	restartFn    func(string)
 	stateSaveFunc func()
 	debugMode    atomic.Bool
+	monitorMgr   *monitor.Manager
+	terminalMu   sync.Mutex
+	activeTerm   *terminal.Session
 }
 
 // New creates an API Router.
@@ -58,6 +64,7 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 		testClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		monitorMgr: monitor.New(500),
 	}
 }
 
@@ -86,7 +93,7 @@ func (rt *Router) SetDebugMode(on bool) {
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/v1/") {
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws:127.0.0.1:*")
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 			w.Header().Set("X-XSS-Protection", "1; mode=block")
@@ -202,6 +209,16 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Get("/console-logs", rt.getConsoleLogs)
 			r.Get("/console-logs/stream", rt.streamConsoleLogs)
 			r.Delete("/console-logs", rt.clearConsoleLogs)
+
+			// Monitor
+			r.Get("/monitor/status", rt.getMonitorStatus)
+			r.Post("/monitor/start", rt.startMonitor)
+			r.Post("/monitor/stop", rt.stopMonitor)
+			r.Get("/monitor/stream", rt.streamMonitor)
+
+			// Terminal (debug-mode only)
+			r.Get("/terminal/ws", rt.handleTerminalWS)
+			r.Post("/terminal/stop", rt.stopTerminal)
 
 			// Auth - logout (requires auth)
 			r.Post("/auth/logout", rt.LogoutHandler)

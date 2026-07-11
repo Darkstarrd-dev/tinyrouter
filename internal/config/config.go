@@ -143,6 +143,13 @@ type SecurityConfig struct {
 	EncryptionKey     string `yaml:"encryptionKey,omitempty" json:"encryptionKey,omitempty"`
 }
 
+// MonitorConfig controls the Monitor feature (command output streaming).
+type MonitorConfig struct {
+	Enabled         bool     `yaml:"enabled" json:"enabled"`
+	AllowedCommands []string `yaml:"allowedCommands,omitempty" json:"allowedCommands,omitempty"`
+	MaxLineLength   int      `yaml:"maxLineLength,omitempty" json:"maxLineLength,omitempty"`
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Port               int            `yaml:"port" json:"port"`
@@ -154,6 +161,7 @@ type Config struct {
 	Combos             []Combo        `yaml:"combos" json:"combos"`
 	QuickSlots         []QuickSlot    `yaml:"quickSlots" json:"quickSlots"`
 	Security           SecurityConfig `yaml:"security" json:"security"`
+	Monitor            MonitorConfig  `yaml:"monitor" json:"monitor"`
 }
 
 // DefaultConfig returns a sane default configuration.
@@ -272,6 +280,12 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 				cfg.Providers[i].Models[j].QuotaType = "limited"
 			}
 		}
+	}
+	if len(cfg.Monitor.AllowedCommands) == 0 {
+		cfg.Monitor.AllowedCommands = []string{"nvidia-smi", "watch", "top", "htop", "btop", "wmic", "systeminfo", "tasklist", "ipconfig", "ifconfig", "df", "free", "vmstat", "iostat", "lscpu", "lspci", "lsblk"}
+	}
+	if cfg.Monitor.MaxLineLength == 0 {
+		cfg.Monitor.MaxLineLength = 4096
 	}
 	// Decrypt API keys if password protection is enabled.
 	// Encrypted keys are prefixed with "enc:" in the YAML file.
