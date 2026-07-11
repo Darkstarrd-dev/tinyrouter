@@ -6,7 +6,6 @@ function pgEnsureModalOverlay() {
   overlay = document.createElement('div');
   overlay.id = 'pg-modal-overlay';
   overlay.className = 'pg-modal-overlay';
-  overlay.onclick = function(e) { if (e.target === overlay) pgCloseModal(); };
   document.body.appendChild(overlay);
   return overlay;
 }
@@ -142,7 +141,6 @@ function pgOpenModelPicker(currentValue, onSelect, opts) {
   overlay.className = 'pg-modal-overlay show';
   overlay.style.zIndex = '10001';
   overlay.innerHTML = html;
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) pgCloseModelPicker(); });
   overlay.addEventListener('keydown', pgModelPickerKeydown);
   document.body.appendChild(overlay);
   var filterEl = document.getElementById('pg-model-picker-filter');

@@ -126,7 +126,6 @@ async function showEditQuickSlot(id) {
     </div>\
   </div>';
   requestAnimationFrame(function() { overlay.classList.add('show'); });
-  overlay.onclick = function(e) { if (e.target === overlay) closeModalOverlay(); };
   qsEditingModels = (qs.models || []).slice();
   qsEditingDisabledModels = (qs.disabledModels || []).slice();
   loadQuickSlotProvidersAndRender();
@@ -295,7 +294,7 @@ function renderQuickSlotModelsList() {
         '<button type="button" class="btn btn-sm" ' + (isFirst ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
         '<button type="button" class="btn btn-sm" ' + (isLast ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeQuickSlotModel(' + i + ')">' + t('delete') + '</button>' +
-        '<span class="model-id copyable" onclick="copyToClipboard(\'' + fullIdEsc + '\')" title="' + t('clickToCopy') + '">' + fullIdEsc + '</span>' +
+        '<span class="model-id copyable" onclick="copyToClipboard(\'' + escapeForJsString(fullIdEsc) + '\')" title="' + t('clickToCopy') + '">' + fullIdEsc + '</span>' +
       '</div>' +
     '</div>';
   }
