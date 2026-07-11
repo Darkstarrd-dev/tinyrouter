@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
+	"github.com/tinyrouter/tinyrouter/internal/proxy"
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 	"github.com/tinyrouter/tinyrouter/web"
 )
@@ -18,8 +19,18 @@ import (
 func (rt *Router) getUsage(w http.ResponseWriter, r *http.Request) {
 	limit := rt.getIntQuery(r, "limit", 500)
 	offset := rt.getIntQuery(r, "offset", 0)
-	all := rt.usage.All()
-	total := len(all)
+
+	ringEntries := rt.usage.All()
+
+	// Merge inflight (processing) entries from the entry tracker so the REST
+	// response shows both completed and currently processing requests in a
+	// single time-sorted list. The frontend uses each entry's ID for dedup.
+	var inflightEntries []usage.Entry
+	if rt.proxyHandler != nil && rt.proxyHandler.EntryTracker != nil {
+		inflightEntries = rt.proxyHandler.EntryTracker.All()
+	}
+
+	total := len(ringEntries) + len(inflightEntries)
 	if offset >= total {
 		offset = 0
 	}
@@ -27,11 +38,21 @@ func (rt *Router) getUsage(w http.ResponseWriter, r *http.Request) {
 	if end > total {
 		end = total
 	}
+
+	// Build a combined slice with ring entries first (most recently completed
+	// are at the front of the ring's reverse-chronological order), then append
+	// inflight entries. The frontend sorts by timestamp to achieve true
+	// reverse-chronological order; this merge preserves ring ordering while
+	// adding the in-flight set.
+	combined := make([]usage.Entry, 0, total)
+	combined = append(combined, ringEntries...)
+	combined = append(combined, inflightEntries...)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]any{
 		"total":   total,
-		"entries": all[offset:end],
+		"entries": combined[offset:end],
 	})
 }
 
@@ -355,10 +376,25 @@ func (rt *Router) streamUsageEvents(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n")
 	flusher.Flush()
 
+	// Send existing inflight (processing) entries as request-start events so
+	// a freshly connected client immediately sees all currently-running requests.
+	if rt.proxyHandler != nil && rt.proxyHandler.EntryTracker != nil {
+		for _, e := range rt.proxyHandler.EntryTracker.All() {
+			raw := proxy.MarshalEntryJSON(e)
+			if raw != nil {
+				fmt.Fprintf(w, "data: {\"type\":\"request-start\",\"id\":%s,\"entry\":%s}\n\n",
+					json.RawMessage(mustJSON(e.ID)), raw)
+				flusher.Flush()
+			}
+		}
+	}
+
 	ch, unsubUsage := rt.proxyHandler.UsageUpdates.Subscribe()
 	infCh, unsubInflight := rt.proxyHandler.InflightUpdates.Subscribe()
+	reqCh, unsubRequests := rt.proxyHandler.RequestUpdates.Subscribe()
 	defer unsubUsage()
 	defer unsubInflight()
+	defer unsubRequests()
 	ctx := r.Context()
 	for {
 		select {
@@ -368,6 +404,19 @@ func (rt *Router) streamUsageEvents(w http.ResponseWriter, r *http.Request) {
 		case <-infCh:
 			fmt.Fprintf(w, "data: {\"type\":\"key-inflight\"}\n\n")
 			flusher.Flush()
+		case ev, ok := <-reqCh:
+			if !ok {
+				return
+			}
+			if reqEv, ok := ev.(proxy.RequestEvent); ok {
+				// Marshal a single JSON object for SSE transport.
+				data, err := json.Marshal(reqEv)
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+			}
 		case <-ctx.Done():
 			return
 		case <-time.After(30 * time.Second):

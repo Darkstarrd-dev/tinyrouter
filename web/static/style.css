@@ -797,6 +797,29 @@ tbody tr:last-child td{border-bottom:none}
 .info-copy-all-btn:hover{color:var(--text);border-color:var(--glass-border-hover)}
 .info-modal-header-actions{display:flex;align-items:center;flex-shrink:0}
 
+/* ===================== Status Dots ===================== */
+.status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0;vertical-align:middle}
+.status-dot-processing{background:var(--accent);animation:statusDotPulse 1.5s ease-in-out infinite}
+.status-dot-success{background:var(--accent2)}
+.status-dot-error{background:var(--danger)}
+.status-dot-retry{background:var(--warn)}
+@keyframes statusDotPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(79,195,247,0.4)}50%{opacity:0.7;box-shadow:0 0 0 4px rgba(79,195,247,0)}}
+.status-col-cell{width:28px;text-align:center;padding:6px 4px!important}
+.status-col-header{width:28px;min-width:28px;padding:6px 4px!important}
+
+/* ===================== Info Modal Search ===================== */
+.info-modal-search{display:none;align-items:center;gap:6px;margin-left:16px;flex-shrink:0}
+.info-modal-search input{width:160px;height:28px;padding:4px 10px;font-size:var(--font-badge);border-radius:6px;background:var(--input-bg);border:1px solid var(--glass-border);color:var(--text);font-family:inherit}
+.info-modal-search input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow)}
+.info-modal-search button{width:24px;height:24px;border:1px solid var(--glass-border);background:var(--glass-bg);color:var(--text-secondary);border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;padding:0;transition:all .15s}
+.info-modal-search button:hover{background:var(--glass-hover);color:var(--text);border-color:var(--glass-border-hover)}
+.info-modal-search #info-modal-search-count{font-size:var(--font-badge);color:var(--text-muted);min-width:50px;text-align:center;font-weight:600}
+.info-modal-search-highlight{background:rgba(79,195,247,0.25);color:var(--accent);border-radius:2px;padding:0 1px;box-shadow:0 0 0 1px rgba(79,195,247,0.3)}
+
+/* ===================== Info Field Key Sticky ===================== */
+.info-field-key{position:sticky;top:0;z-index:2;background:var(--modal-bg);padding:4px 0;margin-bottom:3px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px}
+.info-field-key::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(to right,transparent,var(--glass-border),transparent);z-index:-1}
+
 /* ===================== Settings Layout ===================== */
 .settings-layout{display:flex;gap:0;height:100%;align-items:stretch;overflow:hidden}
 

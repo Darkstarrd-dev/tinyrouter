@@ -85,14 +85,14 @@ func normalizeSSEChunk(line string) string {
 	return "data: " + string(out)
 }
 
-func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool) {
+func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool, reqID string) {
 	defer resp.Body.Close()
 
 	streamStart := time.Now()
-	var reqID int64
+	var inflightID int64
 	if sel != nil {
-		reqID = h.Inflight.Register(sel.Provider.ID, sel.Key.ID)
-		defer h.Inflight.Unregister(reqID)
+		inflightID = h.Inflight.Register(sel.Provider.ID, sel.Key.ID)
+		defer h.Inflight.Unregister(inflightID)
 	}
 	var lastSSEPush time.Time
 	firstChunkDone := false
@@ -141,6 +141,9 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 							}
 						}
 					}
+					if h.debugMode() && reqID != "" {
+						h.parseAndBroadcastChunk(reqID, line, sb)
+					}
 				}
 			} else {
 				if _, err := w.Write(buf[:n]); err != nil {
@@ -160,15 +163,18 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 							outputTokens = out
 						}
 					}
+					if h.debugMode() && reqID != "" {
+						h.parseAndBroadcastChunk(reqID, line, sb)
+					}
 				}
 			}
 			flusher.Flush()
-			if reqID != 0 {
+			if inflightID != 0 {
 				if !firstChunkDone {
-					h.Inflight.SetFirstChunk(reqID)
+					h.Inflight.SetFirstChunk(inflightID)
 					firstChunkDone = true
 				}
-				h.Inflight.AddBytes(reqID, n)
+				h.Inflight.AddBytes(inflightID, n)
 				if time.Since(lastSSEPush) > 1500*time.Millisecond {
 					h.InflightUpdates.Signal()
 					lastSSEPush = time.Now()
@@ -202,6 +208,9 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					}
 				}
 			}
+			if h.debugMode() && reqID != "" {
+				h.parseAndBroadcastChunk(reqID, line, sb)
+			}
 		}
 		break
 	}
@@ -214,10 +223,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	totalLatencyMs := latencyMs + time.Since(streamStart).Milliseconds()
 	h.logger.Info("\U0001f4ca [stream] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", sel.Provider.Name, model, totalLatencyMs, resp.StatusCode)
-	h.recordUsage(sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, nil, resp.Header, resp.StatusCode)
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, nil, resp.Header, resp.StatusCode)
 }
 
-func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte) {
+func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, reqID string) {
 	defer resp.Body.Close()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -248,5 +257,102 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	}
 	h.logger.Info("\U0001f4ca [response] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
-	h.recordUsage(sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, bodyBytes, resp.Header, resp.StatusCode)
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, bodyBytes, resp.Header, resp.StatusCode)
+}
+
+// parseAndBroadcastChunk extracts delta text from an SSE data: line in debug
+// mode and broadcasts request-chunk events through the RequestUpdates
+// broadcaster. The line argument is a raw SSE line (e.g. "data: {...}").
+// The sb argument is the SSELineBuffer that has already produced this line;
+// it is preserved so subsequent calls can continue scanning without losing
+// any partial data between calls.
+func (h *Handler) parseAndBroadcastChunk(reqID, line string, sb *SSELineBuffer) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "data:") {
+		return
+	}
+	payload := strings.TrimSpace(trimmed[5:])
+	if payload == "[DONE]" {
+		return
+	}
+
+	deltas := parseSSEChunkDelta([]byte(payload))
+	for _, d := range deltas {
+		h.RequestUpdates.Broadcast(RequestEvent{
+			Type:    "request-chunk",
+			ID:      reqID,
+			Section: d.section,
+			Delta:   d.delta,
+		})
+	}
+}
+
+// chunkDelta is the per-chunk parse result for a single SSE data payload.
+type chunkDelta struct {
+	section string // "reasoning" | "assistant" | "usage"
+	delta   string
+}
+
+// parseSSEChunkDelta extracts incremental delta fields from an OpenAI-format
+// SSE data payload. It returns at most three deltas (one per section) but may
+// return zero if the payload contains no relevant fields.
+func parseSSEChunkDelta(payload []byte) []chunkDelta {
+	var result []chunkDelta
+
+	var obj map[string]any
+	if err := json.Unmarshal(payload, &obj); err != nil {
+		return result
+	}
+
+	// Extract reasoning_content from choices[].delta
+	if choices, ok := obj["choices"].([]any); ok && len(choices) > 0 {
+		for _, c := range choices {
+			choice, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			delta, ok := choice["delta"].(map[string]any)
+			if !ok {
+				continue
+			}
+			if v, ok := delta["reasoning_content"].(string); ok && v != "" {
+				result = append(result, chunkDelta{section: "reasoning", delta: v})
+			}
+			if v, ok := delta["content"].(string); ok && v != "" {
+				result = append(result, chunkDelta{section: "assistant", delta: v})
+			}
+		}
+	}
+
+	// Extract usage
+	if usage, ok := obj["usage"].(map[string]any); ok {
+		if in, ok := usage["input_tokens"].(float64); ok && in > 0 {
+			result = append(result, chunkDelta{section: "usage", delta: formatTokenDelta("input_tokens", int(in))})
+		}
+		if out, ok := usage["output_tokens"].(float64); ok && out > 0 {
+			result = append(result, chunkDelta{section: "usage", delta: formatTokenDelta("output_tokens", int(out))})
+		}
+	}
+
+	return result
+}
+
+// formatTokenDelta builds a short delta string for usage chunks so the
+// frontend can display a readable summary.
+func formatTokenDelta(field string, value int) string {
+	return field + "=" + itoa(value)
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
 }

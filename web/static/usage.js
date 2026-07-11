@@ -10,6 +10,12 @@ var quotaBarItems = {};
 var lastQuotaSig = '';
 var usageDebugMode = false;
 var usageVisibilityHandler = null;
+var inflightEntries = {};
+var currentInfoModalRequestId = null;
+var currentInfoModalReasoningEl = null;
+var currentInfoModalAssistantEl = null;
+var currentInfoModalUsageEl = null;
+var currentInfoModalStreamingDone = false;
 
 var TREND_PALETTE = [
   '#4fc3f7', '#10a37f', '#d97706', '#4285f4', '#a855f7', '#ff6a00',
@@ -38,19 +44,26 @@ function sanitizeId(s) {
 }
 
 function renderUsageRow(e) {
-  var statusCell;
-  if (usageDebugMode && (e.reqPayload || e.respPayload || e.respStatus)) {
+  var statusDot;
+  var dotClass = 'status-dot';
+  if (e.status === 'success') dotClass += ' status-dot-success';
+  else if (e.status === 'error') dotClass += ' status-dot-error';
+  else if (e.status === 'retry') dotClass += ' status-dot-retry';
+  else dotClass += ' status-dot-processing';
+  var dotHtml = '<span class="' + dotClass + '"></span>';
+  var statusInner;
+  if (usageDebugMode && (e.reqPayload || e.respPayload || e.respStatus || e.status === 'processing')) {
     var ts = new Date(e.timestamp).getTime();
-    statusCell = '<td><button type="button" class="btn btn-sm btn-info" onclick="showUsageEntryInfo(\'' + ts + '\')"><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></button></td>';
+    statusInner = '<button type="button" class="btn btn-sm btn-info" onclick="showUsageEntryInfo(\'' + ts + '\')">' + dotHtml + '</button>';
   } else {
-    statusCell = '<td><span class="badge ' + (e.status === 'success' ? 'badge-active' : 'badge-locked') + '">' + e.status + '</span></td>';
+    statusInner = dotHtml;
   }
   return '<tr>\
+    <td class="status-col-cell">' + statusInner + '</td>\
     <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
     <td>' + escapeHtml(e.provider) + '</td>\
     <td>' + escapeHtml(e.model) + '</td>\
     <td>' + escapeHtml(e.keyName) + '</td>\
-    ' + statusCell + '\
     <td>' + e.latencyMs + 'ms</td>\
     <td>' + e.inputTokens + '/' + e.outputTokens + '</td>\
   </tr>';
@@ -291,7 +304,18 @@ async function renderUsage(c) {
   var rejected = results.some(function(r) { return r.status === 'rejected'; });
   if (rejected) toast(t('loadFailed') || 'Load failed', 'error');
   usageDebugMode = !!(settings && settings.debugMode);
-  lastUsageEntries = usage.entries || [];
+  var usageEntries = usage.entries || [];
+  var existingIds = {};
+  inflightEntries = {};
+  usageEntries.forEach(function(e) {
+    if (e.id) {
+      existingIds[e.id] = true;
+      lastUsageEntries.push(e);
+    }
+  });
+  for (var key in inflightEntries) {
+    lastUsageEntries.push(inflightEntries[key]);
+  }
   var quotaBars = quotas.quotas || [];
   quotaBarItems = {};
   lastQuotaSig = '';
@@ -335,11 +359,11 @@ function renderRecentRequestsInline(entries) {
     body = '<div class="recent-requests-scroll card-scroll">' +
       '<table class="usage-table">' +
         '<thead><tr>' +
+          '<th class="status-col-header"></th>' +
           '<th>' + t('thTime') + '</th>' +
           '<th>' + t('thProvider') + '</th>' +
           '<th>' + t('thModel') + '</th>' +
           '<th>' + t('thKey') + '</th>' +
-          '<th>' + t('thStatus') + '</th>' +
           '<th>' + t('thLatency') + '</th>' +
           '<th>' + t('thTokens') + '</th>' +
         '</tr></thead>' +
@@ -396,7 +420,23 @@ async function refreshQuotaData() {
       apiGet('/usage?limit=500'),
       apiGet('/usage/quotas')
     ]);
-    lastUsageEntries = usage.entries || [];
+    var newEntries = usage.entries || [];
+    var newIds = {};
+    newEntries.forEach(function(e) {
+      if (e.id) newIds[e.id] = true;
+    });
+    var merged = [];
+    var inflightKeys = Object.keys(inflightEntries);
+    inflightKeys.forEach(function(id) {
+      if (!newIds[id]) {
+        merged.push(inflightEntries[id]);
+        newIds[id] = true;
+      }
+    });
+    newEntries.forEach(function(e) {
+      if (!newIds[e.id]) merged.push(e);
+    });
+    lastUsageEntries = merged;
     updateUsageSummary(summary);
     updateTrendChart(lastUsageEntries);
     updateQuotaBars(quotas.quotas || []);
@@ -411,6 +451,18 @@ function applyUsageSSEHandlers(es) {
       var data = JSON.parse(ev.data);
       if (data.type === 'usage-updated' || data.type === 'key-inflight') {
         scheduleQuotaRefresh();
+        return;
+      }
+      if (data.type === 'request-start') {
+        handleRequestStart(data.entry);
+        return;
+      }
+      if (data.type === 'request-done') {
+        handleRequestDone(data.id, data.status, data.entry);
+        return;
+      }
+      if (data.type === 'request-chunk') {
+        handleRequestChunk(data.id, data.section, data.delta);
       }
     } catch(e) {}
   };
@@ -422,6 +474,121 @@ function applyUsageSSEHandlers(es) {
     var status = document.getElementById('console-status');
     if (status) status.textContent = t('connected');
   };
+}
+
+function handleRequestStart(entry) {
+  if (!entry) return;
+  if (!entry.id) entry.id = 'inflight-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+  inflightEntries[entry.id] = entry;
+  var ts = new Date(entry.timestamp).getTime();
+  var rowHtml = renderUsageRow(entry);
+  var row = document.createElement('tr');
+  row.innerHTML = rowHtml;
+  row = row.firstElementChild;
+  row.setAttribute('data-entry-id', entry.id);
+  row.setAttribute('data-entry-ts', ts);
+  var tbody = document.getElementById('recent-tbody');
+  if (tbody) {
+    var firstRow = tbody.firstElementChild;
+    if (firstRow) {
+      tbody.insertBefore(row, firstRow);
+    } else {
+      tbody.appendChild(row);
+    }
+    var countEl = document.querySelector('.recent-requests-card .recent-count');
+    if (countEl) countEl.textContent = String(parseInt(countEl.textContent || '0') + 1);
+  }
+  var found = lastUsageEntries.findIndex(function(x) { return x.id === entry.id; });
+  if (found >= 0) {
+    lastUsageEntries[found] = entry;
+  } else {
+    lastUsageEntries.unshift(entry);
+  }
+}
+
+function handleRequestDone(id, status, entry) {
+  if (!id) return;
+  var inflightEntry = inflightEntries[id];
+  if (!inflightEntry && !entry) return;
+  var completeEntry = entry || inflightEntry;
+  if (completeEntry) {
+    if (status) completeEntry.status = status;
+    if (entry) inflightEntries[id] = entry;
+  }
+  var ts = new Date(completeEntry.timestamp).getTime();
+  var rowHtml = renderUsageRow(completeEntry);
+  var row = document.createElement('tr');
+  row.innerHTML = rowHtml;
+  row = row.firstElementChild;
+  row.setAttribute('data-entry-id', id);
+  row.setAttribute('data-entry-ts', ts);
+  var tbody = document.getElementById('recent-tbody');
+  if (tbody) {
+    var existingRow = tbody.querySelector('[data-entry-id="' + id + '"]');
+    if (existingRow) {
+      existingRow.parentNode.replaceChild(row, existingRow);
+    }
+  }
+  var found = lastUsageEntries.findIndex(function(x) { return x.id === id; });
+  if (found >= 0) {
+    lastUsageEntries[found] = completeEntry;
+  } else {
+    lastUsageEntries.unshift(completeEntry);
+  }
+  delete inflightEntries[id];
+  if (currentInfoModalRequestId === id) {
+    currentInfoModalStreamingDone = true;
+    if (completeEntry.respPayload) {
+      updateStreamingModalResponse(completeEntry);
+    }
+  }
+}
+
+function handleRequestChunk(id, section, delta) {
+  if (!id || !delta) return;
+  if (currentInfoModalRequestId !== id) return;
+  if (currentInfoModalStreamingDone) return;
+  var targetEl;
+  if (section === 'reasoning') {
+    targetEl = currentInfoModalReasoningEl;
+  } else if (section === 'assistant') {
+    targetEl = currentInfoModalAssistantEl;
+  } else if (section === 'usage') {
+    targetEl = currentInfoModalUsageEl;
+  }
+  if (!targetEl) return;
+  var text = targetEl.textContent || '';
+  targetEl.textContent = text + (delta || '');
+}
+
+function updateStreamingModalResponse(entry) {
+  var bodyEl = document.getElementById('info-modal-body');
+  if (!bodyEl) return;
+  var existingRespSection = bodyEl.querySelector('#streaming-response-body-section');
+  if (existingRespSection) existingRespSection.remove();
+  if (entry.respPayload) {
+    var html = renderInfoSection('Response Body', entry.respPayload);
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    var sectionEl = temp.firstElementChild;
+    sectionEl.id = 'streaming-response-body-section';
+    bodyEl.appendChild(sectionEl);
+  }
+  if (entry.respHeaders) {
+    var html = renderInfoSection('Response Headers', entry.respHeaders);
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    var sectionEl = temp.firstElementChild;
+    bodyEl.appendChild(sectionEl);
+  }
+  if (entry.respStatus) {
+    var html = '<div class="info-section"><div class="info-section-title">Status: ' + entry.respStatus + '</div></div>';
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    var sectionEl = temp.firstElementChild;
+    bodyEl.appendChild(sectionEl);
+  }
+  postProcessRawFields();
 }
 
 function startUsageRefresh() {
@@ -1020,7 +1187,7 @@ function openRecentRequests() {
   var tableHtml = entries.length === 0 ? emptyState(t('noUsage')) :
     '<div class="recent-requests-scroll">' +
     '<table>' +
-      '<thead><tr><th>' + t('time') + '</th><th>' + t('provider') + '</th><th>' + t('model') + '</th><th>Key</th><th>' + t('status') + '</th><th>' + t('latency') + '</th><th>' + t('tokens') + '</th></tr></thead>' +
+      '<thead><tr><th class="status-col-header"></th><th>' + t('time') + '</th><th>' + t('provider') + '</th><th>' + t('model') + '</th><th>Key</th><th>' + t('latency') + '</th><th>' + t('tokens') + '</th></tr></thead>' +
       '<tbody>' + entries.map(renderUsageRow).join('') + '</tbody>' +
     '</table>' +
     '</div>';
@@ -1072,25 +1239,96 @@ function showUsageEntryInfo(ts) {
   var overlay = document.getElementById('info-modal-overlay');
   var titleEl = document.getElementById('info-modal-title');
   var bodyEl = document.getElementById('info-modal-body');
-  titleEl.textContent = e.provider + ' / ' + e.model + ' \u2014 ' + e.status + ' (' + e.latencyMs + 'ms)';
+  titleEl.textContent = e.provider + ' / ' + e.model + ' \u2014 ' + (e.status || 'unknown') + ' (' + (e.latencyMs || '?') + 'ms)';
   __infoModalSections = [];
+  currentInfoModalRequestId = e.id || null;
+  currentInfoModalReasoningEl = null;
+  currentInfoModalAssistantEl = null;
+  currentInfoModalUsageEl = null;
+  currentInfoModalStreamingDone = false;
   var html = '';
   if (e.reqPayload) {
     html += renderInfoSection('Request', e.reqPayload);
   }
-  if (e.respHeaders) {
-    html += renderInfoSection('Response Headers', e.respHeaders);
-  }
-  if (e.respStatus) {
-    html += '<div class="info-section"><div class="info-section-title">Status: ' + e.respStatus + '</div></div>';
-  }
-  if (e.respPayload) {
-    html += renderInfoSection('Response Body', e.respPayload);
+  if (e.status === 'processing' && usageDebugMode) {
+    html += '<div class="info-section" id="streaming-reasoning-section">' +
+      '<div class="info-section-title">Reasoning (streaming)</div>' +
+      '<div class="info-field">' +
+        '<span class="info-field-key">' +
+          '<span class="info-field-key-name">Content</span>' +
+          '<span class="info-field-actions">' +
+            '<button type="button" class="info-copy-btn" onclick="copyStreamingText(this)">Copy</button>' +
+          '</span>' +
+        '</span>' +
+        '<div class="info-field-value">' +
+          '<pre class="info-json" id="streaming-reasoning-text" style="white-space:pre-wrap;min-height:20px;color:var(--text-muted)">Thinking...</pre>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+    html += '<div class="info-section" id="streaming-assistant-section">' +
+      '<div class="info-section-title">Assistant Message (streaming)</div>' +
+      '<div class="info-field">' +
+        '<span class="info-field-key">' +
+          '<span class="info-field-key-name">Content</span>' +
+          '<span class="info-field-actions">' +
+            '<button type="button" class="info-copy-btn" onclick="copyStreamingText(this)">Copy</button>' +
+          '</span>' +
+        '</span>' +
+        '<div class="info-field-value">' +
+          '<pre class="info-json" id="streaming-assistant-text" style="white-space:pre-wrap;min-height:20px"> </pre>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+    html += '<div class="info-section" id="streaming-usage-section" style="display:none">' +
+      '<div class="info-section-title">Usage</div>' +
+      '<div class="info-field">' +
+        '<span class="info-field-key">' +
+          '<span class="info-field-key-name">Token Stats</span>' +
+          '<span class="info-field-actions">' +
+            '<button type="button" class="info-copy-btn" onclick="copyStreamingText(this)">Copy</button>' +
+          '</span>' +
+        '</span>' +
+        '<div class="info-field-value">' +
+          '<pre class="info-json" id="streaming-usage-text" style="white-space:pre-wrap;min-height:20px;color:var(--text-muted)">Waiting...</pre>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  } else {
+    if (e.respHeaders) {
+      html += renderInfoSection('Response Headers', e.respHeaders);
+    }
+    if (e.respStatus) {
+      html += '<div class="info-section"><div class="info-section-title">Status: ' + e.respStatus + '</div></div>';
+    }
+    if (e.respPayload) {
+      html += renderInfoSection('Response Body', e.respPayload);
+    }
   }
   bodyEl.innerHTML = html || '<div class="info-section">' + t('noData') + '</div>';
   postProcessRawFields();
+  if (e.status === 'processing' && usageDebugMode) {
+    currentInfoModalReasoningEl = document.getElementById('streaming-reasoning-text');
+    currentInfoModalAssistantEl = document.getElementById('streaming-assistant-text');
+    currentInfoModalUsageEl = document.getElementById('streaming-usage-text');
+    if (currentInfoModalReasoningEl && currentInfoModalReasoningEl.textContent.trim() === 'Thinking...') {
+      currentInfoModalReasoningEl.textContent = '';
+    }
+  }
   overlay.classList.add('show');
   document.addEventListener('keydown', usageInfoModalEscapeHandler);
+}
+
+function copyStreamingText(btn) {
+  var field = btn.closest('.info-field');
+  if (!field) return;
+  var pre = field.querySelector('.info-json');
+  if (!pre) return;
+  var text = pre.textContent || '';
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(function() { btn.textContent = orig; }, 1500);
+  });
 }
 
 function usageInfoModalEscapeHandler(e) {
@@ -1098,9 +1336,14 @@ function usageInfoModalEscapeHandler(e) {
 }
 
 function closeUsageEntryInfo() {
-	var overlay = document.getElementById('info-modal-overlay');
-	overlay.classList.remove('show');
-	document.removeEventListener('keydown', usageInfoModalEscapeHandler);
+  var overlay = document.getElementById('info-modal-overlay');
+  overlay.classList.remove('show');
+  document.removeEventListener('keydown', usageInfoModalEscapeHandler);
+  currentInfoModalRequestId = null;
+  currentInfoModalReasoningEl = null;
+  currentInfoModalAssistantEl = null;
+  currentInfoModalUsageEl = null;
+  currentInfoModalStreamingDone = false;
 }
 
 async function resetQuotaTimers() {
@@ -1123,3 +1366,166 @@ function refreshQuotaMonitor() {
 	var c = document.getElementById('page-content');
 	if (c) renderUsage(c);
 }
+
+// ===================== Info Modal Search (Ctrl+F) =====================
+
+var infoModalMatches = [];
+var infoModalCurrentMatch = -1;
+
+function initInfoModalSearch() {
+  var searchInput = document.getElementById('info-modal-search-input');
+  var searchPrev = document.getElementById('info-modal-search-prev');
+  var searchNext = document.getElementById('info-modal-search-next');
+  if (!searchInput || !searchPrev || !searchNext) return;
+  searchInput.addEventListener('input', function() { performInfoModalSearch(); });
+  searchInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      clearInfoModalHighlights();
+      searchInput.value = '';
+      searchInput.blur();
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        navigateInfoModalMatch(-1);
+      } else {
+        navigateInfoModalMatch(1);
+      }
+    }
+  });
+  searchPrev.addEventListener('click', function() { navigateInfoModalMatch(-1); });
+  searchNext.addEventListener('click', function() { navigateInfoModalMatch(1); });
+}
+
+function performInfoModalSearch() {
+  clearInfoModalHighlights();
+  var query = document.getElementById('info-modal-search-input').value.trim();
+  if (!query) {
+    infoModalMatches = [];
+    infoModalCurrentMatch = -1;
+    updateInfoModalSearchCount();
+    return;
+  }
+  var bodyEl = document.getElementById('info-modal-body');
+  if (!bodyEl) return;
+  var walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT, null, false);
+  var textNodes = [];
+  var node;
+  while (node = walker.nextNode()) {
+    if (node.parentElement && (node.parentElement.tagName === 'SCRIPT' || node.parentElement.tagName === 'STYLE' || node.parentElement.closest('.info-toggle-view') || node.parentElement.closest('.info-collapse-btn') || node.parentElement.closest('.info-copy-btn') || node.parentElement.closest('.info-copy-all-btn'))) continue;
+    if (node.textContent && node.textContent.toLowerCase().indexOf(query.toLowerCase()) >= 0) {
+      textNodes.push(node);
+    }
+  }
+  infoModalMatches = [];
+  textNodes.forEach(function(textNode) {
+    var parent = textNode.parentElement;
+    var text = textNode.textContent;
+    var regex = new RegExp('(' + escapeRegExp(query) + ')', 'gi');
+    if (regex.test(text)) {
+      regex.lastIndex = 0;
+      var mark;
+      var nextSibling;
+      var match;
+      var lastIndex = 0;
+      while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          var before = document.createTextNode(text.slice(lastIndex, match.index));
+          parent.insertBefore(before, textNode);
+        }
+        mark = document.createElement('mark');
+        mark.className = 'info-modal-search-highlight';
+        mark.textContent = match[0];
+        parent.insertBefore(mark, textNode);
+        infoModalMatches.push(mark);
+        lastIndex = regex.lastIndex;
+      }
+      if (lastIndex < text.length) {
+        var after = document.createTextNode(text.slice(lastIndex));
+        parent.insertBefore(after, textNode);
+      }
+      parent.removeChild(textNode);
+    }
+  });
+  infoModalCurrentMatch = -1;
+  updateInfoModalSearchCount();
+  if (infoModalMatches.length > 0) {
+    navigateInfoModalMatch(0);
+  }
+}
+
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function clearInfoModalHighlights() {
+  var highlights = document.querySelectorAll('.info-modal-search-highlight');
+  highlights.forEach(function(mark) {
+    var parent = mark.parentElement;
+    if (parent) {
+      var text = document.createTextNode(mark.textContent);
+      parent.replaceChild(text, mark);
+      parent.normalize();
+    }
+  });
+  infoModalMatches = [];
+  infoModalCurrentMatch = -1;
+  updateInfoModalSearchCount();
+}
+
+function navigateInfoModalMatch(direction) {
+  if (infoModalMatches.length === 0) return;
+  infoModalCurrentMatch += direction;
+  if (infoModalCurrentMatch >= infoModalMatches.length) infoModalCurrentMatch = 0;
+  if (infoModalCurrentMatch < 0) infoModalCurrentMatch = infoModalMatches.length - 1;
+  var mark = infoModalMatches[infoModalCurrentMatch];
+  if (!mark) return;
+  mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  updateInfoModalSearchCount();
+}
+
+function updateInfoModalSearchCount() {
+  var countEl = document.getElementById('info-modal-search-count');
+  if (!countEl) return;
+  if (infoModalMatches.length === 0) {
+    var query = document.getElementById('info-modal-search-input').value.trim();
+    countEl.textContent = query ? 'No results' : '';
+  } else {
+    countEl.textContent = (infoModalCurrentMatch + 1) + ' / ' + infoModalMatches.length;
+  }
+}
+
+function showInfoModalSearch() {
+  var search = document.getElementById('info-modal-search');
+  var input = document.getElementById('info-modal-search-input');
+  if (search) search.style.display = '';
+  if (input) { input.value = ''; input.focus(); }
+  updateInfoModalSearchCount();
+}
+
+function hideInfoModalSearch() {
+  var search = document.getElementById('info-modal-search');
+  if (search) search.style.display = 'none';
+  clearInfoModalHighlights();
+}
+
+function attachInfoModalCtrlFHandler() {
+  document.addEventListener('keydown', function(e) {
+    var overlay = document.getElementById('info-modal-overlay');
+    if (!overlay || !overlay.classList.contains('show')) return;
+    if ((e.ctrlKey && e.key === 'f') || (e.metaKey && e.key === 'f')) {
+      e.preventDefault();
+      var search = document.getElementById('info-modal-search');
+      if (search && search.style.display !== 'none') {
+        hideInfoModalSearch();
+      } else {
+        showInfoModalSearch();
+      }
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  initInfoModalSearch();
+  attachInfoModalCtrlFHandler();
+});

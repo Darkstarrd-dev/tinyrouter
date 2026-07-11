@@ -26,7 +26,9 @@ type Handler struct {
 	streamClient      *http.Client // 流式：无超时，由 r.Context() 控制
 	UsageUpdates      *Broadcaster
 	InflightUpdates   *Broadcaster
+	RequestUpdates    *Broadcaster
 	Inflight          *InflightTracker
+	EntryTracker      *EntryTracker
 	debugModeProvider func() bool
 }
 
@@ -40,7 +42,9 @@ func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.
 		logger:           logger,
 		UsageUpdates:     NewBroadcaster(4),
 		InflightUpdates:  NewBroadcaster(4),
+		RequestUpdates:   NewBroadcaster(64),
 		Inflight:         NewInflightTracker(),
+		EntryTracker:     NewEntryTracker(),
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 		},
@@ -126,7 +130,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 	// NIM providers must not participate in Combo routing: the model name
 	// carries a nv/* prefix and never matches a combo name, so no combo
 	// resolution is attempted for them — fall through to the forward path.
-	if !h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount, "", provider.Name) {
+	if ok, _ := h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount, "", provider.Name); !ok {
 		writeError(w, http.StatusBadGateway, "all keys exhausted")
 	}
 }
@@ -146,19 +150,19 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 	switch plan.Strategy {
 	case "fallback":
 		for _, target := range plan.Targets {
-			if h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "") {
+			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, ""); ok {
 				return
 			}
 		}
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 	case "round-robin":
 		target := plan.Targets[0]
-		if !h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "") {
+		if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, ""); !ok {
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 		}
 	case "greedy-squirrel":
 		for _, target := range plan.Targets {
-			if h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "") {
+			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, ""); ok {
 				return
 			}
 		}
@@ -168,7 +172,7 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 	}
 }
 
-func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, logLabel, providerName string) bool {
+func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, logLabel, providerName string) (bool, string) {
 	state := &retryState{maxRetries: h.maxRetries()}
 
 	cfgProvider, _ := h.reg.GetProvider(providerID)
@@ -182,7 +186,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		sel, err := h.selector.SelectKey(providerID, upstreamModel, state.excludeKeyIDs)
 		if err != nil {
 			h.logger.Error("no available keys for %s/%s: %v", providerID, upstreamModel, err)
-			return false
+			return false, ""
 		}
 
 		// Track in-flight: mark key as in-use immediately after selection.
@@ -202,7 +206,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 				select {
 				case <-r.Context().Done():
 					h.logger.Debug("client canceled during NIM wait")
-					return false
+					return false, ""
 				case <-time.After(wait):
 				}
 			}
@@ -213,15 +217,35 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		if err != nil {
 			h.logger.Error("failed to marshal upstream body: %v", err)
 			writeError(w, http.StatusInternalServerError, "internal marshalling error")
-			return false
+			return false, ""
 		}
 		h.logger.Debug("SEND %s | %s | body=%dB | %s", sel.Provider.Name, upstreamModel, len(upstreamBody), util.TruncStr(string(upstreamBody), 500))
+
+		// Create a processing usage entry now that we are about to forward the
+		// request. This gives the UI an immediate "request-start" signal so
+		// the recent-requests list shows the entry the moment it arrives.
+		reqID := generateRequestID()
+		processingEntry := usage.Entry{
+			ID:      reqID,
+			Timestamp: time.Now(),
+			Provider:  sel.Provider.Name,
+			Model:     upstreamModel,
+			KeyID:     sel.Key.ID,
+			KeyName:   sel.KeyName,
+			Status:    "processing",
+		}
+		if h.debugMode() && len(bodyBytes) > 0 {
+			processingEntry.ReqPayload = append([]byte(nil), bodyBytes...)
+		}
+		h.EntryTracker.Register(processingEntry)
+		h.broadcastRequestStart(reqID, processingEntry)
 
 		startTime := time.Now()
 		resp, err := h.forwardUpstream(r.Context(), sel, upstreamBody, r.Header, isStream, path)
 
 		if err != nil {
-			h.handleNetworkError(sel, providerID, upstreamModel, err, state)
+			h.handleNetworkError(sel, providerID, upstreamModel, err, state, reqID)
+			h.EntryTracker.Remove(reqID)
 			// DecInFlight before continue — cannot use defer in for loop (would
 			// accumulate across retry iterations).
 			if keyState != nil {
@@ -232,7 +256,8 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode == 429 {
-			h.handle429(resp, sel, providerID, upstreamModel, startTime, state, r)
+			h.handle429(resp, sel, providerID, upstreamModel, startTime, state, r, reqID)
+			h.EntryTracker.Remove(reqID)
 			if keyState != nil {
 				keyState.DecInFlight()
 			}
@@ -241,7 +266,8 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode >= 400 {
-			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state, r)
+			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state, r, reqID)
+			h.EntryTracker.Remove(reqID)
 			if keyState != nil {
 				keyState.DecInFlight()
 			}
@@ -267,9 +293,9 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 
 		if isStream {
 			normalize := cfgProvider != nil && cfgProvider.NormalizeStreamChunks
-			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize)
+			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize, reqID)
 		} else {
-			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes)
+			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, reqID)
 		}
 		// DecInFlight after the synchronous response handling completes — this
 		// key is no longer "in-use". Cannot use defer (see above).
@@ -277,8 +303,20 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			keyState.DecInFlight()
 		}
 		h.InflightUpdates.Signal()
-		return true
+		return true, reqID
 	}
+}
+
+func (h *Handler) broadcastRequestStart(id string, entry usage.Entry) {
+	raw := MarshalEntryJSON(entry)
+	if raw == nil {
+		return
+	}
+	h.RequestUpdates.Broadcast(RequestEvent{
+		Type:  "request-start",
+		ID:    id,
+		Entry: raw,
+	})
 }
 
 func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
@@ -351,19 +389,20 @@ func (h *Handler) debugMode() bool {
 	return false
 }
 
-func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string, reqBody []byte, respBody []byte, respHeaders http.Header, respStatus int) {
+func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string, reqBody []byte, respBody []byte, respHeaders http.Header, respStatus int) {
 	entry := usage.Entry{
-		Timestamp:    time.Now(),
-		Provider:     sel.Provider.Name,
-		Model:        model,
-		KeyID:        sel.Key.ID,
-		KeyName:      sel.KeyName,
-		Status:       status,
-		LatencyMs:    latencyMs,
-		TTFTMs:       ttftMs,
+		ID:         id,
+		Timestamp:  time.Now(),
+		Provider:   sel.Provider.Name,
+		Model:      model,
+		KeyID:      sel.Key.ID,
+		KeyName:    sel.KeyName,
+		Status:     status,
+		LatencyMs:  latencyMs,
+		TTFTMs:     ttftMs,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
-		Error:        errMsg,
+		Error:      errMsg,
 	}
 	if h.debugMode() {
 		if len(reqBody) > 0 {
@@ -382,6 +421,16 @@ func (h *Handler) recordUsage(provider, model string, sel *rotation.SelectedKey,
 		entry.RespStatus = respStatus
 	}
 	h.usage.Add(entry)
+
+	raw := MarshalEntryJSON(entry)
+	if raw != nil {
+		h.RequestUpdates.Broadcast(RequestEvent{
+			Type:  "request-done",
+			ID:    id,
+			Status: status,
+			Entry: raw,
+		})
+	}
 	h.UsageUpdates.Signal()
 }
 
