@@ -66,8 +66,14 @@ function startMonitorStream() {
   if (!output) return;
 
   monitorEventSource = new EventSource('/api/monitor/stream');
-  monitorEventSource.onopen = function() {};
-  monitorEventSource.onerror = function() {};
+  monitorEventSource.onopen = function() {
+    var status = document.getElementById('console-status');
+    if (status) status.textContent = t('connected') || 'Connected';
+  };
+  monitorEventSource.onerror = function() {
+    var status = document.getElementById('console-status');
+    if (status) status.textContent = t('disconnected') || 'Disconnected';
+  };
   monitorEventSource.onmessage = function(e) {
     try {
       var msg = JSON.parse(e.data);

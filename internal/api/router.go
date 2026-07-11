@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -64,7 +65,7 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 		testClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		monitorMgr: monitor.New(500),
+		monitorMgr: monitor.New(500, cfg.Monitor.MaxLineLength),
 	}
 }
 
@@ -90,16 +91,19 @@ func (rt *Router) SetDebugMode(on bool) {
 
 // securityHeaders applies security-related HTTP headers to all responses
 // except proxy routes (/v1/*) which transparently pass through upstream headers.
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/v1/") {
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws:127.0.0.1:*")
-			w.Header().Set("X-Content-Type-Options", "nosniff")
-			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
-			w.Header().Set("X-XSS-Protection", "1; mode=block")
-		}
-		next.ServeHTTP(w, r)
-	})
+func securityHeaders(port int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasPrefix(r.URL.Path, "/v1/") {
+				csp := fmt.Sprintf("default-src 'self'; frame-ancestors 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://127.0.0.1:%d", port)
+				w.Header().Set("Content-Security-Policy", csp)
+				w.Header().Set("X-Content-Type-Options", "nosniff")
+				w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+				w.Header().Set("X-XSS-Protection", "1; mode=block")
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // Routes returns the root HTTP handler with all routes registered.
@@ -109,7 +113,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	// Middleware
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
-	r.Use(securityHeaders)
+	r.Use(securityHeaders(rt.cfg.Port))
 	// Compress responses (brotli/gzip) for compressible content types.
 	// SSE responses and pre-compressed binaries are auto-skipped inside.
 	r.Use(Compress)

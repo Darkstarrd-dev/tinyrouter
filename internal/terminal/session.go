@@ -42,7 +42,19 @@ func NewSession(shellPath string, conn *websocket.Conn, onClose func()) (*Sessio
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := pt.CommandContext(ctx, path)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	cmd.Env = []string{
+		"TERM=xterm-256color",
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+		"USER=" + os.Getenv("USER"),
+		"USERNAME=" + os.Getenv("USERNAME"),
+		"USERPROFILE=" + os.Getenv("USERPROFILE"),
+		"APPDATA=" + os.Getenv("APPDATA"),
+		"LOCALAPPDATA=" + os.Getenv("LOCALAPPDATA"),
+		"SystemRoot=" + os.Getenv("SystemRoot"),
+		"TEMP=" + os.Getenv("TEMP"),
+		"TMP=" + os.Getenv("TMP"),
+	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -72,6 +84,11 @@ func (s *Session) GetConn() *websocket.Conn {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.conn
+}
+
+// Close terminates the session, cleaning up all resources.
+func (s *Session) Close() {
+	s.cleanup()
 }
 
 func defaultShell() string {
@@ -163,6 +180,9 @@ func (s *Session) cleanup() {
 	s.closed = true
 	if s.cancel != nil {
 		s.cancel()
+	}
+	if s.cmd != nil && s.cmd.Process != nil {
+		killProcessGroup(s.cmd.Process.Pid)
 	}
 	if s.pty != nil {
 		_ = s.pty.Close()

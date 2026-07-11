@@ -12,7 +12,11 @@ import (
 
 var terminalUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		return origin == "http://"+r.Host || origin == "https://"+r.Host
 	},
 }
 
@@ -22,6 +26,12 @@ func (rt *Router) getMonitorStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rt *Router) startMonitor(w http.ResponseWriter, r *http.Request) {
+	cfg := rt.reg.Config()
+	if !cfg.Security.PasswordEnabled {
+		writeAPIError(w, http.StatusForbidden, "monitor requires password protection to be enabled")
+		return
+	}
+
 	var req struct {
 		Command string   `json:"command"`
 		Args    []string `json:"args"`
@@ -40,7 +50,7 @@ func (rt *Router) startMonitor(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	rt.logger.Info("monitor started: %s %v", req.Command, req.Args)
+	rt.logger.Info("monitor started: %s", req.Command)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
@@ -101,27 +111,28 @@ func (rt *Router) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rt.terminalMu.Lock()
-	if rt.activeTerm != nil {
-		rt.terminalMu.Unlock()
-		http.Error(w, "terminal session already active", http.StatusConflict)
+	cfg := rt.reg.Config()
+	if !cfg.Security.PasswordEnabled {
+		http.Error(w, "terminal requires password protection to be enabled", http.StatusForbidden)
 		return
 	}
-	rt.terminalMu.Unlock()
 
 	conn, err := terminalUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 
+	var session *terminal.Session
 	onClose := func() {
 		rt.terminalMu.Lock()
-		rt.activeTerm = nil
+		if rt.activeTerm == session {
+			rt.activeTerm = nil
+		}
 		rt.terminalMu.Unlock()
 		rt.logger.Info("terminal session closed")
 	}
 
-	session, err := terminal.NewSession("", conn, onClose)
+	session, err = terminal.NewSession("", conn, onClose)
 	if err != nil {
 		_ = conn.WriteMessage(websocket.TextMessage, []byte("Error: "+err.Error()))
 		_ = conn.Close()
@@ -129,6 +140,12 @@ func (rt *Router) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt.terminalMu.Lock()
+	if rt.activeTerm != nil {
+		rt.terminalMu.Unlock()
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("terminal session already active"))
+		session.Close()
+		return
+	}
 	rt.activeTerm = session
 	rt.terminalMu.Unlock()
 	rt.logger.Info("terminal session started")
@@ -137,6 +154,7 @@ func (rt *Router) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) stopTerminal(w http.ResponseWriter, r *http.Request) {
 	rt.terminalMu.Lock()
 	session := rt.activeTerm
+	rt.activeTerm = nil
 	rt.terminalMu.Unlock()
 
 	if session == nil {
@@ -144,10 +162,7 @@ func (rt *Router) stopTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn := session.GetConn()
-	if conn != nil {
-		_ = conn.Close()
-	}
+	session.Close()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})

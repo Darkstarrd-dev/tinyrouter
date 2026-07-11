@@ -282,7 +282,7 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 		}
 	}
 	if len(cfg.Monitor.AllowedCommands) == 0 {
-		cfg.Monitor.AllowedCommands = []string{"nvidia-smi", "watch", "top", "htop", "btop", "wmic", "systeminfo", "tasklist", "ipconfig", "ifconfig", "df", "free", "vmstat", "iostat", "lscpu", "lspci", "lsblk"}
+		cfg.Monitor.AllowedCommands = []string{"nvidia-smi", "top", "htop", "btop", "systeminfo", "tasklist", "ipconfig", "ifconfig", "df", "free", "vmstat", "iostat", "lscpu", "lspci", "lsblk"}
 	}
 	if cfg.Monitor.MaxLineLength == 0 {
 		cfg.Monitor.MaxLineLength = 4096
