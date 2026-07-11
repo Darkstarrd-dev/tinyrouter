@@ -69,6 +69,11 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+function escapeForJsString(s) {
+  if (!s) return '';
+  return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+}
+
 function maskKey(key) {
   if (!key || key.length < 8) return '***';
   return key.slice(0, 8) + '...';

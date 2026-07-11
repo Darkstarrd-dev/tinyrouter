@@ -322,7 +322,7 @@ function renderComboModelsList() {
           : (isDisabled ? '<button type="button" class="btn btn-sm" disabled>' + t('test') + '</button>'
             : '<button type="button" class="btn btn-sm" onclick="withLoading(this, () => testComboModel(' + i + '))">' + t('test') + '</button>')) +
         (ts
-          ? '<button type="button" class="btn btn-sm btn-info" onclick="showModelInfo(\'' + modelIdEsc + '\')">' + t('info') + '</button>'
+          ? '<button type="button" class="btn btn-sm btn-info" onclick="showModelInfo(\'' + escapeForJsString(modelIdEsc) + '\')">' + t('info') + '</button>'
           : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
         '<button type="button" class="btn btn-sm" ' + (isFirst ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
         '<button type="button" class="btn btn-sm" ' + (isLast ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +

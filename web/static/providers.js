@@ -230,7 +230,7 @@ function renderDetailKeys(p) {
                 <button type="button" class="btn btn-sm" onclick="toggleKeyDetail(\'' + p.id + '\',\'' + k.id + '\',' + (!k.isActive) + ')">' + (k.isActive ? t('pause') : t('resume')) + '</button>\
                 <button type="button" class="btn btn-sm btn-danger" onclick="deleteKeyDetail(\'' + p.id + '\',\'' + k.id + '\')">' + t('delete') + '</button>\
               </td>\
-              <td><span class="code copyable" data-copy="' + escapeHtml(k.key) + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'), \'' + escapeHtml(k.name || 'key') + '\')" title="' + t('clickToCopy') + '">' + maskKey(k.key) + '</span></td>\
+              <td><span class="code copyable" data-copy="' + escapeHtml(k.key) + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'), \'' + escapeForJsString(k.name || 'key') + '\')" title="' + t('clickToCopy') + '">' + maskKey(k.key) + '</span></td>\
               <td>' + k.priority + '</td>\
               <td><span class="badge ' + (k.isActive ? 'badge-active' : 'badge-inactive') + '">' + (k.isActive ? t('active') : t('pause')) + '</span></td>\
             </tr>';
@@ -412,8 +412,10 @@ function buildModelRowMainInner(p, m) {
     if (ts.quotaTotal > 0) quotaStr = ts.quotaRemain + '/' + ts.quotaTotal;
   }
   var midEsc = escapeHtml(m.id);
+  var midJs = escapeForJsString(m.id);
   var pidEsc = escapeHtml(p.id);
   var prefixEsc = escapeHtml(p.prefix);
+  var prefixJs = escapeForJsString(p.prefix);
   var allRes = allKeysTestResults[p.id + '/' + m.id];
   var allBadge = '';
   if (allRes && allRes.results) {
@@ -425,20 +427,20 @@ function buildModelRowMainInner(p, m) {
   }
   var chevronDown = '<svg class="quota-bar-chevron model-row-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
   var rowOnclick = batchManageMode
-    ? 'batchToggleModel(\'' + midEsc + '\')'
-    : 'toggleModelDetailRow(event, \'' + pidEsc + '\', \'' + midEsc + '\')';
+    ? 'batchToggleModel(\'' + midJs + '\')'
+    : 'toggleModelDetailRow(event, \'' + pidEsc + '\', \'' + midJs + '\')';
   var modelIdOnclick = batchManageMode
-    ? 'event.stopPropagation(); batchToggleModel(\'' + midEsc + '\')'
-    : 'event.stopPropagation(); copyToClipboard(\'' + prefixEsc + '/' + midEsc + '\')';
+    ? 'event.stopPropagation(); batchToggleModel(\'' + midJs + '\')'
+    : 'event.stopPropagation(); copyToClipboard(\'' + prefixJs + '/' + midJs + '\')';
   return '<div class="model-row-main" onclick="' + rowOnclick + '">' +
     chevronDown +
     (ts
       ? (ts.ok
           ? '<span class="model-status model-ok" title="' + (ts.latencyMs != null ? ts.latencyMs + 'ms' : '') + '">' + (quotaStr ? 'OK <span class="model-quota-inline">' + escapeHtml(quotaStr) + '</span>' : 'OK') + '</span>'
           : '<span class="model-status model-err" title="' + escapeHtml(ts.error || 'failed') + '">FAIL</span>')
-      : '<button type="button" class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midEsc + '\'))">' + t('test') + '</button>') +
+      : '<button type="button" class="btn btn-sm" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midJs + '\'))">' + t('test') + '</button>') +
     (ts
-      ? '<button type="button" class="btn btn-sm btn-info" onclick="event.stopPropagation(); showModelInfo(\'' + midEsc + '\')">' + t('info') + '</button>'
+      ? '<button type="button" class="btn btn-sm btn-info" onclick="event.stopPropagation(); showModelInfo(\'' + midJs + '\')">' + t('info') + '</button>'
       : '<button type="button" class="btn btn-sm" disabled>' + t('info') + '</button>') +
     '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
       '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
@@ -447,7 +449,7 @@ function buildModelRowMainInner(p, m) {
     '</select>' +
     allBadge +
     '<span class="model-quota-numbers"></span>' +
-    '<button type="button" class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midEsc + '\')">' + t('delete') + '</button>' +
+    '<button type="button" class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midJs + '\')">' + t('delete') + '</button>' +
     '<span class="model-id copyable" onclick="' + modelIdOnclick + '" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + midEsc + '</span>' +
   '</div>';
 }
@@ -470,16 +472,16 @@ function renderDetailModels(p) {
       <div class="section-title">' + t('modelsTitle') + ' (' + models.length + ')</div>\
       <div class="flex mb-12" style="gap:8px">\
         <input id="m-input" placeholder="' + t('modelPlaceholder') + '" style="flex:1">\
-        <button type="button" class="btn btn-sm" onclick="withLoading(this, () => testModelDetail(\'' + escapeHtml(p.id) + '\'))">' + t('test') + '</button>\
-        <button type="button" class="btn btn-sm btn-primary" onclick="withLoading(this, () => addModelDetail(\'' + escapeHtml(p.id) + '\'))">' + t('create') + '</button>\
+        <button type="button" class="btn btn-sm" onclick="withLoading(this, () => testModelDetail(\'' + escapeForJsString(p.id) + '\'))">' + t('test') + '</button>\
+        <button type="button" class="btn btn-sm btn-primary" onclick="withLoading(this, () => addModelDetail(\'' + escapeForJsString(p.id) + '\'))">' + t('create') + '</button>\
       </div>\
       <div class="flex mb-12" style="gap:8px">\
-        <button type="button" class="btn btn-sm" onclick="withLoading(this, () => importModels(\'' + escapeHtml(p.id) + '\'))">' + t('importModels') + '</button>\
-        <button type="button" class="btn btn-sm" id="batch-manage-btn" onclick="enterBatchManage(\'' + escapeHtml(p.id) + '\')" style="display:' + (batchManageMode ? 'none' : '') + '">' + t('batchManage') + '</button>\
+        <button type="button" class="btn btn-sm" onclick="withLoading(this, () => importModels(\'' + escapeForJsString(p.id) + '\'))">' + t('importModels') + '</button>\
+        <button type="button" class="btn btn-sm" id="batch-manage-btn" onclick="enterBatchManage(\'' + escapeForJsString(p.id) + '\')" style="display:' + (batchManageMode ? 'none' : '') + '">' + t('batchManage') + '</button>\
         <div id="batch-actions" style="display:' + (batchManageMode ? 'flex' : 'none') + ';gap:8px">\
           <button type="button" class="btn btn-sm" onclick="batchSelectAll()">' + t('selectAll') + '</button>\
           <button type="button" class="btn btn-sm" onclick="batchInvert()">' + t('invertSelection') + '</button>\
-          <button type="button" class="btn btn-sm btn-danger" onclick="batchConfirm(\'' + escapeHtml(p.id) + '\')">' + t('confirm') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger" onclick="batchConfirm(\'' + escapeForJsString(p.id) + '\')">' + t('confirm') + '</button>\
           <button type="button" class="btn btn-sm" onclick="batchCancel()">' + t('cancel') + '</button>\
         </div>\
       </div>\
@@ -543,7 +545,7 @@ function renderModelKeyDetailRow(pid, mid, data) {
   }
   // Actions row first (Run All-Keys Test button + status)
   var html = '<div class="model-key-detail-actions">' +
-    '<button type="button" class="btn btn-sm btn-primary" id="run-alltest-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '" onclick="runAllKeysTest(\'' + escapeHtml(pid) + '\', \'' + escapeHtml(mid) + '\')">' + t('runAllKeysTest') + '</button>' +
+    '<button type="button" class="btn btn-sm btn-primary" id="run-alltest-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '" onclick="runAllKeysTest(\'' + escapeHtml(pid) + '\', \'' + escapeForJsString(mid) + '\')">' + t('runAllKeysTest') + '</button>' +
     '<span class="model-alltest-status" id="alltest-status-' + sanitizeId(pid) + '-' + sanitizeId(mid) + '"></span>' +
   '</div>';
   // Each key on its own grid row
