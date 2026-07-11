@@ -34,7 +34,7 @@ var TREND_PALETTE = [
   '#f97316', '#ef4444'
 ];
 
-var TREND_BUCKETS = 24;
+var TREND_BUCKETS = 16;
 var TREND_BUCKET_MS = 15 * 60 * 1000;
 var TREND_WINDOW_MS = TREND_BUCKETS * TREND_BUCKET_MS;
 
@@ -125,6 +125,34 @@ var CHART_JS_COLORS = [
 var trendChartInstance = null;
 var trendChartRawData = null;
 
+function readCssVar(name, fallback) {
+  var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+function cssVarToInt(name, fallback) {
+  var v = readCssVar(name, '');
+  var m = v.match(/(\d+)/);
+  return m ? parseInt(m[1]) : fallback;
+}
+
+function desaturateRgb(rgbStr, amount) {
+  var m = rgbStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if (!m) return rgbStr;
+  var r = Math.round(parseInt(m[1]) + (128 - parseInt(m[1])) * amount);
+  var g = Math.round(parseInt(m[2]) + (128 - parseInt(m[2])) * amount);
+  var b = Math.round(parseInt(m[3]) + (128 - parseInt(m[3])) * amount);
+  return 'rgba(' + r + ',' + g + ',' + b + ',0.49)';
+}
+
+function getProviderPrefix(name) {
+  if (!name) return '';
+  for (var i = 0; i < (providersCache || []).length; i++) {
+    if (providersCache[i].name === name) return providersCache[i].prefix || name;
+  }
+  return name;
+}
+
 function buildTrendChartConfig(entries) {
   trendChartRawData = buildTrendData(entries);
   var groups = trendChartRawData.groups;
@@ -137,11 +165,14 @@ function buildTrendChartConfig(entries) {
 
   var datasets = groups.map(function(g, idx) {
     var baseColor = CHART_JS_COLORS[idx % CHART_JS_COLORS.length];
-    var rgbaColor = baseColor.replace('rgb(', 'rgba(').replace(')', ', 0.7)');
+    var fillColor = desaturateRgb(baseColor, 0.3);
+    var prefix = getProviderPrefix(g.provider);
     return {
-      label: g.provider + '/' + g.model,
+      label: prefix + '/' + g.model,
+      _provider: g.provider,
+      _model: g.model,
       data: g.buckets.slice(),
-      backgroundColor: rgbaColor,
+      backgroundColor: fillColor,
       borderColor: baseColor,
       borderWidth: 1
     };
@@ -158,6 +189,10 @@ function buildTrendChartConfig(entries) {
   var yMax = Math.ceil(stackedMax / yStep) * yStep;
   if (yMax < yStep) yMax = yStep;
 
+  var badgeSize = cssVarToInt('--font-badge', 11);
+  var textColor = readCssVar('--text-secondary', '#a0a0a8');
+  var gridColor = readCssVar('--glass-border', 'rgba(128,128,128,0.25)');
+
   return {
     type: 'bar',
     data: { labels: labels, datasets: datasets },
@@ -165,11 +200,12 @@ function buildTrendChartConfig(entries) {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 0 },
+      color: textColor,
       plugins: {
         title: { display: false },
         legend: {
           position: 'bottom',
-          labels: { boxWidth: 12, boxHeight: 12, padding: 8, font: { size: 11 } }
+          labels: { boxWidth: 12, boxHeight: 12, padding: 8, color: textColor, font: { size: badgeSize } }
         },
         tooltip: {
           mode: 'index',
@@ -188,7 +224,7 @@ function buildTrendChartConfig(entries) {
               return fmtTime(bucketStart) + ' - ' + fmtTime(bucketEnd);
             },
             label: function(context) {
-              return context.dataset.label + ': ' + context.parsed.y + ' ' + t('requests');
+              return context.dataset._provider + '/' + context.dataset._model + ': ' + context.parsed.y + ' ' + t('requests');
             }
           }
         }
@@ -198,8 +234,8 @@ function buildTrendChartConfig(entries) {
         intersect: false
       },
       scales: {
-        x: { stacked: true, grid: { display: false } },
-        y: { stacked: true, beginAtZero: true, max: yMax, ticks: { stepSize: yStep, precision: 0 }, grid: { display: true, color: 'rgba(128,128,128,0.25)' }, border: { display: true, color: 'rgba(128,128,128,0.25)' } }
+        x: { stacked: true, ticks: { color: textColor, font: { size: badgeSize } }, grid: { display: false } },
+        y: { stacked: true, beginAtZero: true, max: yMax, ticks: { stepSize: yStep, precision: 0, color: textColor, font: { size: badgeSize } }, grid: { display: true, color: gridColor }, border: { display: true, color: gridColor } }
       }
     }
   };
@@ -241,22 +277,41 @@ function updateTrendChart(entries) {
 
 async function renderUsage(c) {
   try {
-  showSkeleton(c, 4);
+  var cachedEntries = lastUsageEntries.slice();
+  var quotaCardHtml = '<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center"><span>' + t('quotaMonitor') + '</span><button type="button" class="btn btn-sm btn-ghost" onclick="resetQuotaTimers()">' + t('resetQuota') + '</button></div><div class="quota-section quota-section-scroll"></div></div>';
+  c.innerHTML = '\
+    <div class="usage-header usage-fullscreen">\
+      <div class="charts-row usage-body-grid">\
+        <div class="quota-monitor-card">' + quotaCardHtml + '\
+        </div>\
+        <div class="trend-card">' + renderTrendChart(cachedEntries) + '</div>\
+        <div class="recent-requests-section">' + renderRecentRequestsInline(cachedEntries) + '</div>\
+      </div>\
+    </div>';
+  c.classList.remove('usage-page');
+  var mainEl = document.querySelector('.main');
+  if (mainEl) mainEl.classList.add('main-no-scroll');
+  initTrendChart(cachedEntries);
   var results = await Promise.allSettled([
     apiGet('/usage/summary'),
     apiGet('/usage?limit=500'),
     apiGet('/usage/quotas'),
-    apiGet('/settings')
+    apiGet('/settings'),
+    apiGet('/providers')
   ]);
   if (currentPage !== 'usage') return;
   var summary = results[0].status === 'fulfilled' ? results[0].value : {};
   var usage = results[1].status === 'fulfilled' ? results[1].value : {};
   var quotas = results[2].status === 'fulfilled' ? results[2].value : {};
   var settings = results[3].status === 'fulfilled' ? results[3].value : {};
-  var rejected = results.some(function(r) { return r.status === 'rejected'; });
+  if (results[4].status === 'fulfilled' && results[4].value && results[4].value.providers) {
+    providersCache = results[4].value.providers;
+  }
+  var rejected = results.slice(0, 4).some(function(r) { return r.status === 'rejected'; });
   if (rejected) toast(t('loadFailed') || 'Load failed', 'error');
   usageDebugMode = !!(settings && settings.debugMode);
   var usageEntries = usage.entries || [];
+  lastUsageEntries = [];
   var existingIds = {};
   inflightEntries = {};
   usageEntries.forEach(function(e) {
@@ -271,19 +326,6 @@ async function renderUsage(c) {
   var quotaBars = quotas.quotas || [];
   quotaBarItems = {};
   lastQuotaSig = '';
-  var quotaCardHtml = '<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center"><span>' + t('quotaMonitor') + '</span><button type="button" class="btn btn-sm btn-ghost" onclick="resetQuotaTimers()">' + t('resetQuota') + '</button></div><div class="quota-section quota-section-scroll"></div></div>';
-  c.innerHTML = '\
-    <div class="usage-header usage-fullscreen">\
-      <div class="charts-row usage-body-grid">\
-        <div class="quota-monitor-card">' + quotaCardHtml + '\
-        </div>\
-        <div class="trend-card">' + renderTrendChart(lastUsageEntries) + '</div>\
-        <div class="recent-requests-section">' + renderRecentRequestsInline(lastUsageEntries) + '</div>\
-      </div>\
-    </div>';
-  c.classList.remove('usage-page');
-  var mainEl = document.querySelector('.main');
-  if (mainEl) mainEl.classList.add('main-no-scroll');
   var section = document.querySelector('.quota-monitor-card > .card > .quota-section');
   if (section) {
     if (quotaBars.length === 0) {
@@ -292,7 +334,9 @@ async function renderUsage(c) {
       buildQuotaBarItems(quotaBars, section);
     }
   }
-  initTrendChart(lastUsageEntries);
+  updateUsageSummary(summary);
+  updateTrendChart(lastUsageEntries);
+  updateRecentRequestsInline(lastUsageEntries);
   startUsageRefresh();
   } catch(e) {
     c.innerHTML = emptyState(t('loadFailed') || 'Load failed');

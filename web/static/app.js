@@ -236,6 +236,11 @@ function toggleFontSize() {
   document.documentElement.setAttribute('data-font-size', next);
   localStorage.setItem('fontSize', next);
   updateFontButton(next);
+  if (typeof trendChartInstance !== 'undefined' && trendChartInstance) {
+    trendChartInstance.destroy();
+    trendChartInstance = null;
+    initTrendChart(lastUsageEntries);
+  }
 }
 
 function toggleTheme() {
@@ -244,6 +249,11 @@ function toggleTheme() {
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
   updateThemeButton(next);
+  if (typeof trendChartInstance !== 'undefined' && trendChartInstance) {
+    trendChartInstance.destroy();
+    trendChartInstance = null;
+    initTrendChart(lastUsageEntries);
+  }
 }
 
 async function shutdownServer() {
