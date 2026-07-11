@@ -156,6 +156,7 @@ function buildTrendChartConfig(entries) {
   var yStep = 10;
   while (Math.ceil(stackedMax / yStep) > 5) yStep += 5;
   var yMax = Math.ceil(stackedMax / yStep) * yStep;
+  if (yMax < yStep) yMax = yStep;
 
   return {
     type: 'bar',
@@ -221,6 +222,8 @@ function updateTrendChart(entries) {
   }
   var config = buildTrendChartConfig(entries);
   trendChartInstance.data = config.data;
+  trendChartInstance.options.scales.y.max = config.options.scales.y.max;
+  trendChartInstance.options.scales.y.ticks.stepSize = config.options.scales.y.ticks.stepSize;
   trendChartInstance.update('none');
 }
 
@@ -277,7 +280,7 @@ async function renderUsage(c) {
       buildQuotaBarItems(quotaBars, section);
     }
   }
-  requestAnimationFrame(function() { initTrendChart(lastUsageEntries); });
+  initTrendChart(lastUsageEntries);
   startUsageRefresh();
   } catch(e) {
     c.innerHTML = emptyState(t('loadFailed') || 'Load failed');
