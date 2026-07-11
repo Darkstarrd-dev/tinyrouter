@@ -38,6 +38,7 @@ var usageVisibilityHandler = null;
 var usagePeriodicTimer = null;
 var _lastPerKeyRefresh = 0;
 var inflightEntries = {};
+var processingTimer = null;
 var currentInfoModalRequestId = null;
 var currentInfoModalReasoningEl = null;
 var currentInfoModalAssistantEl = null;
@@ -51,6 +52,33 @@ function sortEntriesByTimeDesc(entries) {
     return tb - ta;
   });
   return entries;
+}
+
+function formatLatency(ms) {
+  return (ms / 1000).toFixed(1) + 's';
+}
+
+function hasProcessingEntries() {
+  return lastUsageEntries.some(function(e) { return e.status === 'processing'; });
+}
+
+function ensureProcessingTimer() {
+  if (processingTimer) return;
+  processingTimer = setInterval(function() {
+    if (currentPage === 'usage' && hasProcessingEntries()) {
+      updateRecentRequestsInline(lastUsageEntries);
+    } else {
+      clearInterval(processingTimer);
+      processingTimer = null;
+    }
+  }, 200);
+}
+
+function stopProcessingTimer() {
+  if (processingTimer) {
+    clearInterval(processingTimer);
+    processingTimer = null;
+  }
 }
 
 var TREND_PALETTE = [
@@ -93,7 +121,14 @@ function renderUsageRow(e) {
   } else {
     statusInner = dotHtml;
   }
-  var latencyDisplay = e.status === 'processing' ? '—' : e.latencyMs + 'ms';
+  var latencyDisplay;
+  if (e.status === 'processing') {
+    var elapsed = Date.now() - new Date(e.timestamp).getTime();
+    if (isNaN(elapsed) || elapsed < 0) elapsed = 0;
+    latencyDisplay = formatLatency(elapsed);
+  } else {
+    latencyDisplay = formatLatency(e.latencyMs);
+  }
   var tokensDisplay = e.status === 'processing' ? '—' : e.inputTokens + '/' + e.outputTokens;
   return '<tr>\
     <td class="status-col-cell">' + statusInner + '</td>\
@@ -378,6 +413,7 @@ async function renderUsage(c) {
   updateTrendChart(lastUsageEntries);
   updateRecentRequestsInline(lastUsageEntries);
   startUsageRefresh();
+  ensureProcessingTimer();
   } catch(e) {
     c.innerHTML = emptyState(t('loadFailed') || 'Load failed');
     console.warn('renderUsage failed:', e);
@@ -482,6 +518,7 @@ async function refreshQuotaData() {
     updateQuotaBars(quotas.quotas || []);
     updateRecentRequestsModal();
     updateRecentRequestsInline(lastUsageEntries);
+    ensureProcessingTimer();
     maybeRefreshPerKeyDetails();
     saveUsageCache();
   } catch(e) { console.warn('refreshQuotaData failed:', e); }
@@ -536,6 +573,7 @@ function handleRequestStart(entry) {
   updateRecentRequestsInline(lastUsageEntries);
   var countEl = document.querySelector('.recent-requests-card .recent-count');
   if (countEl) countEl.textContent = String(lastUsageEntries.length);
+  ensureProcessingTimer();
 }
 
 function handleRequestDone(id, status, entry) {
@@ -563,6 +601,7 @@ function handleRequestDone(id, status, entry) {
   updateRecentRequestsInline(lastUsageEntries);
   var countEl = document.querySelector('.recent-requests-card .recent-count');
   if (countEl) countEl.textContent = String(lastUsageEntries.length);
+  if (!hasProcessingEntries()) stopProcessingTimer();
   if (currentInfoModalRequestId === id) {
     currentInfoModalStreamingDone = true;
     if (completeEntry.respPayload) {
@@ -670,6 +709,7 @@ function stopUsageRefresh() {
     lockCountdownInterval = null;
   }
   lockCountdownTimerStarted = false;
+  stopProcessingTimer();
   if (trendChartInstance) {
     trendChartInstance.destroy();
     trendChartInstance = null;
@@ -696,7 +736,7 @@ function updateUsageSummary(summary) {
     cards[0].textContent = summary.total;
     cards[1].textContent = summary.success;
     cards[2].textContent = summary.error;
-    cards[3].textContent = summary.avgLatencyMs + 'ms';
+    cards[3].textContent = formatLatency(summary.avgLatencyMs);
     cards[4].textContent = formatMillionTokens(summary.totalInputTokens);
     cards[5].textContent = formatMillionTokens(summary.totalOutputTokens);
   }
@@ -1307,7 +1347,7 @@ function showUsageEntryInfoWithData(e) {
   var overlay = document.getElementById('info-modal-overlay');
   var titleEl = document.getElementById('info-modal-title');
   var bodyEl = document.getElementById('info-modal-body');
-  titleEl.textContent = e.provider + ' / ' + e.model + ' \u2014 ' + (e.status || 'unknown') + ' (' + (e.latencyMs || '?') + 'ms)';
+  titleEl.textContent = e.provider + ' / ' + e.model + ' \u2014 ' + (e.status || 'unknown') + ' (' + formatLatency(e.latencyMs || 0) + ')';
   __infoModalSections = [];
   currentInfoModalRequestId = e.id || null;
   currentInfoModalReasoningEl = null;
@@ -1322,7 +1362,7 @@ function showUsageEntryInfoWithData(e) {
   if (e.model) summaryData['Model'] = e.model;
   if (e.keyName) summaryData['Key'] = e.keyName;
   if (e.status) summaryData['Status'] = e.status;
-  if (e.latencyMs !== undefined && e.latencyMs !== null) summaryData['Latency'] = e.latencyMs + 'ms';
+  if (e.latencyMs !== undefined && e.latencyMs !== null) summaryData['Latency'] = formatLatency(e.latencyMs);
   if (e.ttftMs) summaryData['TTFT'] = e.ttftMs + 'ms';
   if (e.inputTokens) summaryData['Input Tokens'] = e.inputTokens;
   if (e.outputTokens) summaryData['Output Tokens'] = e.outputTokens;

@@ -21,7 +21,7 @@ async function refreshHeaderStats() {
       cards[0].textContent = summary.total;
       cards[1].textContent = summary.success;
       cards[2].textContent = summary.error;
-      cards[3].textContent = summary.avgLatencyMs + 'ms';
+      cards[3].textContent = (typeof formatLatency === 'function') ? formatLatency(summary.avgLatencyMs) : (summary.avgLatencyMs / 1000).toFixed(1) + 's';
       cards[4].textContent = formatMillionTokens(summary.totalInputTokens);
       cards[5].textContent = formatMillionTokens(summary.totalOutputTokens);
     }
