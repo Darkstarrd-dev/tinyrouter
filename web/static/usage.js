@@ -147,6 +147,16 @@ function buildTrendChartConfig(entries) {
     };
   });
 
+  var stackedMax = 0;
+  for (var bi = 0; bi < TREND_BUCKETS; bi++) {
+    var sum = 0;
+    groups.forEach(function(g) { sum += g.buckets[bi]; });
+    if (sum > stackedMax) stackedMax = sum;
+  }
+  var yStep = 10;
+  while (Math.ceil(stackedMax / yStep) > 5) yStep += 5;
+  var yMax = Math.ceil(stackedMax / yStep) * yStep;
+
   return {
     type: 'bar',
     data: { labels: labels, datasets: datasets },
@@ -179,7 +189,7 @@ function buildTrendChartConfig(entries) {
       },
       scales: {
         x: { stacked: true, grid: { display: false } },
-        y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(128,128,128,0.1)' } }
+        y: { stacked: true, beginAtZero: true, max: yMax, ticks: { stepSize: yStep, precision: 0 }, grid: { color: 'rgba(128,128,128,0.1)' } }
       }
     }
   };
@@ -192,6 +202,10 @@ function renderTrendChart(entries) {
 function initTrendChart(entries) {
   var canvas = document.getElementById('trend-canvas');
   if (!canvas) return;
+  if (typeof Chart === 'undefined') {
+    console.warn('Chart.js not loaded');
+    return;
+  }
   if (trendChartInstance) {
     trendChartInstance.destroy();
     trendChartInstance = null;
@@ -207,7 +221,7 @@ function updateTrendChart(entries) {
   }
   var config = buildTrendChartConfig(entries);
   trendChartInstance.data = config.data;
-  trendChartInstance.update();
+  trendChartInstance.update('none');
 }
 
 async function renderUsage(c) {
@@ -263,7 +277,7 @@ async function renderUsage(c) {
       buildQuotaBarItems(quotaBars, section);
     }
   }
-  initTrendChart(lastUsageEntries);
+  requestAnimationFrame(function() { initTrendChart(lastUsageEntries); });
   startUsageRefresh();
   } catch(e) {
     c.innerHTML = emptyState(t('loadFailed') || 'Load failed');
