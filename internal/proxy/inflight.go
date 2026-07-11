@@ -6,6 +6,8 @@ import (
 )
 
 // inflightEntry tracks a single in-flight streaming request's real-time output.
+// Bytes stores accumulated content character count (not raw SSE bytes) for
+// more accurate token estimation.
 type inflightEntry struct {
 	ProviderID   string
 	KeyID        string
@@ -45,7 +47,7 @@ func (t *InflightTracker) SetFirstChunk(id int64) {
 	}
 }
 
-// AddBytes adds output bytes to an in-flight request.
+// AddBytes adds output content characters to an in-flight request.
 func (t *InflightTracker) AddBytes(id int64, n int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -62,9 +64,9 @@ func (t *InflightTracker) Unregister(id int64) {
 }
 
 // LiveSpeedForKeys returns estimated tok/s per key, keyed by "providerID/keyID".
-// Each request's speed = bytes / 4 / elapsed_seconds (1 token ≈ 4 bytes).
+// Each request's speed = contentChars / 4 / elapsed_seconds (1 token ≈ 4 chars).
 // Multiple concurrent requests on the same key have their speeds summed.
-// Requests with elapsed < 1s are skipped to avoid unstable values.
+// Requests with elapsed < 2s are skipped to avoid unstable early values.
 func (t *InflightTracker) LiveSpeedForKeys() map[string]float64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -75,7 +77,7 @@ func (t *InflightTracker) LiveSpeedForKeys() map[string]float64 {
 			continue
 		}
 		elapsed := now.Sub(e.FirstChunkAt).Seconds()
-		if elapsed < 1.0 {
+		if elapsed < 2.0 {
 			continue
 		}
 		estimatedTokens := float64(e.Bytes) / 4.0

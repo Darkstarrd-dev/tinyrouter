@@ -85,6 +85,33 @@ func normalizeSSEChunk(line string) string {
 	return "data: " + string(out)
 }
 
+// sseContentLength extracts the unescaped character length of the "content"
+// field from an SSE data payload. It uses a lightweight byte search instead
+// of full JSON parsing to minimize overhead. Returns 0 if no content field
+// is found or the content is empty.
+func sseContentLength(payload []byte) int {
+	marker := []byte(`"content":"`)
+	idx := bytes.Index(payload, marker)
+	if idx < 0 {
+		return 0
+	}
+	i := idx + len(marker)
+	length := 0
+	for i < len(payload) {
+		if payload[i] == '\\' {
+			i += 2
+			length++
+			continue
+		}
+		if payload[i] == '"' {
+			break
+		}
+		length++
+		i++
+	}
+	return length
+}
+
 func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool, reqID string, reqHeaders http.Header, upstreamURL string) {
 	defer resp.Body.Close()
 
@@ -123,6 +150,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
+		var contentChars int
 		if normalize {
 			for _, line := range sb.Feed(buf[:n]) {
 				out := normalizeSSEChunk(line)
@@ -138,6 +166,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 							inputTokens = in
 							outputTokens = out
 						}
+						contentChars += sseContentLength([]byte(payload))
 					}
 				}
 				if h.debugMode() && reqID != "" {
@@ -162,6 +191,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 						inputTokens = in
 						outputTokens = out
 					}
+					contentChars += sseContentLength([]byte(payload))
 				}
 				if h.debugMode() && reqID != "" {
 					h.parseAndBroadcastChunk(reqID, line, sb)
@@ -176,7 +206,9 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					h.Inflight.SetFirstChunk(inflightID)
 					firstChunkDone = true
 				}
-				h.Inflight.AddBytes(inflightID, n)
+				if contentChars > 0 {
+				h.Inflight.AddBytes(inflightID, contentChars)
+			}
 				if time.Since(lastSSEPush) > 1500*time.Millisecond {
 					h.InflightUpdates.Signal()
 					lastSSEPush = time.Now()

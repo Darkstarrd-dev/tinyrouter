@@ -11,6 +11,7 @@ var lastQuotaSig = '';
 var usageDebugMode = false;
 var usageVisibilityHandler = null;
 var usagePeriodicTimer = null;
+var _lastPerKeyRefresh = 0;
 var inflightEntries = {};
 var currentInfoModalRequestId = null;
 var currentInfoModalReasoningEl = null;
@@ -368,6 +369,7 @@ async function refreshQuotaData() {
     updateQuotaBars(quotas.quotas || []);
     updateRecentRequestsModal();
     updateRecentRequestsInline(lastUsageEntries);
+    maybeRefreshPerKeyDetails();
   } catch(e) { console.warn('refreshQuotaData failed:', e); }
 }
 
@@ -974,6 +976,8 @@ function renderModelKeyDetail(provider, model, data) {
   var itemId = 'qbi-' + sanitizeId(provider) + '-' + sanitizeId(model);
   var wrap = document.getElementById('detail-' + itemId);
   if (!wrap) return;
+  var setKey = JSON.stringify([provider, model]);
+  if (!expandedModels.has(setKey)) return;
   if (!data.keys || data.keys.length === 0) {
     wrap.innerHTML = '<div class="model-key-detail-empty">' + escapeHtml(t('noKeysConfigured')) + '</div>';
     return;
@@ -1068,7 +1072,7 @@ function renderModelKeyDetail(provider, model, data) {
         metricsParts.push('<span class="model-key-metric model-key-succ">' + (k.successCount || 0) + '/<span class="model-key-err">' + (k.errorCount || 0) + '</span></span>');
       }
       if (k.avgTtftMs != null && k.avgTtftMs > 0) {
-        metricsParts.push('<span class="model-key-metric">TTFT ' + k.avgTtftMs + 'ms</span>');
+        metricsParts.push('<span class="model-key-metric">' + (k.avgTtftMs / 1000).toFixed(1) + 's</span>');
       }
       if (k.inFlight && k.inFlight > 0 && k.liveSpeed != null && k.liveSpeed > 0) {
         metricsParts.push('<span class="model-key-metric metric-live">' + k.liveSpeed.toFixed(1) + ' tok/s</span>');
@@ -1110,6 +1114,13 @@ function reexpandModelDetails() {
       fetchModelKeyDetail(provider, model);
     }
   });
+}
+
+function maybeRefreshPerKeyDetails() {
+  var now = Date.now();
+  if (now - _lastPerKeyRefresh < 3000) return;
+  _lastPerKeyRefresh = now;
+  reexpandModelDetails();
 }
 
 // --- Recent Requests Modal ---
