@@ -62,11 +62,23 @@ function hasProcessingEntries() {
   return lastUsageEntries.some(function(e) { return e.status === 'processing'; });
 }
 
+function updateProcessingLatencyCells() {
+  var rows = document.querySelectorAll('tr[data-status="processing"]');
+  for (var i = 0; i < rows.length; i++) {
+    var ts = rows[i].getAttribute('data-ts');
+    if (!ts) continue;
+    var elapsed = Date.now() - new Date(ts).getTime();
+    if (isNaN(elapsed) || elapsed < 0) elapsed = 0;
+    var cell = rows[i].querySelector('.latency-cell');
+    if (cell) cell.textContent = formatLatency(elapsed);
+  }
+}
+
 function ensureProcessingTimer() {
   if (processingTimer) return;
   processingTimer = setInterval(function() {
     if (currentPage === 'usage' && hasProcessingEntries()) {
-      updateRecentRequestsInline(lastUsageEntries);
+      updateProcessingLatencyCells();
     } else {
       clearInterval(processingTimer);
       processingTimer = null;
@@ -130,13 +142,14 @@ function renderUsageRow(e) {
     latencyDisplay = formatLatency(e.latencyMs);
   }
   var tokensDisplay = e.status === 'processing' ? '—' : e.inputTokens + '/' + e.outputTokens;
-  return '<tr>\
+  var tsAttr = e.timestamp ? ' data-ts="' + escapeHtml(e.timestamp) + '"' : '';
+  return '<tr data-status="' + e.status + '"' + tsAttr + '>\
     <td class="status-col-cell">' + statusInner + '</td>\
     <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
     <td>' + escapeHtml(e.provider) + '</td>\
     <td>' + escapeHtml(e.model) + '</td>\
     <td>' + escapeHtml(e.keyName) + '</td>\
-    <td>' + latencyDisplay + '</td>\
+    <td class="latency-cell">' + latencyDisplay + '</td>\
     <td>' + tokensDisplay + '</td>\
   </tr>';
 }
