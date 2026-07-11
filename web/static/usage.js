@@ -164,7 +164,7 @@ function buildTrendChartConfig(entries) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: { duration: 300 },
+      animation: { duration: 0 },
       plugins: {
         title: { display: false },
         legend: {
@@ -172,6 +172,8 @@ function buildTrendChartConfig(entries) {
           labels: { boxWidth: 12, boxHeight: 12, padding: 8, font: { size: 11 } }
         },
         tooltip: {
+          mode: 'index',
+          intersect: false,
           callbacks: {
             title: function(tooltipItems) {
               var idx = tooltipItems[0].dataIndex;
@@ -184,13 +186,20 @@ function buildTrendChartConfig(entries) {
                 return hh + ':' + mm;
               };
               return fmtTime(bucketStart) + ' - ' + fmtTime(bucketEnd);
+            },
+            label: function(context) {
+              return context.dataset.label + ': ' + context.parsed.y + ' ' + t('requests');
             }
           }
         }
       },
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
       scales: {
         x: { stacked: true, grid: { display: false } },
-        y: { stacked: true, beginAtZero: true, max: yMax, ticks: { stepSize: yStep, precision: 0 }, grid: { color: 'rgba(128,128,128,0.1)' } }
+        y: { stacked: true, beginAtZero: true, max: yMax, ticks: { stepSize: yStep, precision: 0 }, grid: { display: true, color: 'rgba(128,128,128,0.25)' }, border: { display: true, color: 'rgba(128,128,128,0.25)' } }
       }
     }
   };
@@ -213,6 +222,9 @@ function initTrendChart(entries) {
   }
   var config = buildTrendChartConfig(entries);
   trendChartInstance = new Chart(canvas, config);
+  requestAnimationFrame(function() {
+    if (trendChartInstance) trendChartInstance.resize();
+  });
 }
 
 function updateTrendChart(entries) {
