@@ -285,9 +285,25 @@ func (m *Manager) CreatePlaylistTask(input CreateTaskInput) ([]string, string, e
 		return nil, "", err
 	}
 	title := info.Title
-	ids := make([]string, 0, len(info.Entries))
 	size := len(info.Entries)
-	for i, entry := range info.Entries {
+	// 如果指定了 SelectedIndices，则只在其中出现（1-based）的条目里下载，
+	// 但保留原始播放列表大小 size 以便任务卡片显示 "3 / 10"。
+	entries := info.Entries
+	if len(input.SelectedIndices) > 0 {
+		selected := make(map[int]bool, len(input.SelectedIndices))
+		for _, idx := range input.SelectedIndices {
+			selected[idx] = true
+		}
+		filtered := make([]PlaylistEntry, 0, len(input.SelectedIndices))
+		for _, entry := range info.Entries {
+			if selected[entry.Index] {
+				filtered = append(filtered, entry)
+			}
+		}
+		entries = filtered
+	}
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
 		childURL := entry.URL
 		if childURL == "" {
 			childURL = input.URL
@@ -300,7 +316,7 @@ func (m *Manager) CreatePlaylistTask(input CreateTaskInput) ([]string, string, e
 			DownloadDir:   input.DownloadDir,
 			PlaylistID:    info.ID,
 			PlaylistTitle: title,
-			PlaylistIndex: i + 1,
+			PlaylistIndex: entry.Index,
 			PlaylistSize:  size,
 			Title:         entry.Title,
 			Thumbnail:     entry.Thumbnail,

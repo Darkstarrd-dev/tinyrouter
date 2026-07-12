@@ -131,7 +131,22 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if updates.Download != nil {
-		cfg.Download = *updates.Download
+		// Merge partial download updates from the frontend. String fields are
+		// always copied (empty means "clear the override"). Numeric fields are
+		// only overwritten when non-zero so a partial update from the download
+		// page doesn't reset concurrentFragments/maxConcurrent/enabled.
+		cfg.Download.YtDlpPath = updates.Download.YtDlpPath
+		cfg.Download.FfmpegPath = updates.Download.FfmpegPath
+		cfg.Download.DefaultDir = updates.Download.DefaultDir
+		cfg.Download.Proxy = updates.Download.Proxy
+		cfg.Download.BrowserCookies = updates.Download.BrowserCookies
+		cfg.Download.CookiesPath = updates.Download.CookiesPath
+		if updates.Download.ConcurrentFragments > 0 {
+			cfg.Download.ConcurrentFragments = updates.Download.ConcurrentFragments
+		}
+		if updates.Download.MaxConcurrent > 0 {
+			cfg.Download.MaxConcurrent = updates.Download.MaxConcurrent
+		}
 		// Push the updated paths (and other download settings) to the running
 		// download manager so active and future downloads pick them up without
 		// an app restart.

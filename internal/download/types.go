@@ -92,6 +92,9 @@ type CreateTaskInput struct {
 	PlaylistTitle string `json:"playlistTitle,omitempty"`
 	PlaylistIndex int    `json:"playlistIndex,omitempty"`
 	PlaylistSize  int    `json:"playlistSize,omitempty"`
+	// SelectedIndices 是可选的 1-based 播放列表条目索引（用于选择性下载）。
+	// 为空表示下载全部条目。
+	SelectedIndices []int `json:"selectedIndices,omitempty"`
 	// 可选：元数据（从 videoInfo 预取获得）
 	Title     string `json:"title,omitempty"`
 	Thumbnail string `json:"thumbnail,omitempty"`

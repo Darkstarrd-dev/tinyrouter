@@ -8,6 +8,8 @@ var downloadEventSource = null;
 var downloadTasksMap = {};
 // Map of task id -> rendered DOM element.
 var downloadTaskEls = {};
+// Persisted default download directory from the server settings.
+var downloadDefaultDir = '';
 
 // DL_STATUS_KEYS maps a raw TaskStatus to the i18n key for its label.
 var DL_STATUS_KEYS = {
@@ -69,6 +71,9 @@ function renderDownload(container) {
         </label>
         <label class="flex-1">${escapeHtml(t('ffmpegPath'))}
           <input type="text" id="dl-ffmpeg-path" class="input" placeholder="ffmpeg" />
+        </label>
+        <label class="flex-1">${escapeHtml(t('defaultDir'))}
+          <input type="text" id="dl-default-dir" class="input" placeholder="Downloads" />
         </label>
         <button class="btn btn-primary" id="dl-save-settings-btn" type="button" onclick="saveDownloadSettings()">${escapeHtml(t('save'))}</button>
       </div>
@@ -154,22 +159,73 @@ function renderSinglePreview(url, info) {
   `);
 }
 
-// renderPlaylistPreview shows the detected playlist with a Download All button.
+// renderPlaylistPreview shows the detected playlist with a selectable list of
+// entries, so users can pick which ones to download.
 function renderPlaylistPreview(url, playlist) {
   var title = playlist.title || url;
-  var count = playlist.entries ? playlist.entries.length : 0;
+  var entries = playlist.entries || [];
+  var count = entries.length;
+  var rows = entries.map(function(entry) {
+    var thumb = entry.thumbnail ? '<img src="' + escapeHtml(entry.thumbnail) + '" alt="" onerror="this.style.display=\'none\'">' : '';
+    var label = entry.title || (playlist.url || url);
+    return '' +
+      '<div class="dl-playlist-entry">' +
+        '<input type="checkbox" name="dl-playlist-select" data-index="' + escapeAttr(entry.index) + '" checked onchange="updatePlaylistSelectionLabel()" />' +
+        '<div class="dl-playlist-entry-thumb">' + thumb + '</div>' +
+        '<div class="dl-playlist-entry-title">' +
+          '<span class="dl-playlist-entry-index">' + escapeHtml(entry.index) + '.</span> ' +
+          escapeHtml(label) +
+        '</div>' +
+      '</div>';
+  }).join('');
+
   showInfoPreview(`
-    <div class="dl-info-row">
-      <div class="dl-info-thumb dl-info-thumb-icon">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    <div class="dl-playlist-preview">
+      <div class="dl-info-row">
+        <div class="dl-info-thumb dl-info-thumb-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        </div>
+        <div class="dl-info-meta">
+          <div class="dl-info-title">${escapeHtml(title)}</div>
+          <div class="dl-info-sub">${escapeHtml(t('playlistDetected', [count]))}</div>
+        </div>
       </div>
-      <div class="dl-info-meta">
-        <div class="dl-info-title">${escapeHtml(title)}</div>
-        <div class="dl-info-sub">${escapeHtml(t('playlistDetected', [count]))}</div>
+      <div class="dl-playlist-actions">
+        <button class="btn btn-ghost btn-sm" type="button" onclick="setAllPlaylistSelected(true)">${escapeHtml(t('selectAll'))}</button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="setAllPlaylistSelected(false)">${escapeHtml(t('deselectAll'))}</button>
+        <span class="dl-playlist-count" id="dl-playlist-count">${escapeHtml(t('nSelected', [count]))}</span>
+        <button class="btn btn-primary btn-sm" type="button" onclick="startPlaylistDownload('${escapeAttr(url)}')">${escapeHtml(t('downloadSelected'))}</button>
       </div>
-      <button class="btn btn-primary btn-sm" type="button" onclick="startPlaylistDownload('${escapeAttr(url)}')">${escapeHtml(t('playlistDownloadAll'))}</button>
+      <div class="dl-playlist-entries-heading">${escapeHtml(t('playlistEntries'))}</div>
+      <div class="dl-playlist-entries">${rows}</div>
     </div>
   `);
+}
+
+// getSelectedPlaylistIndices returns the array of selected 1-based playlist indices.
+function getSelectedPlaylistIndices() {
+  var boxes = document.querySelectorAll('input[name="dl-playlist-select"]:checked');
+  var idx = [];
+  boxes.forEach(function(b) {
+    var n = parseInt(b.getAttribute('data-index'), 10);
+    if (!isNaN(n)) idx.push(n);
+  });
+  return idx;
+}
+
+// setAllPlaylistSelected checks or unchecks every playlist entry checkbox.
+function setAllPlaylistSelected(checked) {
+  var boxes = document.querySelectorAll('input[name="dl-playlist-select"]');
+  boxes.forEach(function(b) { b.checked = !!checked; });
+  updatePlaylistSelectionLabel();
+}
+
+// updatePlaylistSelectionLabel refreshes the "N selected" counter text.
+function updatePlaylistSelectionLabel() {
+  var el = document.getElementById('dl-playlist-count');
+  if (!el) return;
+  var n = getSelectedPlaylistIndices().length;
+  el.textContent = t('nSelected', [n]);
 }
 
 // showInfoPreview fills the info preview area and reveals it.
@@ -188,19 +244,25 @@ async function loadDownloadSettings() {
   var dl = (res && res.download) || {};
   var ytInput = document.getElementById('dl-ytdlp-path');
   var ffInput = document.getElementById('dl-ffmpeg-path');
+  var dirInput = document.getElementById('dl-default-dir');
+  downloadDefaultDir = dl.defaultDir || '';
   if (ytInput) ytInput.value = dl.ytDlpPath || '';
   if (ffInput) ffInput.value = dl.ffmpegPath || '';
+  if (dirInput) dirInput.value = dl.defaultDir || '';
 }
 
-// saveDownloadSettings persists the yt-dlp / ffmpeg paths via PATCH /api/settings.
+// saveDownloadSettings persists the yt-dlp / ffmpeg paths and the default
+// download directory via PATCH /api/settings.
 async function saveDownloadSettings() {
   var ytInput = document.getElementById('dl-ytdlp-path');
   var ffInput = document.getElementById('dl-ffmpeg-path');
-  if (!ytInput || !ffInput) return;
+  var dirInput = document.getElementById('dl-default-dir');
+  if (!ytInput || !ffInput || !dirInput) return;
   var body = {
     download: {
       ytDlpPath: ytInput.value || '',
-      ffmpegPath: ffInput.value || ''
+      ffmpegPath: ffInput.value || '',
+      defaultDir: dirInput.value || ''
     }
   };
   try {
@@ -223,7 +285,7 @@ async function startDownload() {
     type: (document.getElementById('dl-type') || {}).value || 'video',
     quality: (document.getElementById('dl-quality') || {}).value || 'best',
     container: (document.getElementById('dl-container') || {}).value || 'auto',
-    downloadDir: (document.getElementById('dl-dir') || {}).value || ''
+    downloadDir: resolveDownloadDir()
   };
   var res = await apiPost('/downloads', body);
   if (res && res.error) {
@@ -244,12 +306,18 @@ async function startPlaylistDownload(url) {
     toast(t('downloadUrlPlaceholder'), 'warning');
     return;
   }
+  var indices = getSelectedPlaylistIndices();
+  if (indices.length === 0) {
+    toast(t('noSelection'), 'warning');
+    return;
+  }
   var body = {
     url: url.trim(),
     type: (document.getElementById('dl-type') || {}).value || 'video',
     quality: (document.getElementById('dl-quality') || {}).value || 'best',
     container: (document.getElementById('dl-container') || {}).value || 'auto',
-    downloadDir: (document.getElementById('dl-dir') || {}).value || ''
+    downloadDir: resolveDownloadDir(),
+    selectedIndices: indices
   };
   var res = await apiPost('/downloads/playlist', body);
   if (res && res.error) {
@@ -265,6 +333,16 @@ async function startPlaylistDownload(url) {
       renderDownloadTask(downloadTasksMap[id], true);
     });
   }
+}
+
+// resolveDownloadDir returns the per-task dir if set, otherwise falls back to
+// the persisted default dir input, then to the server default dir.
+function resolveDownloadDir() {
+  var dir = (document.getElementById('dl-dir') || {}).value || '';
+  if (dir) return dir;
+  dir = (document.getElementById('dl-default-dir') || {}).value || '';
+  if (dir) return dir;
+  return downloadDefaultDir || '';
 }
 
 // loadDownloadTasks fetches the current task list from the REST API.
