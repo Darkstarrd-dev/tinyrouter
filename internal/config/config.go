@@ -372,7 +372,14 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 	if cfg.Monitor.MaxLineLength == 0 {
 		cfg.Monitor.MaxLineLength = 4096
 	}
-	// Download defaults
+	// Download defaults. If the `download:` section is entirely absent from the
+	// config file (e.g., config created before this feature was added), default
+	// Enabled to true. If the section IS present, respect the user's settings
+	// (including an explicit enabled: false).
+	hasDownloadSection := bytes.Contains(raw, []byte("\ndownload:")) || bytes.HasPrefix(raw, []byte("download:"))
+	if !hasDownloadSection {
+		cfg.Download.Enabled = true
+	}
 	if cfg.Download.ConcurrentFragments == 0 {
 		cfg.Download.ConcurrentFragments = 4
 	}

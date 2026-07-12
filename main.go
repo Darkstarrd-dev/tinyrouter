@@ -87,11 +87,14 @@ func main() {
 		CookiesPath:         cfg.Download.CookiesPath,
 	}
 	downloadMgr := download.NewManager(downloadSettings, logger)
-	if cfg.Download.Enabled {
-		downloadMgr.Start()
-		logger.Info("download manager started (concurrent=%d, fragments=%d)",
-			cfg.Download.MaxConcurrent, cfg.Download.ConcurrentFragments)
-	}
+	// Always start the download manager. The HTTP routes for /api/downloads are
+	// unconditionally registered, so returning 503 from createDownload when
+	// download.enabled is false (or absent and defaulted) is confusing. If a
+	// future need arises to truly disable downloads, the route registration in
+	// internal/api/router.go should be made conditional instead.
+	downloadMgr.Start()
+	logger.Info("download manager started (concurrent=%d, fragments=%d)",
+		cfg.Download.MaxConcurrent, cfg.Download.ConcurrentFragments)
 
 	// State persistence
 	statePath := cfg.Rotation.StatePath
