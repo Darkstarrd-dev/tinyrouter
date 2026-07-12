@@ -2,7 +2,6 @@
 
 var terminalWebSocket = null;
 var terminalSession = null;
-var terminalFitAddon = null;
 var terminalDetachedContainer = null;
 
 function renderTerminalView(container) {
@@ -14,7 +13,7 @@ function renderTerminalView(container) {
     container.innerHTML = '';
     container.appendChild(wrapper);
     setTimeout(function() {
-      try { terminalFitAddon.fit(); } catch(e) {}
+      doFit();
       terminalSession.focus();
     }, 100);
     return;
@@ -35,19 +34,9 @@ function initTerminal() {
     allowProposedApi: true
   });
 
-  terminalFitAddon = new FitAddon.FitAddon();
-  terminalSession.loadAddon(terminalFitAddon);
-
   terminalSession.open(container);
-  setTimeout(function() {
-    try { terminalFitAddon.fit(); } catch(e) {}
-  }, 100);
+  setTimeout(doFit, 100);
 
-  // Enable copy-to-clipboard for selected text via Ctrl+C / Ctrl+Shift+C.
-  // xterm.js captures keyboard events, so the browser's native Ctrl+C
-  // doesn't reach the clipboard. This handler intercepts it, copies the
-  // current selection, and prevents the keypress from being sent to the
-  // shell when there is an active selection.
   terminalSession.attachCustomKeyEventHandler(function(ev) {
     var isCopy = (ev.ctrlKey && (ev.key === 'c' || ev.key === 'C')) ||
                  (ev.ctrlKey && ev.shiftKey && (ev.key === 'c' || ev.key === 'C'));
@@ -57,7 +46,6 @@ function initTerminal() {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(sel);
       } else {
-        // Fallback for browsers without async clipboard API
         var ta = document.createElement('textarea');
         ta.value = sel;
         ta.style.position = 'fixed';
@@ -67,9 +55,9 @@ function initTerminal() {
         try { document.execCommand('copy'); } catch(e2) {}
         document.body.removeChild(ta);
       }
-      return false; // don't send Ctrl+C to the shell
+      return false;
     }
-    return true; // no selection → let Ctrl+C go to the shell as SIGINT
+    return true;
   });
 
   var wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -79,7 +67,7 @@ function initTerminal() {
 
   terminalWebSocket.onopen = function() {
     setTimeout(function() {
-      try { terminalFitAddon.fit(); } catch(e) {}
+      doFit();
       sendTerminalResize();
       terminalSession.focus();
     }, 50);
@@ -117,11 +105,63 @@ function initTerminal() {
   });
 }
 
+// doFit manually calculates cols/rows from the container dimensions and
+// the current cell size, then calls terminal.resize().
+//
+// This replaces the FitAddon which uses _core._renderService.dimensions —
+// an internal API that changed in xterm.js 6.0, causing fit() to silently
+// fail and leaving the terminal at its default 80×24 size.
+//
+// Cell size is derived from the rendered .xterm-screen element:
+//   cellWidth = screenWidth  / terminal.cols
+//   cellHeight = screenHeight / terminal.rows
+// Then:
+//   cols = floor((containerWidth  - scrollbarW) / cellWidth)
+//   rows = floor(containerHeight / cellHeight)
+function doFit() {
+  if (!terminalSession) return;
+  var container = document.getElementById('terminal-xterm');
+  if (!container) return;
+
+  var screenEl = container.querySelector('.xterm-screen');
+  if (!screenEl) return;
+  var sRect = screenEl.getBoundingClientRect();
+  var cellW = terminalSession.cols > 0 ? sRect.width / terminalSession.cols : 0;
+  var cellH = terminalSession.rows > 0 ? sRect.height / terminalSession.rows : 0;
+  if (cellW <= 0 || cellH <= 0) return;
+
+  var cRect = container.getBoundingClientRect();
+  var xtermEl = container.querySelector('.xterm');
+  var padX = 0, padY = 0;
+  if (xtermEl) {
+    var xs = window.getComputedStyle(xtermEl);
+    padX = (parseFloat(xs.paddingLeft) || 0) + (parseFloat(xs.paddingRight) || 0);
+    padY = (parseFloat(xs.paddingTop) || 0) + (parseFloat(xs.paddingBottom) || 0);
+  }
+
+  var availW = cRect.width - padX;
+  var availH = cRect.height - padY;
+
+  var viewport = container.querySelector('.xterm-viewport');
+  var scrollbarW = 0;
+  if (viewport) {
+    scrollbarW = viewport.offsetWidth - viewport.clientWidth;
+    if (scrollbarW <= 0) scrollbarW = 15;
+  }
+
+  var cols = Math.max(2, Math.floor((availW - scrollbarW) / cellW));
+  var rows = Math.max(1, Math.floor(availH / cellH));
+
+  if (cols !== terminalSession.cols || rows !== terminalSession.rows) {
+    terminalSession.resize(cols, rows);
+  }
+}
+
 function sendTerminalResize() {
-  if (!terminalSession || !terminalFitAddon) return;
+  if (!terminalSession) return;
   if (!terminalWebSocket || terminalWebSocket.readyState !== WebSocket.OPEN) return;
 
-  try { terminalFitAddon.fit(); } catch(e) {}
+  doFit();
   var cols = terminalSession.cols;
   var rows = terminalSession.rows;
 
@@ -139,20 +179,10 @@ var terminalResizeTimer = null;
 function handleTerminalResize() {
   if (terminalResizeTimer) clearTimeout(terminalResizeTimer);
   terminalResizeTimer = setTimeout(function() {
-    if (terminalFitAddon) {
-      try { terminalFitAddon.fit(); } catch(e) {}
-    }
+    doFit();
   }, 100);
 }
 
-// getTerminalTheme returns opaque color values matching the project's
-// console/monitor background and text colors.
-//
-// Previously this read the --log-bg CSS variable, but that value is
-// semi-transparent (rgba(0,0,0,0.4) for dark, rgba(0,0,0,0.03) for light).
-// xterm.js requires an opaque background color for its canvas renderer;
-// semi-transparent values cause it to fall back to a default solid black,
-// which is especially visible in light theme.
 function getTerminalTheme() {
   var theme = document.documentElement.getAttribute('data-theme');
   if (theme === 'light') {
@@ -201,7 +231,6 @@ function closeTerminalSession() {
     terminalSession.dispose();
     terminalSession = null;
   }
-  terminalFitAddon = null;
   terminalDetachedContainer = null;
   window.removeEventListener('resize', handleTerminalResize);
 }
