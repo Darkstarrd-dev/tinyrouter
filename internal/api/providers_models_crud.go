@@ -28,7 +28,7 @@ func (rt *Router) addProviderModel(w http.ResponseWriter, r *http.Request) {
 
 	if rt.reg.AddModel(providerID, config.ModelDef{ID: req.Model}) {
 		cfg := rt.reg.Config()
-		if err := config.Save(rt.configPath, &cfg); err != nil {
+		if err := rt.saveConfig(&cfg); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
 			return
 		}
@@ -63,7 +63,7 @@ func (rt *Router) updateModelQuota(w http.ResponseWriter, r *http.Request) {
 	}
 	if rt.reg.UpdateModelQuotaType(providerID, req.Model, req.QuotaType) {
 		cfg := rt.reg.Config()
-		if err := config.Save(rt.configPath, &cfg); err != nil {
+		if err := rt.saveConfig(&cfg); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
 			return
 		}
@@ -81,7 +81,7 @@ func (rt *Router) deleteProviderModel(w http.ResponseWriter, r *http.Request) {
 
 	if rt.reg.DeleteModel(providerID, modelID) {
 		cfg := rt.reg.Config()
-		if err := config.Save(rt.configPath, &cfg); err != nil {
+		if err := rt.saveConfig(&cfg); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
 			return
 		}

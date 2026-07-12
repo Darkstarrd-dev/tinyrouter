@@ -9,6 +9,7 @@ import (
 
 	"fyne.io/systray"
 	"github.com/jchv/go-webview2"
+	"github.com/tinyrouter/tinyrouter/internal/app"
 	"golang.org/x/sys/windows"
 )
 
@@ -18,7 +19,7 @@ import (
 //
 // Returns interface{} so the caller (host_tray_windows.go) stays build-tag-
 // agnostic; the matching stub when `webview` is absent returns nil.
-func addWebviewMenuItem(hctx *hostContext) interface{} {
+func addWebviewMenuItem(hctx *app.HostContext) interface{} {
 	m := systray.AddMenuItem("打开独立窗口", "Open TinyRouter UI in a native WebView2 window")
 	go runWebviewClickLoop(hctx, m)
 
@@ -31,7 +32,7 @@ func addWebviewMenuItem(hctx *hostContext) interface{} {
 // openWebviewAfterReady waits briefly for the HTTP server to be listening, then
 // launches the first native window. Launched in a goroutine so systray.Run can
 // block the main goroutine concurrently.
-func openWebviewAfterReady(hctx *hostContext) {
+func openWebviewAfterReady(hctx *app.HostContext) {
 	// The HTTP server is started just before runHostLoop, but on a slow boot it
 	// may not yet be bound. Polling gctx.consoleURL is overkill; a short sleep is
 	// enough since the server goroutine has already been scheduled by main.
@@ -42,7 +43,7 @@ func openWebviewAfterReady(hctx *hostContext) {
 // runWebviewClickLoop listens for clicks on the "独立窗口" menu item and launches
 // a new WebView2 window on each click. The window runs in its own goroutine;
 // closing it only ends that goroutine, not the whole process.
-func runWebviewClickLoop(hctx *hostContext, m *systray.MenuItem) {
+func runWebviewClickLoop(hctx *app.HostContext, m *systray.MenuItem) {
 	for range m.ClickedCh {
 		go openWebviewWindow(hctx)
 	}
@@ -63,12 +64,12 @@ var webviewWindowMu sync.Mutex
 //
 // Without LockOSThread, systray + webview interact to corrupt COM state and the
 // process crashes the moment the WebView2 controller tries to dispatch a message.
-func openWebviewWindow(hctx *hostContext) {
+func openWebviewWindow(hctx *app.HostContext) {
 	// Isolate panics from this window's goroutine so a creation failure doesn't
 	// propagate to systray and kill the process. We log + recover instead.
 	defer func() {
 		if r := recover(); r != nil {
-			hctx.logger.Error("webview window panic: %v", r)
+			hctx.Logger.Error("webview window panic: %v", r)
 		}
 	}()
 
@@ -88,7 +89,7 @@ func openWebviewWindow(hctx *hostContext) {
 		// RPC_E_CHANGED_MODE means the thread already entered MTA. We explicitly
 		// want STA; if we can't get it, fail with a log line instead of crashing.
 		if err != windows.Errno(0x80010106) {
-			hctx.logger.Error("CoInitializeEx failed: %v", err)
+			hctx.Logger.Error("CoInitializeEx failed: %v", err)
 			return
 		}
 	}
@@ -114,11 +115,11 @@ func openWebviewWindow(hctx *hostContext) {
 		},
 	})
 	if w == nil {
-		hctx.logger.Error("failed to create WebView2 window (WebView2 runtime missing?)")
+		hctx.Logger.Error("failed to create WebView2 window (WebView2 runtime missing?)")
 		return
 	}
 	w.SetTitle("TinyRouter")
-	w.Navigate(hctx.consoleURL)
+	w.Navigate(hctx.ConsoleURL)
 
 	// Apply our own icon to the window class (covers alt-tab, taskbar,
 	// and the title-bar icon). rsrc puts the icon GROUP at resource ID 2,

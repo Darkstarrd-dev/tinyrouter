@@ -121,6 +121,7 @@ func TestUpdateProvider(t *testing.T) {
 		Name: "P1-New", Prefix: "p1", BaseURL: "https://new.example.com",
 		APIType: "openai-compatible", IsActive: false, RotationStrategy: "round-robin",
 		StickyLimit: 7, InjectStreamOpts: true, NormalizeStreamChunks: true,
+		UseProxy: true,
 	}
 	if !r.UpdateProvider("p1", updates) {
 		t.Fatal("UpdateProvider(p1) should return true")
@@ -140,6 +141,18 @@ func TestUpdateProvider(t *testing.T) {
 	}
 	if !got.InjectStreamOpts || !got.NormalizeStreamChunks {
 		t.Error("InjectStreamOpts/NormalizeStreamChunks not updated")
+	}
+	if !got.UseProxy {
+		t.Error("UseProxy should be true after UpdateProvider")
+	}
+
+	// Toggling UseProxy back to false must also persist.
+	if !r.UpdateProvider("p1", config.Provider{Name: "P1-New", UseProxy: false}) {
+		t.Fatal("UpdateProvider(p1) toggle UseProxy off should return true")
+	}
+	got2, _ := r.GetProvider("p1")
+	if got2.UseProxy {
+		t.Error("UseProxy should be false after second UpdateProvider")
 	}
 
 	// Updating a non-existent provider returns false.

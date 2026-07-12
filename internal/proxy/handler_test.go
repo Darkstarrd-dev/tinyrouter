@@ -855,7 +855,9 @@ func TestManagementClient(t *testing.T) {
 	}
 
 	// UseProxy=true with proxy configured → proxy client.
-	h.SetProxy(true, "127.0.0.1", "2080")
+	if err := h.SetProxy(true, "127.0.0.1", "2080"); err != nil {
+		t.Fatalf("SetProxy: %v", err)
+	}
 	if got := h.ManagementClient(config.Provider{UseProxy: true}); got != h.mgmtProxyClient {
 		t.Fatalf("expected mgmtProxyClient for UseProxy=true with proxy set, got %p want %p", got, h.mgmtProxyClient)
 	}
@@ -896,7 +898,9 @@ func TestManagementClient_RoutesViaProxy(t *testing.T) {
 	proxyPort := proxyURL.Port()
 
 	h := newTestHandler(t)
-	h.SetProxy(true, proxyHost, proxyPort)
+	if err := h.SetProxy(true, proxyHost, proxyPort); err != nil {
+		t.Fatalf("SetProxy: %v", err)
+	}
 
 	req, _ := http.NewRequest("GET", upstream.URL+"/v1/models", nil)
 	req.Header.Set("Authorization", "Bearer sk-test")
@@ -917,28 +921,70 @@ func TestManagementClient_RoutesViaProxy(t *testing.T) {
 func TestSetProxy(t *testing.T) {
 	h := newTestHandler(t)
 
-	// Disabled and empty host/port must leave proxyURL nil (no proxying).
-	h.SetProxy(false, "127.0.0.1", "2080")
+	// Disabled and empty host/port must leave proxyURL nil (no proxying) and not error.
+	if err := h.SetProxy(false, "127.0.0.1", "2080"); err != nil {
+		t.Fatalf("expected nil error when disabled, got %v", err)
+	}
 	if u, _ := h.proxyURL.Load().(*url.URL); u != nil {
 		t.Fatalf("expected nil proxyURL when disabled, got %v", u)
 	}
-	h.SetProxy(true, "", "2080")
+	if err := h.SetProxy(true, "", "2080"); err != nil {
+		t.Fatalf("expected nil error when host empty (disable), got %v", err)
+	}
 	if u, _ := h.proxyURL.Load().(*url.URL); u != nil {
 		t.Fatalf("expected nil proxyURL when host empty, got %v", u)
 	}
-	h.SetProxy(true, "127.0.0.1", "")
+	if err := h.SetProxy(true, "127.0.0.1", ""); err != nil {
+		t.Fatalf("expected nil error when port empty (disable), got %v", err)
+	}
 	if u, _ := h.proxyURL.Load().(*url.URL); u != nil {
 		t.Fatalf("expected nil proxyURL when port empty, got %v", u)
 	}
 
 	// Valid proxy configuration stores a *url.URL.
-	h.SetProxy(true, "127.0.0.1", "2080")
+	if err := h.SetProxy(true, "127.0.0.1", "2080"); err != nil {
+		t.Fatalf("SetProxy: %v", err)
+	}
 	u, ok := h.proxyURL.Load().(*url.URL)
 	if !ok || u == nil {
 		t.Fatalf("expected non-nil *url.URL proxyURL, got %v", h.proxyURL.Load())
 	}
 	if u.Host != "127.0.0.1:2080" {
 		t.Fatalf("expected proxy host 127.0.0.1:2080, got %s", u.Host)
+	}
+
+	// http:// scheme prefix on host is tolerated.
+	if err := h.SetProxy(true, "http://127.0.0.1", "2080"); err != nil {
+		t.Fatalf("SetProxy with http:// prefix: %v", err)
+	}
+	u, _ = h.proxyURL.Load().(*url.URL)
+	if u == nil || u.Host != "127.0.0.1:2080" {
+		t.Fatalf("expected scheme-stripped host 127.0.0.1:2080, got %v", u)
+	}
+
+	// https:// scheme prefix on host is also tolerated.
+	if err := h.SetProxy(true, "https://127.0.0.1", "2080"); err != nil {
+		t.Fatalf("SetProxy with https:// prefix: %v", err)
+	}
+	u, _ = h.proxyURL.Load().(*url.URL)
+	if u == nil || u.Host != "127.0.0.1:2080" {
+		t.Fatalf("expected scheme-stripped host 127.0.0.1:2080, got %v", u)
+	}
+
+	// Invalid port returns an error and leaves proxyURL nil (no silent failure).
+	if err := h.SetProxy(true, "127.0.0.1", "abc"); err == nil {
+		t.Fatal("expected error for non-numeric port, got nil")
+	}
+	if u, _ := h.proxyURL.Load().(*url.URL); u != nil {
+		t.Fatalf("expected nil proxyURL after invalid port, got %v", u)
+	}
+
+	// Out-of-range port returns an error and leaves proxyURL nil.
+	if err := h.SetProxy(true, "127.0.0.1", "70000"); err == nil {
+		t.Fatal("expected error for out-of-range port, got nil")
+	}
+	if u, _ := h.proxyURL.Load().(*url.URL); u != nil {
+		t.Fatalf("expected nil proxyURL after out-of-range port, got %v", u)
 	}
 }
 
@@ -1006,7 +1052,9 @@ func TestForwardUpstream_UseProxy(t *testing.T) {
 
 	// Case 2: UseProxy=true (with SetProxy) → request routed via proxySrv,
 	// which forwards to upstream.
-	h.SetProxy(true, proxyHost, proxyPort)
+	if err := h.SetProxy(true, proxyHost, proxyPort); err != nil {
+		t.Fatalf("SetProxy: %v", err)
+	}
 	sel.Provider.UseProxy = true
 	resp2, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions")
 	if err != nil {

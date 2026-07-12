@@ -210,6 +210,17 @@ async function saveProxy() {
   const enabled = document.getElementById('proxy-toggle').checked;
   const host = document.getElementById('proxy-host').value;
   const port = document.getElementById('proxy-port').value;
+  if (enabled) {
+    if (!host || !host.trim()) {
+      toast(t('proxyHostRequired') || 'Proxy host is required', 'error');
+      return;
+    }
+    var portNum = parseInt(port, 10);
+    if (!port || isNaN(portNum) || portNum < 1 || portNum > 65535) {
+      toast(t('invalidPort'), 'error');
+      return;
+    }
+  }
   try {
     await apiPatch('/settings', { proxy: { enabled, host, port } });
     toast(t('proxySaved'), 'success');
@@ -420,9 +431,20 @@ async function savePortModal() {
 }
 
 async function saveProxyModal() {
-  var host = document.getElementById('settings-modal-proxy-host').value;
-  var port = document.getElementById('settings-modal-proxy-port').value;
+  var host = document.getElementById('settings-modal-proxy-host').value.trim();
+  var port = document.getElementById('settings-modal-proxy-port').value.trim();
   var enabled = document.getElementById('proxy-toggle').checked;
+  if (enabled) {
+    if (!host) {
+      toast(t('proxyHostRequired') || 'Proxy host is required', 'error');
+      return;
+    }
+    var portNum = parseInt(port, 10);
+    if (!port || isNaN(portNum) || portNum < 1 || portNum > 65535) {
+      toast(t('invalidPort'), 'error');
+      return;
+    }
+  }
   try {
     await apiPatch('/settings', { proxy: { enabled: enabled, host: host, port: port } });
     toast(t('proxySaved'), 'success');

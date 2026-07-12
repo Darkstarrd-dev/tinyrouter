@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"strings"
 )
 
 func GenerateKey() (string, error) {
@@ -65,4 +66,26 @@ func Decrypt(keyBase64, ciphertextBase64 string) (string, error) {
 		return "", err
 	}
 	return string(plaintext), nil
+}
+
+// encryptKeysCopy returns a deep copy of cfg with all API key values encrypted.
+// The original cfg is not modified — in-memory keys stay plaintext.
+// Encrypted keys are prefixed with "enc:" so Load can distinguish them.
+func encryptKeysCopy(cfg *Config) *Config {
+	cp := *cfg
+	cp.Providers = make([]Provider, len(cfg.Providers))
+	for i := range cfg.Providers {
+		cp.Providers[i] = cfg.Providers[i]
+		cp.Providers[i].Keys = make([]Key, len(cfg.Providers[i].Keys))
+		for j := range cfg.Providers[i].Keys {
+			cp.Providers[i].Keys[j] = cfg.Providers[i].Keys[j]
+			k := &cp.Providers[i].Keys[j]
+			if k.Key != "" && !strings.HasPrefix(k.Key, "enc:") {
+				if encrypted, err := Encrypt(cfg.Security.EncryptionKey, k.Key); err == nil {
+					k.Key = "enc:" + encrypted
+				}
+			}
+		}
+	}
+	return &cp
 }

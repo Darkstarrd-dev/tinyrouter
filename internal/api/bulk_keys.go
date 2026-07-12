@@ -67,7 +67,7 @@ func (rt *Router) bulkAddKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := rt.reg.Config()
-	saveErr := config.Save(rt.configPath, &cfg)
+	saveErr := rt.saveConfig(&cfg)
 	w.Header().Set("Content-Type", "application/json")
 	if saveErr != nil {
 		json.NewEncoder(w).Encode(map[string]any{

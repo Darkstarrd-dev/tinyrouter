@@ -9,34 +9,31 @@ import (
 	"syscall"
 
 	"fyne.io/systray"
+	"github.com/tinyrouter/tinyrouter/internal/app"
 	"github.com/tinyrouter/tinyrouter/web"
 )
 
 //go:embed web/static/favicon.ico
 var trayIconFS embed.FS
 
-// openBrowserOnStartHost: tray host does NOT auto-open a browser; the tray icon
-// is the entry point. User opens the console from the tray menu.
-func openBrowserOnStartHost() bool { return false }
-
 // runHostLoop drives the systray lifecycle. systray.Run blocks the calling
 // goroutine and processes menu events until systray.Quit is called. We forward
 // OS signals (SIGINT/SIGTERM) to systray.Quit so service stops and Ctrl+C still work.
-func runHostLoop(hctx *hostContext) {
+func runHostLoop(hctx *app.HostContext) {
 	// OS signal listener forwards SIGINT/SIGTERM to a graceful tray quit.
 	// Buffered so the sender never blocks if the tray already exited.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		hctx.logger.Info("shutting down (signal)...")
+		hctx.Logger.Info("shutting down (signal)...")
 		systray.Quit()
 	}()
 
 	// UI shutdown (POST /api/shutdown) also triggers a graceful tray quit.
 	go func() {
-		<-hctx.quit()
-		hctx.logger.Info("shutting down (UI)...")
+		<-hctx.Quit()
+		hctx.Logger.Info("shutting down (UI)...")
 		systray.Quit()
 	}()
 
@@ -69,12 +66,12 @@ func runHostLoop(hctx *hostContext) {
 
 // handleTrayMenu dispatches menu item clicks. Runs in its own goroutine since
 // systray.Run is already blocking the main goroutine.
-func handleTrayMenu(hctx *hostContext, mOpen, mQuit *systray.MenuItem) {
+func handleTrayMenu(hctx *app.HostContext, mOpen, mQuit *systray.MenuItem) {
 	for {
 		select {
 		case <-mOpen.ClickedCh:
-			if err := openBrowser(hctx.consoleURL); err != nil {
-				hctx.logger.Info("failed to open browser from tray: %v", err)
+			if err := app.OpenBrowser(hctx.ConsoleURL); err != nil {
+				hctx.Logger.Info("failed to open browser from tray: %v", err)
 			}
 		case <-mQuit.ClickedCh:
 			systray.Quit()

@@ -25,48 +25,74 @@ import (
 	"github.com/tinyrouter/tinyrouter/web"
 )
 
-// Router holds all dependencies needed to wire up HTTP routes.
-type Router struct {
-	reg               *registry.Registry
-	cfg               *config.Config
-	configPath        string
-	usage             *usage.RingBuffer
-	quotaTracker      *usage.QuotaTracker
-	logger            *console.Logger
-	proxyHandler      *proxy.Handler
-	selector          *rotation.Selector
-	comboRes          *combo.Resolver
-	testClient        *http.Client
-	shutdown          context.CancelFunc
+// deps bundles every dependency and shared runtime state that the API handler
+// domains need. It is embedded into Router so handler code stays terse
+// (rt.reg, rt.logger, rt.proxyHandler, ...) while the Router struct itself no
+// longer carries ~20 unrelated top-level fields.
+type deps struct {
+	reg          *registry.Registry
+	cfg          *config.Config
+	configPath   string
+	usage        *usage.RingBuffer
+	quotaTracker *usage.QuotaTracker
+	logger       *console.Logger
+	proxyHandler *proxy.Handler
+	selector     *rotation.Selector
+	comboRes     *combo.Resolver
+	downloadMgr  *download.Manager
+	shutdown     context.CancelFunc
+
+	// testClient is used by the batch key-probe handler.
+	testClient *http.Client
+	// monitorMgr drives the live monitor log stream.
+	monitorMgr *monitor.Manager
+	// debugMode reflects the live debug flag toggled from settings.
+	debugMode atomic.Bool
+
+	// The following callbacks are configured after construction via setters.
 	restartFn         func(string)
 	serverCfgFn       func(config.ServerConfig)
 	upstreamTimeoutFn func(int)
 	stateSaveFunc     func()
-	debugMode         atomic.Bool
-	monitorMgr        *monitor.Manager
-	downloadMgr       *download.Manager
-	terminalMu        sync.Mutex
-	activeTerm        *terminal.Session
 }
 
-// New creates an API Router.
+// terminalState holds the websocket terminal session and its guard mutex. It is
+// kept separate from deps because it is only touched by the terminal handlers.
+type terminalState struct {
+	terminalMu sync.Mutex
+	activeTerm *terminal.Session
+}
+
+// Router wires up HTTP routes for the admin API. It embeds the shared deps and
+// terminal state; individual handler methods live in the per-domain files
+// (settings.go, providers.go, keys.go, combos.go, quickslots.go, usage.go,
+// quota.go, model_keys.go, console_logs.go, sse_events.go, models.go, probe.go).
+type Router struct {
+	deps
+	terminalState
+}
+
+// New creates an API Router. The signature is kept stable so existing callers
+// (main.go and the package tests) do not need to change.
 func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, quotaTracker *usage.QuotaTracker, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc, selector *rotation.Selector, comboRes *combo.Resolver, downloadMgr *download.Manager) *Router {
 	return &Router{
-		reg:          reg,
-		cfg:          cfg,
-		configPath:   configPath,
-		usage:        usageBuf,
-		quotaTracker: quotaTracker,
-		logger:       logger,
-		proxyHandler: proxyHandler,
-		shutdown:     shutdown,
-		selector:     selector,
-		comboRes:     comboRes,
-		testClient: &http.Client{
-			Timeout: 30 * time.Second,
+		deps: deps{
+			reg:          reg,
+			cfg:          cfg,
+			configPath:   configPath,
+			usage:        usageBuf,
+			quotaTracker: quotaTracker,
+			logger:       logger,
+			proxyHandler: proxyHandler,
+			selector:     selector,
+			comboRes:     comboRes,
+			downloadMgr:  downloadMgr,
+			shutdown:     shutdown,
+			testClient: &http.Client{
+				Timeout: 30 * time.Second,
+			},
+			monitorMgr: monitor.New(500, cfg.Monitor.MaxLineLength),
 		},
-		monitorMgr:  monitor.New(500, cfg.Monitor.MaxLineLength),
-		downloadMgr: downloadMgr,
 	}
 }
 
@@ -302,4 +328,40 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	r.Get("/*", rt.serveUI)
 
 	return r
+}
+
+// serveUI serves the embedded admin UI, choosing between the full (playground)
+// and no-playground index.html based on the EnablePlayground flag.
+func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {
+	staticFS, err := fs.Sub(web.Static, "static")
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Serve static files (no cache for development)
+	if r.URL.Path != "/" {
+		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+		f := http.FileServer(http.FS(staticFS))
+		f.ServeHTTP(w, r)
+		return
+	}
+
+	// Root: choose index.html variant based on EnablePlayground flag AND whether
+	// the playground module was compiled into this binary.
+	// Path matrix:
+	//   PlaygroundCompiled==false:  serve index-nopg.html always (no playground resources)
+	//   PlaygroundCompiled==true && EnablePlayground:  serve index.html (full)
+	//   PlaygroundCompiled==true && !EnablePlayground: serve index-nopg.html
+	indexFile := "index-nopg.html"
+	if web.PlaygroundCompiled() && rt.reg.Config().EnablePlayground {
+		indexFile = "index.html"
+	}
+	data, err := fs.ReadFile(staticFS, indexFile)
+	if err != nil {
+		http.Error(w, indexFile+" not found", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	w.Write(data)
 }

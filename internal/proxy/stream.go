@@ -39,6 +39,29 @@ func (b *SSELineBuffer) Remaining() string {
 	return ""
 }
 
+// SSEDataPayloads extracts the JSON payload strings from a batch of SSE lines
+// (as produced by SSELineBuffer.Feed). Lines that are not "data:" directives or
+// that are the SSE [DONE] sentinel are skipped. Each returned payload is trimmed
+// of surrounding whitespace and is ready to be parsed as JSON or scanned for
+// tokens. This centralizes the "data:" prefix handling and [DONE] filtering that
+// upstream callers (e.g. the API model-probe handlers) previously duplicated
+// inline, so there is a single source of truth for line framing.
+func SSEDataPayloads(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if !strings.HasPrefix(t, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(t[len("data:"):])
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		out = append(out, payload)
+	}
+	return out
+}
+
 // normalizeSSEChunk normalizes a single SSE line coming from an upstream.
 // It only rewrites "data:" payloads where "choices" is null and no "error"
 // field is present, turning "choices":null into "choices":[] so that strict

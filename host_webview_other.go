@@ -2,6 +2,10 @@
 
 package main
 
+import (
+	"github.com/tinyrouter/tinyrouter/internal/app"
+)
+
 // On non-Windows platforms the native WebView2 window is unavailable.
 // `webview` tag MUST always be paired with `tray` (build.ps1 enforces this),
 // otherwise runHostLoop is undefined. This constraint is reflected by the
@@ -11,4 +15,4 @@ package main
 //
 // (Linux/macOS support would require webview/webview with CGO; intentionally
 // out of scope for this iteration.)
-func addWebviewMenuItem(hctx *hostContext) interface{} { return nil }
+func addWebviewMenuItem(hctx *app.HostContext) interface{} { return nil }

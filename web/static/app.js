@@ -348,11 +348,12 @@ document.addEventListener('keydown', function(e) {
   }
 
   // ---- No modal: global shortcuts ----
-  // F1-F4: page navigation (works even in inputs)
+  // F1-F5: page navigation (works even in inputs)
   if (e.key === 'F1') { e.preventDefault(); navigateTo('usage'); return; }
   if (e.key === 'F2') { e.preventDefault(); navigateTo('endpoint'); return; }
   if (e.key === 'F3') { e.preventDefault(); navigateTo('console'); return; }
   if (e.key === 'F4') { e.preventDefault(); var pgNav = document.querySelector('.nav-item[data-page="playground"]'); if (pgNav) navigateTo('playground'); return; }
+  if (e.key === 'F5') { e.preventDefault(); navigateTo('download'); return; }
 
   // Number keys 1-9: cycle quickslot models (only when not in input)
   if (!isInput && e.key >= '1' && e.key <= '9') {

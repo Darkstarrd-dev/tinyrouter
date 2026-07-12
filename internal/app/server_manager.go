@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tinyrouter/tinyrouter/internal/console"
 	"github.com/tinyrouter/tinyrouter/internal/config"
+	"github.com/tinyrouter/tinyrouter/internal/console"
 )
 
 // ServerManager wraps an *http.Server so it can be gracefully restarted
