@@ -150,56 +150,56 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
-		var contentChars int
-		if normalize {
-			for _, line := range sb.Feed(buf[:n]) {
-				out := normalizeSSEChunk(line)
-				if _, werr := w.Write([]byte(out + "\n")); werr != nil {
-					h.logger.Debug("client disconnected during SSE stream: %v", werr)
+			var contentChars int
+			if normalize {
+				for _, line := range sb.Feed(buf[:n]) {
+					out := normalizeSSEChunk(line)
+					if _, werr := w.Write([]byte(out + "\n")); werr != nil {
+						h.logger.Debug("client disconnected during SSE stream: %v", werr)
+						return
+					}
+					totalOutput += len(out) + 1
+					if strings.HasPrefix(strings.TrimSpace(line), "data:") {
+						payload := strings.TrimSpace(strings.TrimSpace(line)[5:])
+						if payload != "[DONE]" {
+							if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
+								inputTokens = in
+								outputTokens = out
+							}
+							contentChars += sseContentLength([]byte(payload))
+						}
+					}
+					if h.debugMode() && reqID != "" {
+						h.parseAndBroadcastChunk(reqID, line, sb)
+						sseBuf.WriteString(line)
+						sseBuf.WriteByte('\n')
+					}
+				}
+			} else {
+				if _, err := w.Write(buf[:n]); err != nil {
+					h.logger.Debug("client disconnected during SSE stream: %v", err)
 					return
 				}
-				totalOutput += len(out) + 1
-				if strings.HasPrefix(strings.TrimSpace(line), "data:") {
-					payload := strings.TrimSpace(strings.TrimSpace(line)[5:])
-					if payload != "[DONE]" {
+				for _, line := range sb.Feed(buf[:n]) {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "data:") {
+						payload := strings.TrimSpace(line[5:])
+						if payload == "[DONE]" {
+							continue
+						}
 						if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
 							inputTokens = in
 							outputTokens = out
 						}
 						contentChars += sseContentLength([]byte(payload))
 					}
-				}
-				if h.debugMode() && reqID != "" {
-					h.parseAndBroadcastChunk(reqID, line, sb)
-					sseBuf.WriteString(line)
-					sseBuf.WriteByte('\n')
-				}
-			}
-		} else {
-			if _, err := w.Write(buf[:n]); err != nil {
-				h.logger.Debug("client disconnected during SSE stream: %v", err)
-				return
-			}
-			for _, line := range sb.Feed(buf[:n]) {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "data:") {
-					payload := strings.TrimSpace(line[5:])
-					if payload == "[DONE]" {
-						continue
+					if h.debugMode() && reqID != "" {
+						h.parseAndBroadcastChunk(reqID, line, sb)
+						sseBuf.WriteString(line)
+						sseBuf.WriteByte('\n')
 					}
-					if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
-						inputTokens = in
-						outputTokens = out
-					}
-					contentChars += sseContentLength([]byte(payload))
-				}
-				if h.debugMode() && reqID != "" {
-					h.parseAndBroadcastChunk(reqID, line, sb)
-					sseBuf.WriteString(line)
-					sseBuf.WriteByte('\n')
 				}
 			}
-		}
 			flusher.Flush()
 			if inflightID != 0 {
 				if !firstChunkDone {
@@ -207,49 +207,49 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					firstChunkDone = true
 				}
 				if contentChars > 0 {
-				h.Inflight.AddBytes(inflightID, contentChars)
-			}
+					h.Inflight.AddBytes(inflightID, contentChars)
+				}
 				if time.Since(lastSSEPush) > 1500*time.Millisecond {
 					h.InflightUpdates.Signal()
 					lastSSEPush = time.Now()
 				}
 			}
 		}
-	if err != nil {
-		remaining := sb.Remaining()
-		if remaining != "" {
-			if normalize {
-				// normalize 路径未在循环中原样写出过整块，需要在这里写出规范化后的 remaining
-				out := normalizeSSEChunk(remaining)
-				if _, werr := w.Write([]byte(out + "\n")); werr != nil {
-					h.logger.Debug("client disconnected during SSE stream: %v", werr)
-					return
+		if err != nil {
+			remaining := sb.Remaining()
+			if remaining != "" {
+				if normalize {
+					// normalize 路径未在循环中原样写出过整块，需要在这里写出规范化后的 remaining
+					out := normalizeSSEChunk(remaining)
+					if _, werr := w.Write([]byte(out + "\n")); werr != nil {
+						h.logger.Debug("client disconnected during SSE stream: %v", werr)
+						return
+					}
+					totalOutput += len(out) + 1
+					remaining = out
+				} else {
+					// 非 normalize 路径：remaining 已经在循环中通过 w.Write(buf[:n]) 原样发出，
+					// 不应重复写出。仅提取 token 计入 totalOutput/usage。
 				}
-				totalOutput += len(out) + 1
-				remaining = out
-			} else {
-				// 非 normalize 路径：remaining 已经在循环中通过 w.Write(buf[:n]) 原样发出，
-				// 不应重复写出。仅提取 token 计入 totalOutput/usage。
-			}
-			// 统一提取 token（两个路径都需要）
-			line := strings.TrimSpace(remaining)
-			if strings.HasPrefix(line, "data:") {
-				payload := strings.TrimSpace(line[5:])
-				if payload != "[DONE]" {
-					if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
-						inputTokens = in
-						outputTokens = out
+				// 统一提取 token（两个路径都需要）
+				line := strings.TrimSpace(remaining)
+				if strings.HasPrefix(line, "data:") {
+					payload := strings.TrimSpace(line[5:])
+					if payload != "[DONE]" {
+						if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
+							inputTokens = in
+							outputTokens = out
+						}
 					}
 				}
+				if h.debugMode() && reqID != "" {
+					h.parseAndBroadcastChunk(reqID, line, sb)
+					sseBuf.WriteString(line)
+					sseBuf.WriteByte('\n')
+				}
 			}
-			if h.debugMode() && reqID != "" {
-				h.parseAndBroadcastChunk(reqID, line, sb)
-				sseBuf.WriteString(line)
-				sseBuf.WriteByte('\n')
-			}
+			break
 		}
-		break
-	}
 	}
 
 	if sel == nil {

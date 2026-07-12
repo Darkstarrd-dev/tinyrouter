@@ -144,6 +144,7 @@ func main() {
 			logger.Warn("failed to flush state: %v", err)
 		}
 	}
+	apiRouter.Cleanup()
 	logger.Info("stopped")
 }
 

@@ -42,6 +42,8 @@ function startHeaderStatsSSE() {
   };
 }
 
+window.addEventListener('beforeunload', stopHeaderStatsSSE);
+
 function stopHeaderStatsSSE() {
   if (headerStatsEventSource) {
     headerStatsEventSource.close();

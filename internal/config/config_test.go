@@ -447,6 +447,7 @@ func TestLoad_PendingTmpApplied(t *testing.T) {
 		t.Fatalf(".tmp file should be removed after Load: %v", err)
 	}
 }
+
 // TestLoad_PendingTmpFallbackDirectWrite verifies that when rename fails
 // but the target file is writable, Load falls back to overwriting path
 // with .tmp content.

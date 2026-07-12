@@ -64,6 +64,15 @@ func (m *Manager) Start(command string, args []string, allowedCommands []string)
 		}
 	}
 
+	for i, arg := range args {
+		if strings.ContainsRune(arg, '\x00') {
+			return fmt.Errorf("argument %d contains null byte", i)
+		}
+		if arg == "" {
+			return fmt.Errorf("argument %d is empty", i)
+		}
+	}
+
 	path, err := exec.LookPath(command)
 	if err != nil {
 		return fmt.Errorf("command not found: %s", command)

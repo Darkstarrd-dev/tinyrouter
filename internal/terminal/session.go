@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/aymanbagabas/go-pty"
 	"github.com/gorilla/websocket"
@@ -124,7 +125,9 @@ func (s *Session) readFromPTY() {
 		if n > 0 {
 			s.mu.Lock()
 			if s.conn != nil && !s.closed {
+				_ = s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				_ = s.conn.WriteMessage(websocket.BinaryMessage, buf[:n])
+				_ = s.conn.SetWriteDeadline(time.Time{})
 			}
 			s.mu.Unlock()
 		}

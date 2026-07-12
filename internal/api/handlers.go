@@ -18,12 +18,6 @@ import (
 
 func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 	cfg := rt.reg.Config()
-	password := ""
-	if cfg.Security.PasswordEnabled && cfg.Security.PasswordEncrypted != "" && cfg.Security.EncryptionKey != "" {
-		if decrypted, err := config.Decrypt(cfg.Security.EncryptionKey, cfg.Security.PasswordEncrypted); err == nil {
-			password = decrypted
-		}
-	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"port":               cfg.Port,
@@ -34,7 +28,7 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 		"debugMode":          rt.DebugMode(),
 		"security": map[string]any{
 			"passwordEnabled": cfg.Security.PasswordEnabled,
-			"password":        password,
+			"hasPassword":     cfg.Security.PasswordEncrypted != "",
 		},
 	})
 }
@@ -129,10 +123,12 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	if updates.Security != nil {
 		justEnabled := updates.Security.PasswordEnabled != nil && *updates.Security.PasswordEnabled
 		passwordSet := updates.Security.Password != ""
-		if justEnabled || passwordSet {
+		passwordChanged := justEnabled || passwordSet
+		if passwordChanged {
+			sessionStore.ClearAll()
 			if token, err := generateToken(); err == nil {
 				sessionStore.Lock()
-				sessionStore.tokens[token] = true
+				sessionStore.tokens[token] = time.Now()
 				sessionStore.Unlock()
 				setSessionCookie(w, token)
 			}

@@ -420,7 +420,7 @@ func TestHandle429_NIMCooldown(t *testing.T) {
 
 	before := time.Now()
 	state := &retryState{maxRetries: 2}
- 	h.handle429(resp, sel, "test", "gpt-4", before, state, &http.Request{}, "test-id", "")
+	h.handle429(resp, sel, "test", "gpt-4", before, state, &http.Request{}, "test-id", "")
 
 	keyState := h.reg.GetKeyState("test", "key1")
 	if keyState == nil {
@@ -683,4 +683,3 @@ func TestHandle429_ModelScopeExhausted(t *testing.T) {
 		t.Fatalf("expected status 'locked' for ModelScope exhausted, got %s", status)
 	}
 }
-

@@ -671,7 +671,7 @@ function updateStreamingModalResponse(entry) {
     bodyEl.appendChild(sectionEl);
   }
   if (entry.respStatus) {
-    var html = '<div class="info-section"><div class="info-section-title">Status: ' + entry.respStatus + '</div></div>';
+    var html = '<div class="info-section"><div class="info-section-title">Status: ' + escapeHtml(entry.respStatus) + '</div></div>';
     var temp = document.createElement('div');
     temp.innerHTML = html;
     var sectionEl = temp.firstElementChild;
@@ -1439,7 +1439,7 @@ function showUsageEntryInfoWithData(e) {
       html += renderInfoSection('Response Headers', e.respHeaders);
     }
     if (e.respStatus) {
-      html += '<div class="info-section"><div class="info-section-title">Status: ' + e.respStatus + '</div></div>';
+      html += '<div class="info-section"><div class="info-section-title">Status: ' + escapeHtml(e.respStatus) + '</div></div>';
     }
     if (e.respPayload) {
       html += renderInfoSection('Response Body', e.respPayload);

@@ -7,10 +7,10 @@ import "sync"
 // copy of each event, so multiple SSE listeners no longer steal events from
 // each other.
 type Broadcaster struct {
-	mu       sync.RWMutex
-	subs     map[uint64]chan interface{}
-	nextID   uint64
-	bufSize  int
+	mu      sync.RWMutex
+	subs    map[uint64]chan interface{}
+	nextID  uint64
+	bufSize int
 }
 
 // NewBroadcaster creates a Broadcaster. Each subscriber channel is buffered

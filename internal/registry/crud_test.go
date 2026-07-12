@@ -295,5 +295,3 @@ func TestSnapshotAndRestoreKeyStates(t *testing.T) {
 		t.Error("RestoreKeyState on missing key should error")
 	}
 }
-
-

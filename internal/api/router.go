@@ -26,24 +26,24 @@ import (
 
 // Router holds all dependencies needed to wire up HTTP routes.
 type Router struct {
-	reg          *registry.Registry
-	cfg          *config.Config
-	configPath   string
-	usage        *usage.RingBuffer
-	quotaTracker *usage.QuotaTracker
-	logger       *console.Logger
-	proxyHandler *proxy.Handler
-	selector     *rotation.Selector
-	comboRes     *combo.Resolver
-	client       *http.Client
-	testClient   *http.Client
-	shutdown     context.CancelFunc
-	restartFn    func(string)
+	reg           *registry.Registry
+	cfg           *config.Config
+	configPath    string
+	usage         *usage.RingBuffer
+	quotaTracker  *usage.QuotaTracker
+	logger        *console.Logger
+	proxyHandler  *proxy.Handler
+	selector      *rotation.Selector
+	comboRes      *combo.Resolver
+	client        *http.Client
+	testClient    *http.Client
+	shutdown      context.CancelFunc
+	restartFn     func(string)
 	stateSaveFunc func()
-	debugMode    atomic.Bool
-	monitorMgr   *monitor.Manager
-	terminalMu   sync.Mutex
-	activeTerm   *terminal.Session
+	debugMode     atomic.Bool
+	monitorMgr    *monitor.Manager
+	terminalMu    sync.Mutex
+	activeTerm    *terminal.Session
 }
 
 // New creates an API Router.
@@ -87,6 +87,20 @@ func (rt *Router) DebugMode() bool {
 
 func (rt *Router) SetDebugMode(on bool) {
 	rt.debugMode.Store(on)
+}
+
+// Cleanup stops the monitor manager and closes any active terminal session.
+// This should be called during graceful shutdown.
+func (rt *Router) Cleanup() {
+	if err := rt.monitorMgr.Stop(); err != nil {
+		rt.logger.Warn("monitor cleanup: %v", err)
+	}
+	rt.terminalMu.Lock()
+	if rt.activeTerm != nil {
+		rt.activeTerm.Close()
+		rt.activeTerm = nil
+	}
+	rt.terminalMu.Unlock()
 }
 
 // securityHeaders applies security-related HTTP headers to all responses
@@ -150,8 +164,8 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 
 		// --- Public routes (no auth required) ---
 		r.Get("/auth/status", rt.AuthStatusHandler)
-		r.Post("/auth/login", rt.LoginHandler)
-		r.Post("/shutdown", rt.handleShutdown)
+		loginLimiter := newLoginRateLimiter()
+		r.Post("/auth/login", loginLimiter.Wrap(rt.LoginHandler))
 
 		// --- Protected routes (auth required) ---
 		r.Group(func(r chi.Router) {
@@ -161,6 +175,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Get("/settings", rt.getSettings)
 			r.Patch("/settings", rt.updateSettings)
 			r.Post("/reload", rt.reload)
+			r.Post("/shutdown", rt.handleShutdown)
 
 			// Providers
 			r.Get("/providers", rt.listProviders)

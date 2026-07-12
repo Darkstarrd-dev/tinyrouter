@@ -60,7 +60,7 @@ func (h *Handler) handleNetworkError(sel *rotation.SelectedKey, providerID, mode
 
 // handle429 processes HTTP 429 responses. Distinguishes daily quota locks from temporary rate limits.
 func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, startTime time.Time, state *retryState, r *http.Request, reqID string, upstreamURL string) {
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		h.logger.Warn("failed to read upstream 429 body: %v", err)
 	}
@@ -239,7 +239,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 // For 5xx errors, applies a short backoff (500ms-5s) before the next retry to avoid
 // hammering the upstream (P3.14).
 func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, state *retryState, r *http.Request, reqID string, upstreamURL string, startTime time.Time) {
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		h.logger.Warn("failed to read upstream error body: %v", err)
 	}

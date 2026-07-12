@@ -2,20 +2,25 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
 )
 
 const sessionCookieName = "tinyrouter_session"
+const sessionMaxAge = 24 * time.Hour
 
-var sessionStore = struct {
+type sessionStoreType struct {
 	sync.RWMutex
-	tokens map[string]bool
-}{tokens: make(map[string]bool)}
+	tokens map[string]time.Time
+}
+
+var sessionStore = &sessionStoreType{tokens: make(map[string]time.Time)}
 
 func generateToken() (string, error) {
 	b := make([]byte, 32)
@@ -35,8 +40,24 @@ func isValidSession(token string) bool {
 		return false
 	}
 	sessionStore.RLock()
-	defer sessionStore.RUnlock()
-	return sessionStore.tokens[token]
+	createdAt, ok := sessionStore.tokens[token]
+	sessionStore.RUnlock()
+	if !ok {
+		return false
+	}
+	if time.Since(createdAt) > sessionMaxAge {
+		sessionStore.Lock()
+		delete(sessionStore.tokens, token)
+		sessionStore.Unlock()
+		return false
+	}
+	return true
+}
+
+func (s *sessionStoreType) ClearAll() {
+	s.Lock()
+	defer s.Unlock()
+	s.tokens = make(map[string]time.Time)
 }
 
 func (rt *Router) AuthMiddleware(next http.Handler) http.Handler {
@@ -85,7 +106,7 @@ func (rt *Router) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "failed to decrypt password")
 		return
 	}
-	if req.Password != plaintext {
+	if subtle.ConstantTimeCompare([]byte(req.Password), []byte(plaintext)) != 1 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "wrong password"})
@@ -97,7 +118,7 @@ func (rt *Router) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionStore.Lock()
-	sessionStore.tokens[token] = true
+	sessionStore.tokens[token] = time.Now()
 	sessionStore.Unlock()
 	setSessionCookie(w, token)
 	w.Header().Set("Content-Type", "application/json")

@@ -27,14 +27,14 @@ type KeySnapshot struct {
 	ModelLocks   map[string]time.Time `yaml:"model_locks,omitempty"`
 	// ModelStatus persists per-model cooldown/lock status so the lock type
 	// (cooldown vs daily-locked) survives a restart.
-	ModelStatus map[string]string `yaml:"model_status,omitempty"`
-	RotatedAt   time.Time         `yaml:"rotated_at,omitempty"`
-	ConsecCount      int                  `yaml:"consec_count"`
-	LastUsedAt       time.Time            `yaml:"last_used_at,omitempty"`
-	NIMRequestCount  int                  `yaml:"nim_request_count,omitempty"`
-	NIMLastSendTime  time.Time            `yaml:"nim_last_send_time,omitempty"`
-	NIMCooldownLevel int                  `yaml:"nim_cooldown_level,omitempty"`
-	NIMLast429Time   time.Time            `yaml:"nim_last_429_time,omitempty"`
+	ModelStatus      map[string]string `yaml:"model_status,omitempty"`
+	RotatedAt        time.Time         `yaml:"rotated_at,omitempty"`
+	ConsecCount      int               `yaml:"consec_count"`
+	LastUsedAt       time.Time         `yaml:"last_used_at,omitempty"`
+	NIMRequestCount  int               `yaml:"nim_request_count,omitempty"`
+	NIMLastSendTime  time.Time         `yaml:"nim_last_send_time,omitempty"`
+	NIMCooldownLevel int               `yaml:"nim_cooldown_level,omitempty"`
+	NIMLast429Time   time.Time         `yaml:"nim_last_429_time,omitempty"`
 }
 
 // ComboSnapshot holds the persistable subset of a combo's rotation state.

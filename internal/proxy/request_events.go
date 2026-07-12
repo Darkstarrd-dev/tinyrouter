@@ -69,10 +69,10 @@ func encodeBase62(n int64) string {
 // frontend subscribes to GET /api/usage/events and receives typed chunks for
 // each stage of a request lifecycle.
 type RequestEvent struct {
-	Type   string          `json:"type"`
-	ID     string          `json:"id,omitempty"`
-	Status string          `json:"status,omitempty"`
-	Section string         `json:"section,omitempty"`
-	Delta  string          `json:"delta,omitempty"`
-	Entry  json.RawMessage `json:"entry,omitempty"`
+	Type    string          `json:"type"`
+	ID      string          `json:"id,omitempty"`
+	Status  string          `json:"status,omitempty"`
+	Section string          `json:"section,omitempty"`
+	Delta   string          `json:"delta,omitempty"`
+	Entry   json.RawMessage `json:"entry,omitempty"`
 }

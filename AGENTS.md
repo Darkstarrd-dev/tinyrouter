@@ -10,7 +10,7 @@ TinyRouter 是从 9router (Node.js/Next.js) 中抽取核心代理功能，用 Go
 
 ## 技术栈
 
-- **语言:** Go 1.23+
+- **语言:** Go 1.25+
 - **HTTP 路由:** `github.com/go-chi/chi/v5`
 - **配置:** `gopkg.in/yaml.v3` → `config.yaml`
 - **前端:** 原生 HTML + vanilla JS + CSS (通过 `embed.FS` 内嵌)

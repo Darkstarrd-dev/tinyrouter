@@ -2,6 +2,7 @@ package combo
 
 import (
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
@@ -64,6 +65,7 @@ func (r *Resolver) Resolve(comboName string) (*ComboPlan, error) {
 		// Resolve prefix to actual provider ID
 		provider, ok := r.reg.GetProviderByPrefix(prefix)
 		if !ok {
+			log.Printf("[combo] warning: combo %q model %q: provider prefix %q not found\n", comboName, m, prefix)
 			continue
 		}
 		mt := ModelTarget{ProviderID: provider.ID, Model: model}

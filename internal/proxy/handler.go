@@ -34,17 +34,17 @@ type Handler struct {
 
 func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, quotaTracker *usage.QuotaTracker, logger *console.Logger) *Handler {
 	return &Handler{
-		reg:              reg,
-		selector:         selector,
-		comboRes:         comboRes,
-		usage:            usageBuf,
-		quotaTracker:     quotaTracker,
-		logger:           logger,
-		UsageUpdates:     NewBroadcaster(32),
-		InflightUpdates:  NewBroadcaster(32),
-		RequestUpdates:   NewBroadcaster(64),
-		Inflight:         NewInflightTracker(),
-		EntryTracker:     NewEntryTracker(),
+		reg:             reg,
+		selector:        selector,
+		comboRes:        comboRes,
+		usage:           usageBuf,
+		quotaTracker:    quotaTracker,
+		logger:          logger,
+		UsageUpdates:    NewBroadcaster(32),
+		InflightUpdates: NewBroadcaster(32),
+		RequestUpdates:  NewBroadcaster(64),
+		Inflight:        NewInflightTracker(),
+		EntryTracker:    NewEntryTracker(),
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 		},
@@ -219,14 +219,14 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			writeError(w, http.StatusInternalServerError, "internal marshalling error")
 			return false, ""
 		}
-		h.logger.Debug("SEND %s | %s | body=%dB | %s", sel.Provider.Name, upstreamModel, len(upstreamBody), util.TruncStr(string(upstreamBody), 500))
+		h.logger.Debug("SEND %s | %s | body=%dB", sel.Provider.Name, upstreamModel, len(upstreamBody))
 
 		// Create a processing usage entry now that we are about to forward the
 		// request. This gives the UI an immediate "request-start" signal so
 		// the recent-requests list shows the entry the moment it arrives.
 		reqID := generateRequestID()
 		processingEntry := usage.Entry{
-			ID:      reqID,
+			ID:        reqID,
 			Timestamp: time.Now(),
 			Provider:  sel.Provider.Name,
 			Model:     upstreamModel,
@@ -401,18 +401,18 @@ func (h *Handler) debugMode() bool {
 
 func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string, reqBody []byte, respBody []byte, respHeaders http.Header, respStatus int, reqHeaders http.Header, upstreamURL string) {
 	entry := usage.Entry{
-		ID:         id,
-		Timestamp:  time.Now(),
-		Provider:   sel.Provider.Name,
-		Model:      model,
-		KeyID:      sel.Key.ID,
-		KeyName:    sel.KeyName,
-		Status:     status,
-		LatencyMs:  latencyMs,
-		TTFTMs:     ttftMs,
+		ID:           id,
+		Timestamp:    time.Now(),
+		Provider:     sel.Provider.Name,
+		Model:        model,
+		KeyID:        sel.Key.ID,
+		KeyName:      sel.KeyName,
+		Status:       status,
+		LatencyMs:    latencyMs,
+		TTFTMs:       ttftMs,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
-		Error:      errMsg,
+		Error:        errMsg,
 	}
 	if h.debugMode() {
 		if len(reqBody) > 0 {
@@ -442,10 +442,10 @@ func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.S
 	raw := MarshalEntryJSON(entry)
 	if raw != nil {
 		h.RequestUpdates.Broadcast(RequestEvent{
-			Type:  "request-done",
-			ID:    id,
+			Type:   "request-done",
+			ID:     id,
 			Status: status,
-			Entry: raw,
+			Entry:  raw,
 		})
 	}
 	h.UsageUpdates.Signal()
