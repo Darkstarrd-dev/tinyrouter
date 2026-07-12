@@ -43,6 +43,35 @@ function initTerminal() {
     try { terminalFitAddon.fit(); } catch(e) {}
   });
 
+  // Enable copy-to-clipboard for selected text via Ctrl+C / Ctrl+Shift+C.
+  // xterm.js captures keyboard events, so the browser's native Ctrl+C
+  // doesn't reach the clipboard. This handler intercepts it, copies the
+  // current selection, and prevents the keypress from being sent to the
+  // shell when there is an active selection.
+  terminalSession.attachCustomKeyEventHandler(function(ev) {
+    var isCopy = (ev.ctrlKey && (ev.key === 'c' || ev.key === 'C')) ||
+                 (ev.ctrlKey && ev.shiftKey && (ev.key === 'c' || ev.key === 'C'));
+    if (!isCopy) return true;
+    var sel = terminalSession.getSelection();
+    if (sel && sel.length > 0) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(sel);
+      } else {
+        // Fallback for browsers without async clipboard API
+        var ta = document.createElement('textarea');
+        ta.value = sel;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch(e2) {}
+        document.body.removeChild(ta);
+      }
+      return false; // don't send Ctrl+C to the shell
+    }
+    return true; // no selection → let Ctrl+C go to the shell as SIGINT
+  });
+
   var wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   var wsUrl = wsProtocol + '//' + window.location.host + '/api/terminal/ws';
 
@@ -112,17 +141,28 @@ function handleTerminalResize() {
   }, 100);
 }
 
+// getTerminalTheme returns opaque color values matching the project's
+// console/monitor background and text colors.
+//
+// Previously this read the --log-bg CSS variable, but that value is
+// semi-transparent (rgba(0,0,0,0.4) for dark, rgba(0,0,0,0.03) for light).
+// xterm.js requires an opaque background color for its canvas renderer;
+// semi-transparent values cause it to fall back to a default solid black,
+// which is especially visible in light theme.
 function getTerminalTheme() {
-  var styles = getComputedStyle(document.documentElement);
-  var bg = styles.getPropertyValue('--log-bg').trim();
-  var fg = styles.getPropertyValue('--text').trim();
-  var cursor = styles.getPropertyValue('--text').trim();
-  if (!bg) bg = 'rgba(0,0,0,0.4)';
-  if (!fg) fg = '#f0f0f0';
+  var theme = document.documentElement.getAttribute('data-theme');
+  if (theme === 'light') {
+    return {
+      background: '#f5f7fa',
+      foreground: '#333333',
+      cursor: '#333333',
+      selection: 'rgba(0,0,255,0.2)'
+    };
+  }
   return {
-    background: bg,
-    foreground: fg,
-    cursor: cursor,
+    background: '#0d0d14',
+    foreground: '#f0f0f0',
+    cursor: '#f0f0f0',
     selection: 'rgba(255,255,255,0.2)'
   };
 }

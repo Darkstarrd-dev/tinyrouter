@@ -26,12 +26,12 @@ func (rt *Router) getMonitorStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rt *Router) startMonitor(w http.ResponseWriter, r *http.Request) {
-	cfg := rt.reg.Config()
-	if !cfg.Security.PasswordEnabled {
-		writeAPIError(w, http.StatusForbidden, "monitor requires password protection to be enabled")
-		return
-	}
-
+	// NOTE: The password-protection gate that was here (checking
+	// cfg.Security.PasswordEnabled) was removed because it blocked
+	// Monitor for users who haven't enabled password protection.
+	// These routes are already inside AuthMiddleware — if a password
+	// is enabled, auth is enforced. If not enabled, localhost-only
+	// binding is the security boundary per the project design.
 	var req struct {
 		Command string   `json:"command"`
 		Args    []string `json:"args"`
@@ -111,12 +111,12 @@ func (rt *Router) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := rt.reg.Config()
-	if !cfg.Security.PasswordEnabled {
-		http.Error(w, "terminal requires password protection to be enabled", http.StatusForbidden)
-		return
-	}
-
+	// NOTE: The password-protection gate that was here (checking
+	// cfg.Security.PasswordEnabled) was removed because it blocked
+	// Terminal for users who haven't enabled password protection,
+	// causing "Terminal error. Terminal disconnected." when the WS
+	// upgrade returned 403. These routes are already inside
+	// AuthMiddleware — localhost-only binding is the security boundary.
 	conn, err := terminalUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return

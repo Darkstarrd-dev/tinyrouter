@@ -266,7 +266,7 @@ tbody tr:last-child td{border-bottom:none}
 /* ===================== Logs ===================== */
 .console-layout{display:flex;flex-direction:column;height:100%;gap:12px;padding:12px}
 .console-toolbar{display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:8px;flex-wrap:wrap}
-.log-container{background:var(--log-bg);border:1px solid var(--glass-border);border-radius:0;padding:16px;font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-log);flex:1;min-height:0;overflow-y:auto;line-height:1.7}
+.log-container{background:var(--log-bg);border:1px solid var(--glass-border);border-radius:0;padding:16px;font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-log);flex:1;min-height:0;overflow-y:auto;line-height:1.7;user-select:text;-webkit-user-select:text;cursor:text}
 .log-line{white-space:pre-wrap;word-break:break-all;transition:background .2s cubic-bezier(0.4,0,0.2,1)}
 .log-line:hover{background:var(--table-hover)}
 .log-error{color:var(--danger)}
@@ -297,7 +297,7 @@ tbody tr:last-child td{border-bottom:none}
 #monitor-cmd-slot .monitor-input:disabled{opacity:0.5;cursor:not-allowed}
 
 /* Monitor output */
-.monitor-output{background:var(--log-bg);border:1px solid var(--glass-border);border-radius:0;padding:12px;font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-log);flex:1;min-height:0;overflow-y:auto;white-space:pre-wrap;line-height:1.6}
+.monitor-output{background:var(--log-bg);border:1px solid var(--glass-border);border-radius:0;padding:12px;font-family:'Cascadia Code','JetBrains Mono',Consolas,monospace;font-size:var(--font-log);flex:1;min-height:0;overflow-y:auto;white-space:pre-wrap;line-height:1.6;user-select:text;-webkit-user-select:text;cursor:text}
 .monitor-line{padding:1px 0}
 
 /* Terminal */
