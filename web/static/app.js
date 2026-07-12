@@ -232,7 +232,11 @@ function updateSidebarNav() {
     if (page) el.textContent = t(page);
   });
   var shutdownBtn = document.querySelector('.shutdown-btn');
-  if (shutdownBtn) shutdownBtn.textContent = t('shutdown');
+  if (shutdownBtn) {
+    var shutdownLabel = t('shutdown');
+    shutdownBtn.setAttribute('title', shutdownLabel);
+    shutdownBtn.setAttribute('aria-label', shutdownLabel);
+  }
 }
 
 function toggleFontSize() {
