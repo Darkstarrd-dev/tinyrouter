@@ -891,6 +891,14 @@ tbody tr:last-child td{border-bottom:none}
   flex-shrink:0;
   white-space:nowrap
 }
+.settings-row-toggle{
+  margin-right:12px
+}
+.settings-row-endpoint{
+  flex-shrink:0;
+  margin-right:12px;
+  font-size:calc(var(--font-code) - 1px)
+}
 
 /* Right panel: 75% width, split into two sections */
 .settings-panel-right{
