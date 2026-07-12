@@ -404,8 +404,8 @@ async function renderHeaderQuickSlots() {
       var idx = qs.selectedIndex || 0;
       if (idx < 0 || idx >= models.length) idx = 0;
       var bottom = '—';
+      var fullId = models[idx] || '';
       if (models.length > 0) {
-        var fullId = models[idx] || '';
         var slashIdx = fullId.indexOf('/');
         var prefix = slashIdx > 0 ? fullId.substring(0, slashIdx) : fullId;
         var modelPart = slashIdx > 0 ? fullId.substring(slashIdx + 1) : '';
@@ -415,8 +415,10 @@ async function renderHeaderQuickSlots() {
       }
       var nameEsc = escapeHtml(qs.name);
       var bottomEsc = escapeHtml(bottom);
+      var fullIdEsc = escapeHtml(fullId);
       var num = i + 1;
-      html += '<div class="quickslot-btn" onclick="showQuickSlotDropdown(\'' + qs.id + '\')" data-qs-id="' + qs.id + '" title="' + nameEsc + '">\
+      var titleAttr = fullIdEsc ? nameEsc + '&#10;' + fullIdEsc : nameEsc;
+      html += '<div class="quickslot-btn" onclick="showQuickSlotDropdown(\'' + qs.id + '\')" data-qs-id="' + qs.id + '" title="' + titleAttr + '">\
         <div class="qs-number">' + num + '</div>\
         <div class="qs-content">\
           <div class="qs-name">' + nameEsc + '</div>\
