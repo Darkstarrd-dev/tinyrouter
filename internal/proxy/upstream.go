@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
@@ -25,13 +26,41 @@ func normalizeBaseURL(baseURL string) string {
 
 // BuildUpstreamURL constructs the full upstream URL from a base URL and an endpoint path.
 // endpointPath is like "/v1/chat/completions" or "/v1/models".
-// Handles base URLs in any form: root, ".../v1", or ".../v1/chat/completions".
+//
+// Three base URL forms are supported:
+//   - Raw mode: a trailing '*' means the trimmed prefix is the exact endpoint and is
+//     returned unchanged (no normalization or suffix handling).
+//   - Host root (no path): the "/v1" prefix is injected and the full endpointPath is
+//     appended, preserving backwards compatibility with old configs.
+//   - Path-bearing base (e.g. ".../v1beta/openai"): the "/v1" prefix of endpointPath is
+//     stripped and the remaining suffix is appended directly.
 func BuildUpstreamURL(baseURL, endpointPath string) string {
-	normalized := normalizeBaseURL(baseURL)
-	if strings.HasSuffix(normalized, "/v1") {
-		return normalized + strings.TrimPrefix(endpointPath, "/v1")
+	trimmed := strings.TrimSpace(baseURL)
+
+	// 1) Raw mode: trailing '*' marks the prefix as the complete endpoint.
+	if strings.HasSuffix(trimmed, "*") {
+		return strings.TrimRight(strings.TrimSuffix(trimmed, "*"), "/")
 	}
-	return normalized + endpointPath
+
+	normalized := normalizeBaseURL(trimmed)
+	suffix := strings.TrimPrefix(endpointPath, "/v1") // "/v1/chat/completions" -> "/chat/completions"
+
+	// 2) Host root (no path) -> inject "/v1" then append the full endpointPath.
+	if isHostRoot(normalized) {
+		return normalized + endpointPath
+	}
+
+	// 3) Path-bearing base -> append the suffix directly.
+	return normalized + suffix
+}
+
+// isHostRoot reports whether base has no path beyond the host (e.g. "https://api.deepseek.com").
+func isHostRoot(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	return u.Path == "" || u.Path == "/"
 }
 
 func (h *Handler) forwardUpstream(ctx context.Context, sel *rotation.SelectedKey, body []byte, headers http.Header, isStream bool, path string) (*http.Response, error) {

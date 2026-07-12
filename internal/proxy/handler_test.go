@@ -172,6 +172,12 @@ func TestBuildUpstreamURL(t *testing.T) {
 		{"https://api.deepseek.com/v1", "/v1/chat/completions", "https://api.deepseek.com/v1/chat/completions"},
 		{"https://api.deepseek.com/v1/chat/completions", "/v1/chat/completions", "https://api.deepseek.com/v1/chat/completions"},
 		{"https://api.deepseek.com/", "/v1/chat/completions", "https://api.deepseek.com/v1/chat/completions"},
+		{"https://generativelanguage.googleapis.com/v1beta/openai", "/v1/chat/completions", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"},
+		{"https://generativelanguage.googleapis.com/v1beta/openai", "/v1/models", "https://generativelanguage.googleapis.com/v1beta/openai/models"},
+		{"https://host/openai/v1", "/v1/chat/completions", "https://host/openai/v1/chat/completions"},
+		{"https://example.com/custom/chat*", "/v1/chat/completions", "https://example.com/custom/chat"},
+		{"https://example.com/custom/chat*", "/v1/models", "https://example.com/custom/chat"},
+		{"https://example.com/custom/chat/completions*", "/v1/chat/completions", "https://example.com/custom/chat/completions"},
 	}
 	for _, tt := range tests {
 		got := BuildUpstreamURL(tt.baseURL, tt.path)

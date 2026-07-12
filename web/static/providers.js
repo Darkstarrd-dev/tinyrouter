@@ -88,7 +88,8 @@ function showAddProvider() {
     <div class="modal-title">' + t('newProvider') + '</div>\
     <div class="form-group"><label for="p-name">' + t('name') + '</label><input id="p-name" placeholder="DeepSeek"></div>\
     <div class="form-group"><label for="p-prefix">' + t('prefixLabel') + '</label><input id="p-prefix" placeholder="deepseek"></div>\
-    <div class="form-group"><label for="p-url">' + t('baseUrlLabel') + '</label><input id="p-url" placeholder="https://api.deepseek.com"></div>\
+    <div class="form-group"><label for="p-url">' + t('baseUrlLabel') + '</label><input id="p-url" placeholder="https://api.deepseek.com  或  https://host/v1beta/openai"></div>\
+    <div class="form-hint">' + t('baseUrlHint') + '</div>\
     <div class="form-group"><label for="p-apikey">' + t('apiKeyLabel') + '</label><input type="password" id="p-apikey" placeholder="sk-..."></div>\
     <div class="form-group"><label for="p-modelid">' + t('modelIdLabel') + '</label><input id="p-modelid" placeholder="deepseek-chat"></div>\
     <div id="p-check-result" class="mt-12"></div>\
@@ -1090,7 +1091,8 @@ function showEditProvider(id) {
       <div class="card-title">' + t('editProvider') + '</div>\
       <div class="form-group mt-12"><label for="ep-name">' + t('name') + '</label><input id="ep-name" value="' + escapeHtml(p.name) + '"></div>\
       <div class="form-group"><label for="ep-prefix">' + t('prefixLabel') + '</label><input id="ep-prefix" value="' + escapeHtml(p.prefix) + '"></div>\
-      <div class="form-group"><label for="ep-url">' + t('baseUrlLabel') + '</label><input id="ep-url" value="' + escapeHtml(p.baseUrl) + '"></div>\
+      <div class="form-group"><label for="ep-url">' + t('baseUrlLabel') + '</label><input id="ep-url" placeholder="https://api.deepseek.com  或  https://host/v1beta/openai" value="' + escapeHtml(p.baseUrl) + '"></div>\
+      <div class="form-hint">' + t('baseUrlHint') + '</div>\
       <div class="flex" style="gap:8px">\
         <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditProvider(\'' + id + '\'))">' + t('save') + '</button>\
         <button type="button" class="btn" onclick="cancelEditProvider()">' + t('cancel') + '</button>\
