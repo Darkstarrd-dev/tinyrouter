@@ -2,12 +2,16 @@
 var headerStatsEventSource = null;
 var headerStatsRefreshScheduled = false;
 
-function initHeaderStats() {
+function applyHeaderStatLabels() {
   var labels = ['totalRequests', 'success', 'errors', 'avgLatency', 'totalInput', 'totalOutput'];
   var labelEls = document.querySelectorAll('#header-stat-grid .stat-label');
   for (var i = 0; i < labelEls.length && i < labels.length; i++) {
     labelEls[i].textContent = t(labels[i]);
   }
+}
+
+function initHeaderStats() {
+  applyHeaderStatLabels();
   refreshHeaderStats();
   startHeaderStatsSSE();
 }

@@ -459,6 +459,7 @@ function toggleLang() {
   localStorage.setItem('lang', next);
   updateLangButton(next);
   updateSidebarNav();
+  if (typeof applyHeaderStatLabels === 'function') applyHeaderStatLabels();
   var page = currentPage;
   if (currentProviderId) {
     renderProviders(document.getElementById('page-content'));
