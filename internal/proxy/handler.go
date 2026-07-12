@@ -108,6 +108,18 @@ func (h *Handler) SetProxy(enabled bool, host, port string) {
 	h.proxyURL.Store(u)
 }
 
+// SetUpstreamTimeout updates the timeout on the non-streaming upstream HTTP
+// clients. Streaming clients remain unbounded. Safe to call at any time;
+// http.Client.Timeout is read on each Do call.
+func (h *Handler) SetUpstreamTimeout(sec int) {
+	if sec <= 0 {
+		sec = 300
+	}
+	d := time.Duration(sec) * time.Second
+	h.client.Timeout = d
+	h.proxyClient.Timeout = d
+}
+
 func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	h.handleProxy(w, r, "/v1/chat/completions")
 }

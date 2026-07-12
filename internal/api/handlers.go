@@ -57,6 +57,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 
 	cfg := rt.reg.Config()
 	portChanged := false
+	serverChanged := false
 	if updates.Port != nil {
 		newPort := *updates.Port
 		if newPort < 1 || newPort > 65535 {
@@ -118,12 +119,12 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	if updates.Server != nil {
 		cfg.Server = *updates.Server
 		config.FinalizeServerConfig(&cfg.Server)
-		// Push the new timeout values to the live server manager so a
-		// subsequent restart (e.g. on port change) uses them. A full app
-		// restart is still required for the currently running server to
-		// pick them up, since timeouts are read at server creation.
+		serverChanged = true
 		if rt.serverCfgFn != nil {
 			rt.serverCfgFn(cfg.Server)
+		}
+		if rt.upstreamTimeoutFn != nil {
+			rt.upstreamTimeoutFn(cfg.Server.UpstreamTimeoutSec)
 		}
 	}
 
@@ -155,6 +156,21 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if portChanged && rt.restartFn != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"ok":      true,
+			"restart": true,
+			"port":    cfg.Port,
+		})
+		newAddr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			rt.restartFn(newAddr)
+		}()
+		return
+	}
+
+	if serverChanged && !portChanged && rt.restartFn != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"ok":      true,

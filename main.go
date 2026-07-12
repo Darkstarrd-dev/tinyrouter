@@ -111,6 +111,7 @@ func main() {
 	sm.Start()
 	apiRouter.SetRestartFunc(sm.Restart)
 	apiRouter.SetServerConfigFunc(sm.SetServerConfig)
+	apiRouter.SetUpstreamTimeoutFunc(proxyHandler.SetUpstreamTimeout)
 	if stateManager != nil {
 		apiRouter.SetStateSaveFunc(stateManager.ScheduleWrite)
 	}

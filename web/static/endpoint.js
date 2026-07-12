@@ -65,6 +65,25 @@ async function renderEndpoint(c) {
               <button type="button" class="btn btn-primary" style="width:100%" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
 </div>\
         <div class="settings-block">\
+          <div class="settings-block-title">' + t('serverTimeoutSettings') + '</div>\
+          <p class="muted mt-12">' + t('serverTimeoutDesc') + '</p>\
+          <div class="settings-form-grid mt-12">\
+            <div class="form-group"><label for="readTimeoutSec">' + t('readTimeout') + '</label>\
+              <input type="number" id="readTimeoutSec" value="' + ((settings.server && settings.server.readTimeoutSec) || 300) + '">\
+            </div>\
+            <div class="form-group"><label for="writeTimeoutSec">' + t('writeTimeout') + '</label>\
+              <input type="number" id="writeTimeoutSec" value="' + ((settings.server && settings.server.writeTimeoutSec) || 300) + '">\
+            </div>\
+            <div class="form-group"><label for="idleTimeoutSec">' + t('idleTimeout') + '</label>\
+              <input type="number" id="idleTimeoutSec" value="' + ((settings.server && settings.server.idleTimeoutSec) || 120) + '">\
+            </div>\
+            <div class="form-group"><label for="upstreamTimeoutSec">' + t('upstreamTimeout') + '</label>\
+              <input type="number" id="upstreamTimeoutSec" value="' + ((settings.server && settings.server.upstreamTimeoutSec) || 300) + '">\
+            </div>\
+          </div>\
+          <button type="button" class="btn btn-primary mt-12" onclick="withLoading(this, () => saveServerTimeout())">' + t('save') + '</button>\
+        </div>\
+        <div class="settings-block">\
           <div class="settings-block-header">\
             <span class="settings-block-title">' + t('passwordProtection') + '</span>\
             <label class="toggle-switch" for="password-toggle">\
@@ -241,6 +260,26 @@ async function saveRotation() {
   try {
     await apiPatch('/settings', { rotation });
     toast(t('rotationSaved'), 'success');
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
+}
+
+async function saveServerTimeout() {
+  const server = {
+    readTimeoutSec: parseInt(document.getElementById('readTimeoutSec').value) || 300,
+    writeTimeoutSec: parseInt(document.getElementById('writeTimeoutSec').value) || 300,
+    idleTimeoutSec: parseInt(document.getElementById('idleTimeoutSec').value) || 120,
+    upstreamTimeoutSec: parseInt(document.getElementById('upstreamTimeoutSec').value) || 300,
+  };
+  try {
+    var resp = await apiPatch('/settings', { server });
+    if (resp.restart) {
+      showRestarting(resp.port);
+      pollNewPort(resp.port);
+    } else {
+      toast(t('serverTimeoutSaved'), 'success');
+    }
   } catch (e) {
     toast(t('failed', [e.message]), 'error');
   }

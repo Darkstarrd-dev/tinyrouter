@@ -37,8 +37,9 @@ type Router struct {
 	comboRes      *combo.Resolver
 	testClient    *http.Client
 	shutdown      context.CancelFunc
-	restartFn     func(string)
-	serverCfgFn   func(config.ServerConfig)
+	restartFn           func(string)
+	serverCfgFn         func(config.ServerConfig)
+	upstreamTimeoutFn   func(int)
 	stateSaveFunc func()
 	debugMode     atomic.Bool
 	monitorMgr    *monitor.Manager
@@ -76,6 +77,13 @@ func (rt *Router) SetRestartFunc(fn func(string)) {
 // settings to the live ServerManager so a subsequent restart applies them.
 func (rt *Router) SetServerConfigFunc(fn func(config.ServerConfig)) {
 	rt.serverCfgFn = fn
+}
+
+// SetUpstreamTimeoutFunc configures a callback that pushes the updated
+// upstream timeout to the live proxy handler so non-streaming requests
+// pick up the new value without a restart.
+func (rt *Router) SetUpstreamTimeoutFunc(fn func(int)) {
+	rt.upstreamTimeoutFn = fn
 }
 
 // SetStateSaveFunc configures a callback that triggers a debounced state

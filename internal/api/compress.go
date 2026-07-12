@@ -121,6 +121,13 @@ func (cw *compressWriter) Push(target string, opts *http.PushOptions) error {
 	return http.ErrNotSupported
 }
 
+// Unwrap exposes the underlying http.ResponseWriter so that
+// http.ResponseController can chain through middleware wrappers to reach
+// the standard *response type (which implements SetWriteDeadline, Flush, etc.).
+func (cw *compressWriter) Unwrap() http.ResponseWriter {
+	return cw.ResponseWriter
+}
+
 func (cw *compressWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if hj, ok := cw.ResponseWriter.(http.Hijacker); ok {
 		return hj.Hijack()
