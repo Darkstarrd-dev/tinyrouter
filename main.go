@@ -17,6 +17,7 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/combo"
 	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/console"
+	"github.com/tinyrouter/tinyrouter/internal/download"
 	"github.com/tinyrouter/tinyrouter/internal/proxy"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
@@ -74,6 +75,24 @@ func main() {
 	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, quotaTracker, logger, cfg.Server.UpstreamTimeoutSec)
 	proxyHandler.SetProxy(cfg.Proxy.Enabled, cfg.Proxy.Host, cfg.Proxy.Port)
 
+	// Download manager
+	downloadSettings := download.RuntimeSettings{
+		DownloadDir:         cfg.Download.DefaultDir,
+		YtDlpPath:           cfg.Download.YtDlpPath,
+		FfmpegPath:          cfg.Download.FfmpegPath,
+		ConcurrentFragments: cfg.Download.ConcurrentFragments,
+		MaxConcurrent:       cfg.Download.MaxConcurrent,
+		Proxy:               cfg.Download.Proxy,
+		BrowserCookies:      cfg.Download.BrowserCookies,
+		CookiesPath:         cfg.Download.CookiesPath,
+	}
+	downloadMgr := download.NewManager(downloadSettings, logger)
+	if cfg.Download.Enabled {
+		downloadMgr.Start()
+		logger.Info("download manager started (concurrent=%d, fragments=%d)",
+			cfg.Download.MaxConcurrent, cfg.Download.ConcurrentFragments)
+	}
+
 	// State persistence
 	statePath := cfg.Rotation.StatePath
 	if statePath == "" {
@@ -101,7 +120,7 @@ func main() {
 
 	// Shutdown is triggered by the UI via POST /api/shutdown.
 	shutdownCtx, triggerShutdown := context.WithCancel(context.Background())
-	apiRouter := api.New(reg, cfg, *configPath, usageBuf, quotaTracker, logger, proxyHandler, triggerShutdown, selector, comboRes)
+	apiRouter := api.New(reg, cfg, *configPath, usageBuf, quotaTracker, logger, proxyHandler, triggerShutdown, selector, comboRes, downloadMgr)
 	proxyHandler.SetDebugModeProvider(apiRouter.DebugMode)
 
 	// Build HTTP server

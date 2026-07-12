@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -208,6 +209,19 @@ type ProxyConfig struct {
 	Port    string `yaml:"port" json:"port"`
 }
 
+// DownloadConfig controls the video download feature.
+type DownloadConfig struct {
+	Enabled             bool   `yaml:"enabled" json:"enabled"`
+	DefaultDir          string `yaml:"defaultDir,omitempty" json:"defaultDir,omitempty"`
+	YtDlpPath           string `yaml:"ytDlpPath,omitempty" json:"ytDlpPath,omitempty"`
+	FfmpegPath          string `yaml:"ffmpegPath,omitempty" json:"ffmpegPath,omitempty"`
+	ConcurrentFragments int    `yaml:"concurrentFragments,omitempty" json:"concurrentFragments,omitempty"`
+	MaxConcurrent       int    `yaml:"maxConcurrent,omitempty" json:"maxConcurrent,omitempty"`
+	Proxy               string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
+	BrowserCookies      string `yaml:"browserCookies,omitempty" json:"browserCookies,omitempty"`
+	CookiesPath         string `yaml:"cookiesPath,omitempty" json:"cookiesPath,omitempty"`
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Port               int            `yaml:"port" json:"port"`
@@ -222,6 +236,7 @@ type Config struct {
 	Monitor            MonitorConfig  `yaml:"monitor" json:"monitor"`
 	Proxy              ProxyConfig    `yaml:"proxy" json:"proxy"`
 	Server             ServerConfig   `yaml:"server" json:"server"`
+	Download           DownloadConfig `yaml:"download" json:"download"`
 }
 
 // DefaultConfig returns a sane default configuration.
@@ -244,6 +259,11 @@ func DefaultConfig() *Config {
 		Combos:           []Combo{},
 		QuickSlots:       []QuickSlot{},
 		Server:           DefaultServerConfig(),
+		Download: DownloadConfig{
+			Enabled:             true,
+			ConcurrentFragments: 4,
+			MaxConcurrent:       3,
+		},
 	}
 }
 
@@ -351,6 +371,19 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 	}
 	if cfg.Monitor.MaxLineLength == 0 {
 		cfg.Monitor.MaxLineLength = 4096
+	}
+	// Download defaults
+	if cfg.Download.ConcurrentFragments == 0 {
+		cfg.Download.ConcurrentFragments = 4
+	}
+	if cfg.Download.MaxConcurrent == 0 {
+		cfg.Download.MaxConcurrent = 3
+	}
+	if cfg.Download.DefaultDir == "" {
+		// 使用用户主目录下的 "Downloads" 文件夹
+		if home, err := os.UserHomeDir(); err == nil {
+			cfg.Download.DefaultDir = filepath.Join(home, "Downloads")
+		}
 	}
 	// Decrypt API keys if password protection is enabled.
 	// Encrypted keys are prefixed with "enc:" in the YAML file.

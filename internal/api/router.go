@@ -15,6 +15,7 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/combo"
 	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/console"
+	"github.com/tinyrouter/tinyrouter/internal/download"
 	"github.com/tinyrouter/tinyrouter/internal/monitor"
 	"github.com/tinyrouter/tinyrouter/internal/proxy"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
@@ -26,29 +27,30 @@ import (
 
 // Router holds all dependencies needed to wire up HTTP routes.
 type Router struct {
-	reg           *registry.Registry
-	cfg           *config.Config
-	configPath    string
-	usage         *usage.RingBuffer
-	quotaTracker  *usage.QuotaTracker
-	logger        *console.Logger
-	proxyHandler  *proxy.Handler
-	selector      *rotation.Selector
-	comboRes      *combo.Resolver
-	testClient    *http.Client
-	shutdown      context.CancelFunc
-	restartFn           func(string)
-	serverCfgFn         func(config.ServerConfig)
-	upstreamTimeoutFn   func(int)
-	stateSaveFunc func()
-	debugMode     atomic.Bool
-	monitorMgr    *monitor.Manager
-	terminalMu    sync.Mutex
-	activeTerm    *terminal.Session
+	reg               *registry.Registry
+	cfg               *config.Config
+	configPath        string
+	usage             *usage.RingBuffer
+	quotaTracker      *usage.QuotaTracker
+	logger            *console.Logger
+	proxyHandler      *proxy.Handler
+	selector          *rotation.Selector
+	comboRes          *combo.Resolver
+	testClient        *http.Client
+	shutdown          context.CancelFunc
+	restartFn         func(string)
+	serverCfgFn       func(config.ServerConfig)
+	upstreamTimeoutFn func(int)
+	stateSaveFunc     func()
+	debugMode         atomic.Bool
+	monitorMgr        *monitor.Manager
+	downloadMgr       *download.Manager
+	terminalMu        sync.Mutex
+	activeTerm        *terminal.Session
 }
 
 // New creates an API Router.
-func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, quotaTracker *usage.QuotaTracker, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc, selector *rotation.Selector, comboRes *combo.Resolver) *Router {
+func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, quotaTracker *usage.QuotaTracker, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc, selector *rotation.Selector, comboRes *combo.Resolver, downloadMgr *download.Manager) *Router {
 	return &Router{
 		reg:          reg,
 		cfg:          cfg,
@@ -63,7 +65,8 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 		testClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		monitorMgr: monitor.New(500, cfg.Monitor.MaxLineLength),
+		monitorMgr:  monitor.New(500, cfg.Monitor.MaxLineLength),
+		downloadMgr: downloadMgr,
 	}
 }
 
@@ -112,6 +115,9 @@ func (rt *Router) Cleanup() {
 		rt.activeTerm = nil
 	}
 	rt.terminalMu.Unlock()
+	if rt.downloadMgr != nil {
+		rt.downloadMgr.Stop()
+	}
 }
 
 // securityHeaders applies security-related HTTP headers to all responses
@@ -255,6 +261,18 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 
 			// Models
 			r.Get("/models", rt.listModels)
+
+			// Downloads
+			r.Get("/downloads", rt.listDownloads)
+			r.Post("/downloads", rt.createDownload)
+			r.Get("/downloads/stream", rt.streamDownloadEvents)
+			r.Post("/downloads/info", rt.getVideoInfo)
+			r.Post("/downloads/playlist-info", rt.getPlaylistInfo)
+			r.Post("/downloads/playlist", rt.createPlaylistDownload)
+			r.Post("/downloads/clear-completed", rt.clearCompletedDownloads)
+			r.Get("/downloads/{id}", rt.getDownload)
+			r.Post("/downloads/{id}/cancel", rt.cancelDownload)
+			r.Delete("/downloads/{id}", rt.removeDownload)
 		})
 	})
 

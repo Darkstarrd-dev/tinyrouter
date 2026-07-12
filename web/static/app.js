@@ -29,6 +29,11 @@ function navigateTo(page) {
   if (currentPage !== 'playground' && typeof cleanupPlayground === 'function') {
     cleanupPlayground();
   }
+  // Close the download SSE stream when leaving the download page.
+  if (page !== 'download' && typeof downloadEventSource !== 'undefined' && downloadEventSource) {
+    downloadEventSource.close();
+    downloadEventSource = null;
+  }
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);
   });
@@ -49,6 +54,7 @@ function navigateTo(page) {
       case 'playground': return renderPlayground(container);
       case 'usage': return renderUsage(container);
       case 'console': return renderConsole(container);
+      case 'download': return renderDownload(container);
     }
   })();
   if (page === 'playground' || page === 'endpoint' && mainEl) mainEl.classList.add('main-no-scroll');

@@ -15,6 +15,7 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/combo"
 	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/console"
+	"github.com/tinyrouter/tinyrouter/internal/download"
 	"github.com/tinyrouter/tinyrouter/internal/proxy"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
@@ -41,7 +42,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *registry.Registry, string
 	comboRes := combo.New(reg)
 	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, usage.NewQuotaTracker(), logger, 0)
 	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
-	apiRouter := New(reg, cfg, tmpFile, usageBuf, usage.NewQuotaTracker(), logger, proxyHandler, context.CancelFunc(func() {}), selector, comboRes)
+	apiRouter := New(reg, cfg, tmpFile, usageBuf, usage.NewQuotaTracker(), logger, proxyHandler, context.CancelFunc(func() {}), selector, comboRes, download.NewManager(download.RuntimeSettings{}, logger))
 	handler := apiRouter.Routes(proxyHandler)
 	return httptest.NewServer(handler), reg, tmpFile, apiRouter
 }

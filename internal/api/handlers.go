@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tinyrouter/tinyrouter/internal/config"
+	"github.com/tinyrouter/tinyrouter/internal/download"
 )
 
 // --- Settings ---
@@ -28,6 +29,7 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 		"debugMode":          rt.DebugMode(),
 		"proxy":              cfg.Proxy,
 		"server":             cfg.Server,
+		"download":           cfg.Download,
 		"security": map[string]any{
 			"passwordEnabled": cfg.Security.PasswordEnabled,
 			"hasPassword":     cfg.Security.PasswordEncrypted != "",
@@ -45,6 +47,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		DebugMode          *bool                  `json:"debugMode"`
 		Proxy              *config.ProxyConfig    `json:"proxy"`
 		Server             *config.ServerConfig   `json:"server"`
+		Download           *config.DownloadConfig `json:"download"`
 		Security           *struct {
 			PasswordEnabled *bool  `json:"passwordEnabled"`
 			Password        string `json:"password"`
@@ -125,6 +128,24 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if rt.upstreamTimeoutFn != nil {
 			rt.upstreamTimeoutFn(cfg.Server.UpstreamTimeoutSec)
+		}
+	}
+	if updates.Download != nil {
+		cfg.Download = *updates.Download
+		// Push the updated paths (and other download settings) to the running
+		// download manager so active and future downloads pick them up without
+		// an app restart.
+		if rt.downloadMgr != nil {
+			rt.downloadMgr.UpdateSettings(download.RuntimeSettings{
+				DownloadDir:         cfg.Download.DefaultDir,
+				YtDlpPath:           cfg.Download.YtDlpPath,
+				FfmpegPath:          cfg.Download.FfmpegPath,
+				ConcurrentFragments: cfg.Download.ConcurrentFragments,
+				MaxConcurrent:       cfg.Download.MaxConcurrent,
+				Proxy:               cfg.Download.Proxy,
+				BrowserCookies:      cfg.Download.BrowserCookies,
+				CookiesPath:         cfg.Download.CookiesPath,
+			})
 		}
 	}
 
