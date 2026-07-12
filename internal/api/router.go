@@ -38,6 +38,7 @@ type Router struct {
 	testClient    *http.Client
 	shutdown      context.CancelFunc
 	restartFn     func(string)
+	serverCfgFn   func(config.ServerConfig)
 	stateSaveFunc func()
 	debugMode     atomic.Bool
 	monitorMgr    *monitor.Manager
@@ -69,6 +70,12 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 // server on a new address. Used by updateSettings when the port changes.
 func (rt *Router) SetRestartFunc(fn func(string)) {
 	rt.restartFn = fn
+}
+
+// SetServerConfigFunc configures a callback that pushes updated server timeout
+// settings to the live ServerManager so a subsequent restart applies them.
+func (rt *Router) SetServerConfigFunc(fn func(config.ServerConfig)) {
+	rt.serverCfgFn = fn
 }
 
 // SetStateSaveFunc configures a callback that triggers a debounced state

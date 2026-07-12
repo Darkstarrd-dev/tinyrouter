@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/console"
+	"github.com/tinyrouter/tinyrouter/internal/config"
 )
 
 func findFreePort(t *testing.T) string {
@@ -42,7 +43,7 @@ func TestServerManager_StartAndServe(t *testing.T) {
 	logger := console.New(100)
 	addr := findFreePort(t)
 
-	sm := NewServerManager(handler, addr, logger)
+	sm := NewServerManager(handler, addr, logger, config.ServerConfig{})
 	sm.Start()
 
 	// Give server time to start
@@ -72,7 +73,7 @@ func TestServerManager_Restart(t *testing.T) {
 	addrA := findFreePort(t)
 	addrB := findFreePort(t)
 
-	sm := NewServerManager(handler, addrA, logger)
+	sm := NewServerManager(handler, addrA, logger, config.ServerConfig{})
 	sm.Start()
 	time.Sleep(200 * time.Millisecond)
 
@@ -113,7 +114,7 @@ func TestServerManager_Shutdown(t *testing.T) {
 	logger := console.New(100)
 	addr := findFreePort(t)
 
-	sm := NewServerManager(handler, addr, logger)
+	sm := NewServerManager(handler, addr, logger, config.ServerConfig{})
 	sm.Start()
 	time.Sleep(200 * time.Millisecond)
 
@@ -143,7 +144,7 @@ func TestServerManager_Restart_NoExistingServer(t *testing.T) {
 	addr := findFreePort(t)
 
 	// Create manager without starting
-	sm := NewServerManager(handler, addr, logger)
+	sm := NewServerManager(handler, addr, logger, config.ServerConfig{})
 	sm.Restart(addr)
 
 	time.Sleep(200 * time.Millisecond)
@@ -165,7 +166,7 @@ func TestServerManager_ShutdownWithoutStart(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	logger := console.New(100)
 
-	sm := NewServerManager(handler, "127.0.0.1:9999", logger)
+	sm := NewServerManager(handler, "127.0.0.1:9999", logger, config.ServerConfig{})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -184,7 +185,7 @@ func TestServerManager_RestartMultipleTimes(t *testing.T) {
 	addrB := findFreePort(t)
 	addrC := findFreePort(t)
 
-	sm := NewServerManager(handler, addrA, logger)
+	sm := NewServerManager(handler, addrA, logger, config.ServerConfig{})
 	sm.Start()
 	time.Sleep(200 * time.Millisecond)
 
@@ -218,7 +219,7 @@ func TestServerManager_SameAddrAfterRestart(t *testing.T) {
 	logger := console.New(100)
 	addr := findFreePort(t)
 
-	sm := NewServerManager(handler, addr, logger)
+	sm := NewServerManager(handler, addr, logger, config.ServerConfig{})
 	sm.Start()
 	time.Sleep(200 * time.Millisecond)
 

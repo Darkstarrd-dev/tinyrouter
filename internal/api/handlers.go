@@ -27,6 +27,7 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 		"enablePlayground":   cfg.EnablePlayground,
 		"debugMode":          rt.DebugMode(),
 		"proxy":              cfg.Proxy,
+		"server":             cfg.Server,
 		"security": map[string]any{
 			"passwordEnabled": cfg.Security.PasswordEnabled,
 			"hasPassword":     cfg.Security.PasswordEncrypted != "",
@@ -43,6 +44,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		EnablePlayground   *bool                  `json:"enablePlayground"`
 		DebugMode          *bool                  `json:"debugMode"`
 		Proxy              *config.ProxyConfig    `json:"proxy"`
+		Server             *config.ServerConfig   `json:"server"`
 		Security           *struct {
 			PasswordEnabled *bool  `json:"passwordEnabled"`
 			Password        string `json:"password"`
@@ -112,6 +114,17 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	if updates.Proxy != nil {
 		cfg.Proxy = *updates.Proxy
 		rt.proxyHandler.SetProxy(cfg.Proxy.Enabled, cfg.Proxy.Host, cfg.Proxy.Port)
+	}
+	if updates.Server != nil {
+		cfg.Server = *updates.Server
+		config.FinalizeServerConfig(&cfg.Server)
+		// Push the new timeout values to the live server manager so a
+		// subsequent restart (e.g. on port change) uses them. A full app
+		// restart is still required for the currently running server to
+		// pick them up, since timeouts are read at server creation.
+		if rt.serverCfgFn != nil {
+			rt.serverCfgFn(cfg.Server)
+		}
 	}
 
 	if err := config.Save(rt.configPath, &cfg); err != nil {

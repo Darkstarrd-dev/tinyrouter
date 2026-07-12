@@ -44,7 +44,7 @@ func newTestHandler(t *testing.T) *Handler {
 	usageBuf := usage.New(100)
 	qt := usage.NewQuotaTracker()
 	logger := console.New(100)
-	return New(reg, sel, comboRes, usageBuf, qt, logger)
+	return New(reg, sel, comboRes, usageBuf, qt, logger, 0)
 }
 
 func newTestHandlerWithCustomProvider(t *testing.T, provider config.Provider, rotationCfg config.RotationConfig) *Handler {
@@ -59,7 +59,7 @@ func newTestHandlerWithCustomProvider(t *testing.T, provider config.Provider, ro
 	usageBuf := usage.New(100)
 	qt := usage.NewQuotaTracker()
 	logger := console.New(100)
-	return New(reg, sel, comboRes, usageBuf, qt, logger)
+	return New(reg, sel, comboRes, usageBuf, qt, logger, 0)
 }
 
 func TestForwardUpstream_Success(t *testing.T) {
@@ -404,7 +404,7 @@ func TestChatCompletions_SuccessWithMock(t *testing.T) {
 	usageBuf := usage.New(100)
 	qt := usage.NewQuotaTracker()
 	logger := console.New(100)
-	h := New(reg, sel, comboRes, usageBuf, qt, logger)
+	h := New(reg, sel, comboRes, usageBuf, qt, logger, 0)
 
 	body := `{"model":"test/gpt-4","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
@@ -515,7 +515,7 @@ func TestAfterMaxRetries_WithMock(t *testing.T) {
 	usageBuf := usage.New(100)
 	qt := usage.NewQuotaTracker()
 	logger := console.New(100)
-	h := New(reg, sel, comboRes, usageBuf, qt, logger)
+	h := New(reg, sel, comboRes, usageBuf, qt, logger, 0)
 
 	body := `{"model":"test/gpt-4","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
@@ -581,7 +581,7 @@ func TestInjectStreamOptions(t *testing.T) {
 	usageBuf := usage.New(100)
 	qt := usage.NewQuotaTracker()
 	logger := console.New(100)
-	h := New(reg, sel, comboRes, usageBuf, qt, logger)
+	h := New(reg, sel, comboRes, usageBuf, qt, logger, 0)
 
 	body := `{"model":"test/gpt-4","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
@@ -734,7 +734,7 @@ func TestComboResponse_Fallback(t *testing.T) {
 	usageBuf := usage.New(100)
 	qt := usage.NewQuotaTracker()
 	logger := console.New(100)
-	h := New(reg, sel, comboRes, usageBuf, qt, logger)
+	h := New(reg, sel, comboRes, usageBuf, qt, logger, 0)
 
 	body := `{"model":"cb","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
@@ -782,7 +782,7 @@ func TestRoundTrip_Success(t *testing.T) {
 	usageBuf := usage.New(100)
 	qt := usage.NewQuotaTracker()
 	logger := console.New(100)
-	h := New(reg, sel, comboRes, usageBuf, qt, logger)
+	h := New(reg, sel, comboRes, usageBuf, qt, logger, 0)
 
 	body := `{"model":"rt/gpt-4","messages":[{"role":"user","content":"hello"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))

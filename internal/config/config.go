@@ -153,6 +153,53 @@ type MonitorConfig struct {
 	MaxLineLength   int      `yaml:"maxLineLength,omitempty" json:"maxLineLength,omitempty"`
 }
 
+// ServerConfig controls HTTP server and upstream proxy client timeouts.
+// All values are in seconds. A zero value falls back to the default.
+//
+//   - ReadTimeoutSec: max duration for reading the entire request (incl. body).
+//   - WriteTimeoutSec: max duration for writing the response. For non-streaming
+//     requests this bounds the full upstream call; for streaming (SSE) responses
+//     the write deadline is exempted (see proxy streamResponse) so long streams
+//     are never force-terminated here.
+//   - IdleTimeoutSec: max idle keep-alive time for a connection.
+//   - UpstreamTimeoutSec: max duration for a single non-streaming upstream call.
+//     Streaming upstream calls are intentionally unbounded (controlled by the
+//     downstream request context instead).
+type ServerConfig struct {
+	ReadTimeoutSec     int `yaml:"readTimeoutSec" json:"readTimeoutSec"`
+	WriteTimeoutSec    int `yaml:"writeTimeoutSec" json:"writeTimeoutSec"`
+	IdleTimeoutSec     int `yaml:"idleTimeoutSec" json:"idleTimeoutSec"`
+	UpstreamTimeoutSec int `yaml:"upstreamTimeoutSec" json:"upstreamTimeoutSec"`
+}
+
+// DefaultServerConfig returns the default server timeout settings.
+func DefaultServerConfig() ServerConfig {
+	return ServerConfig{
+		ReadTimeoutSec:     300,
+		WriteTimeoutSec:    300,
+		IdleTimeoutSec:     120,
+		UpstreamTimeoutSec: 300,
+	}
+}
+
+// FinalizeServerConfig fills zero-valued fields with their defaults so a
+// partial server config (e.g. from a settings PATCH) keeps sane values.
+func FinalizeServerConfig(s *ServerConfig) {
+	def := DefaultServerConfig()
+	if s.ReadTimeoutSec == 0 {
+		s.ReadTimeoutSec = def.ReadTimeoutSec
+	}
+	if s.WriteTimeoutSec == 0 {
+		s.WriteTimeoutSec = def.WriteTimeoutSec
+	}
+	if s.IdleTimeoutSec == 0 {
+		s.IdleTimeoutSec = def.IdleTimeoutSec
+	}
+	if s.UpstreamTimeoutSec == 0 {
+		s.UpstreamTimeoutSec = def.UpstreamTimeoutSec
+	}
+}
+
 // ProxyConfig is the global upstream HTTP proxy used only by providers that
 // opt in via Provider.UseProxy.
 type ProxyConfig struct {
@@ -174,6 +221,7 @@ type Config struct {
 	Security           SecurityConfig `yaml:"security" json:"security"`
 	Monitor            MonitorConfig  `yaml:"monitor" json:"monitor"`
 	Proxy              ProxyConfig    `yaml:"proxy" json:"proxy"`
+	Server             ServerConfig   `yaml:"server" json:"server"`
 }
 
 // DefaultConfig returns a sane default configuration.
@@ -195,6 +243,7 @@ func DefaultConfig() *Config {
 		Providers:        []Provider{},
 		Combos:           []Combo{},
 		QuickSlots:       []QuickSlot{},
+		Server:           DefaultServerConfig(),
 	}
 }
 
@@ -286,6 +335,9 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 	if cfg.Rotation.StatePath == "" {
 		cfg.Rotation.StatePath = "state.yaml"
 	}
+	// Fill zero-valued server timeouts with defaults so a partial `server:`
+	// block in config.yaml keeps sane values for the unspecified fields.
+	FinalizeServerConfig(&cfg.Server)
 	for i := range cfg.Providers {
 		for j := range cfg.Providers[i].Models {
 			if cfg.Providers[i].Models[j].QuotaType == "" {

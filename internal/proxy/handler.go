@@ -41,7 +41,11 @@ type Handler struct {
 	debugModeProvider func() bool
 }
 
-func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, quotaTracker *usage.QuotaTracker, logger *console.Logger) *Handler {
+func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, quotaTracker *usage.QuotaTracker, logger *console.Logger, upstreamTimeoutSec int) *Handler {
+	if upstreamTimeoutSec <= 0 {
+		upstreamTimeoutSec = 300
+	}
+	upstreamTimeout := time.Duration(upstreamTimeoutSec) * time.Second
 	h := &Handler{
 		reg:             reg,
 		selector:        selector,
@@ -55,7 +59,7 @@ func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.
 		Inflight:        NewInflightTracker(),
 		EntryTracker:    NewEntryTracker(),
 		client: &http.Client{
-			Timeout: 300 * time.Second,
+			Timeout: upstreamTimeout,
 		},
 		// 流式请求由 r.Context() 控制连接生命周期（1.5 已传播 context），
 		// 不设 Timeout 以避免 300s 后强制中断长 SSE 流（P3.13）。
@@ -68,7 +72,7 @@ func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.
 			return u, nil
 		},
 	}
-	h.proxyClient = &http.Client{Transport: proxyTransport, Timeout: 300 * time.Second}
+	h.proxyClient = &http.Client{Transport: proxyTransport, Timeout: upstreamTimeout}
 	h.proxyStream = &http.Client{Transport: proxyTransport}
 	h.mgmtClient = &http.Client{Timeout: 15 * time.Second}
 	h.mgmtProxyClient = &http.Client{Transport: proxyTransport, Timeout: 15 * time.Second}

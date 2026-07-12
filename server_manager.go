@@ -11,21 +11,24 @@ import (
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/console"
+	"github.com/tinyrouter/tinyrouter/internal/config"
 )
 
 // ServerManager wraps an *http.Server so it can be gracefully restarted
 // on a new address without restarting the entire process.
 type ServerManager struct {
-	mu      sync.Mutex
-	srv     *http.Server
-	handler http.Handler
-	addr    string
-	logger  *console.Logger
+	mu        sync.Mutex
+	srv       *http.Server
+	handler   http.Handler
+	addr      string
+	logger    *console.Logger
+	serverCfg config.ServerConfig
 }
 
 // NewServerManager creates a ServerManager that will serve handler on addr.
-func NewServerManager(handler http.Handler, addr string, logger *console.Logger) *ServerManager {
-	return &ServerManager{handler: handler, addr: addr, logger: logger}
+// serverCfg controls the HTTP server timeouts (seconds); see config.ServerConfig.
+func NewServerManager(handler http.Handler, addr string, logger *console.Logger, serverCfg config.ServerConfig) *ServerManager {
+	return &ServerManager{handler: handler, addr: addr, logger: logger, serverCfg: serverCfg}
 }
 
 // Start begins listening on the configured address.
@@ -40,9 +43,9 @@ func (m *ServerManager) startLocked() {
 	m.srv = &http.Server{
 		Addr:           m.addr,
 		Handler:        m.handler,
-		ReadTimeout:    300 * time.Second,
-		WriteTimeout:   300 * time.Second,
-		IdleTimeout:    120 * time.Second,
+		ReadTimeout:    time.Duration(m.serverCfg.ReadTimeoutSec) * time.Second,
+		WriteTimeout:   time.Duration(m.serverCfg.WriteTimeoutSec) * time.Second,
+		IdleTimeout:    time.Duration(m.serverCfg.IdleTimeoutSec) * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1 MB
 	}
 	go func() {
@@ -54,6 +57,15 @@ func (m *ServerManager) startLocked() {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
+}
+
+// SetServerConfig updates the server timeout settings used when (re)starting
+// the underlying *http.Server. It takes effect on the next Start/Restart, not
+// for the currently running server instance.
+func (m *ServerManager) SetServerConfig(cfg config.ServerConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.serverCfg = cfg
 }
 
 // Restart gracefully shuts down the current server and starts a new one on

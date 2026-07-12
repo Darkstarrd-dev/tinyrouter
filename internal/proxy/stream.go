@@ -140,6 +140,14 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	}
 	w.WriteHeader(http.StatusOK)
 
+	// Streaming responses must not be force-terminated by the HTTP server's
+	// WriteTimeout. Clear the per-connection write deadline so a long SSE
+	// stream (or a long gap between chunks) survives; the downstream request
+	// context still cancels the stream if the client disconnects.
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Time{})
+	}
+
 	buf := make([]byte, 32*1024)
 	totalOutput := 0
 	inputTokens := 0

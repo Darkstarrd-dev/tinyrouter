@@ -71,7 +71,7 @@ func main() {
 	reg := registry.New(cfg)
 	selector := rotation.New(reg, &cfg.Rotation)
 	comboRes := combo.New(reg)
-	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, quotaTracker, logger)
+	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, quotaTracker, logger, cfg.Server.UpstreamTimeoutSec)
 	proxyHandler.SetProxy(cfg.Proxy.Enabled, cfg.Proxy.Host, cfg.Proxy.Port)
 
 	// State persistence
@@ -107,9 +107,10 @@ func main() {
 	// Build HTTP server
 	handler := apiRouter.Routes(proxyHandler)
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
-	sm := NewServerManager(handler, addr, logger)
+	sm := NewServerManager(handler, addr, logger, cfg.Server)
 	sm.Start()
 	apiRouter.SetRestartFunc(sm.Restart)
+	apiRouter.SetServerConfigFunc(sm.SetServerConfig)
 	if stateManager != nil {
 		apiRouter.SetStateSaveFunc(stateManager.ScheduleWrite)
 	}
