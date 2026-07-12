@@ -75,6 +75,9 @@ function renderDownload(container) {
         <label class="flex-1">${escapeHtml(t('defaultDir'))}
           <input type="text" id="dl-default-dir" class="input" placeholder="Downloads" />
         </label>
+        <label class="flex-1">${escapeHtml(t('downloadProxy'))}
+          <input type="text" id="dl-proxy" class="input" placeholder="http://host:port" />
+        </label>
         <button class="btn btn-primary" id="dl-save-settings-btn" type="button" onclick="saveDownloadSettings()">${escapeHtml(t('save'))}</button>
       </div>
     </div>
@@ -245,10 +248,12 @@ async function loadDownloadSettings() {
   var ytInput = document.getElementById('dl-ytdlp-path');
   var ffInput = document.getElementById('dl-ffmpeg-path');
   var dirInput = document.getElementById('dl-default-dir');
+  var proxyInput = document.getElementById('dl-proxy');
   downloadDefaultDir = dl.defaultDir || '';
   if (ytInput) ytInput.value = dl.ytDlpPath || '';
   if (ffInput) ffInput.value = dl.ffmpegPath || '';
   if (dirInput) dirInput.value = dl.defaultDir || '';
+  if (proxyInput) proxyInput.value = dl.proxy || '';
 }
 
 // saveDownloadSettings persists the yt-dlp / ffmpeg paths and the default
@@ -257,12 +262,14 @@ async function saveDownloadSettings() {
   var ytInput = document.getElementById('dl-ytdlp-path');
   var ffInput = document.getElementById('dl-ffmpeg-path');
   var dirInput = document.getElementById('dl-default-dir');
-  if (!ytInput || !ffInput || !dirInput) return;
+  var proxyInput = document.getElementById('dl-proxy');
+  if (!ytInput || !ffInput || !dirInput || !proxyInput) return;
   var body = {
     download: {
       ytDlpPath: ytInput.value || '',
       ffmpegPath: ffInput.value || '',
-      defaultDir: dirInput.value || ''
+      defaultDir: dirInput.value || '',
+      proxy: proxyInput.value || ''
     }
   };
   try {
