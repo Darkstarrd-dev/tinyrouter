@@ -4,7 +4,6 @@ package download
 
 import (
 	"os/exec"
-	"strconv"
 	"syscall"
 )
 
