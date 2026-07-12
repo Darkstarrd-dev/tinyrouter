@@ -276,12 +276,13 @@ function openPortModal() {
   var s = window.__settings;
   openSettingsModal(t('listenPort'),
     '<p class="muted">' + escapeHtml(t('listenPortDesc')) + '</p>\
-    <div class="form-group" style="margin-top:12px">\
-      <label>' + t('listenPort') + '</label>\
-      <input type="number" id="settings-modal-port" value="' + s.port + '">\
+    <div class="form-group" style="margin-top:16px">\
+      <input type="number" id="settings-modal-port" value="' + s.port + '" style="max-width:160px">\
     </div>\
-    <p class="muted">' + t('apiEndpoint') + ' <span class="code">http://localhost:' + s.port + '/v1</span></p>\
-    <p class="muted">' + t('noKeyRequired') + '</p>'
+    <div style="margin-top:12px;padding:10px 12px;background:var(--input-bg);border:1px solid var(--glass-border);border-radius:8px">\
+      <div style="margin-bottom:4px">' + t('apiEndpoint') + ' <span class="code">http://localhost:' + s.port + '/v1</span></div>\
+      <div class="muted" style="font-size:calc(var(--font-base) - 1.5px)">' + t('noKeyRequired') + '</div>\
+    </div>'
   );
   document.getElementById('settings-modal-save').onclick = function() {
     withLoading(this, function() { return savePortModal(); });
@@ -292,11 +293,10 @@ function openProxyModal() {
   var s = window.__settings;
   openSettingsModal(t('proxySettings'),
     '<p class="muted">' + escapeHtml(t('proxyDesc')) + '</p>\
-    <div class="form-group" style="margin-top:12px">\
-      <label class="toggle-switch" style="display:flex;align-items:center;gap:10px;margin-bottom:12px">\
+    <div style="margin:16px 0">\
+      <label class="toggle-switch" for="settings-modal-proxy-toggle">\
         <input type="checkbox" id="settings-modal-proxy-toggle" ' + (s.proxy && s.proxy.enabled ? 'checked' : '') + '>\
         <span class="toggle-slider"></span>\
-        <span style="font-size:var(--font-base);color:var(--text)">' + t('proxyEnabled') + '</span>\
       </label>\
     </div>\
     <div class="settings-form-grid">\
@@ -373,11 +373,10 @@ function openPasswordModal() {
   var pwEnabled = s.security && s.security.passwordEnabled;
   openSettingsModal(t('passwordProtection'),
     '<p class="muted">' + escapeHtml(t('passwordProtectionDesc')) + '</p>\
-    <div class="form-group" style="margin-top:12px">\
-      <label class="toggle-switch" style="display:flex;align-items:center;gap:10px;margin-bottom:12px">\
+    <div style="margin:16px 0">\
+      <label class="toggle-switch" for="settings-modal-password-toggle">\
         <input type="checkbox" id="settings-modal-password-toggle" ' + (pwEnabled ? 'checked' : '') + '>\
         <span class="toggle-slider"></span>\
-        <span style="font-size:var(--font-base);color:var(--text)">' + t('passwordProtection') + '</span>\
       </label>\
     </div>\
     <div id="settings-modal-password-fields" style="display:' + (pwEnabled ? 'block' : 'none') + '">\
@@ -410,11 +409,10 @@ function openDebugModal() {
   var s = window.__settings;
   openSettingsModal(t('debugMode'),
     '<p class="muted">' + escapeHtml(t('debugModeDesc')) + '</p>\
-    <div class="form-group" style="margin-top:12px">\
-      <label class="toggle-switch" style="display:flex;align-items:center;gap:10px">\
+    <div style="margin:16px 0">\
+      <label class="toggle-switch" for="settings-modal-debug-toggle">\
         <input type="checkbox" id="settings-modal-debug-toggle" ' + (s.debugMode ? 'checked' : '') + '>\
         <span class="toggle-slider"></span>\
-        <span style="font-size:var(--font-base);color:var(--text)">' + t('debugMode') + '</span>\
       </label>\
     </div>'
   );
