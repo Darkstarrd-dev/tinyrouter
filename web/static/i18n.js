@@ -1,14 +1,14 @@
 // ===================== Translation System =====================
 const L = {
   en: {
-    endpoint: 'Settings', providers: 'Providers', combos: 'Combos', usage: 'Usage', console: 'Console', playground: 'Playground',
+    endpoint: 'Settings', settings: 'Settings', providers: 'Providers', combos: 'Combos', usage: 'Usage', console: 'Console', playground: 'Playground',
     shutdown: 'Shutdown',
     debugSettings: 'Debug Settings', debugMode: 'Debug Mode',
     debugModeDesc: 'When enabled, request/response details are cached for inspection in the Usage page.',
     debugModeOn: 'ON', debugModeOff: 'OFF',
-    listenPort: 'Listen Port', save: 'Save',
+    listenPort: 'Listen Port', listenPortDesc: 'The HTTP port the server listens on. Changing requires app restart.', save: 'Save',
     apiEndpoint: 'API Endpoint:', noKeyRequired: 'No API key required. Any key or no key works.',
-    rotationSettings: 'Rotation Settings (Global Default)',
+    rotationSettings: 'Rotation Settings (Global Default)', rotationDesc: 'Key selection strategy and retry/backoff parameters for upstream requests.',
     strategy: 'Strategy', stickyLimit: 'Sticky Limit (round-robin)',
     maxRetries: 'Max Retries (429 temp)', retryDelay: 'Retry Delay (seconds)',
     backoffMax: 'Backoff Max (seconds)', saveRotation: 'Save Rotation',
@@ -208,14 +208,14 @@ resetQuota: 'Reset Quota', confirmResetQuota: 'Clear all cooldown timers and quo
     // Playground keys moved to pg-i18n.js
   },
   cn: {
-    endpoint: '设置', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台', playground: '测试',
+    endpoint: '设置', settings: '设置', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台', playground: '测试',
     shutdown: '关闭',
     debugSettings: '调试设置', debugMode: '调试模式',
     debugModeDesc: '开启后，请求/响应详情将缓存以供 Usage 页面查看。',
     debugModeOn: '开', debugModeOff: '关',
-    listenPort: '监听端口', save: '保存',
+    listenPort: '监听端口', listenPortDesc: '服务器监听的 HTTP 端口。修改后需重启应用。', save: '保存',
     apiEndpoint: 'API 地址:', noKeyRequired: '无需 API Key，任意 Key 或无 Key 均可访问。',
-    rotationSettings: '轮询设置 (全局默认)',
+    rotationSettings: '轮询设置 (全局默认)', rotationDesc: '上游请求的 Key 选择策略与重试/退避参数。',
     strategy: '策略', stickyLimit: '粘性限制 (round-robin)',
     maxRetries: '最大重试 (429 临时)', retryDelay: '重试延迟 (秒)',
     backoffMax: '退避上限 (秒)', saveRotation: '保存轮询设置',

@@ -3,6 +3,7 @@
 async function renderEndpoint(c) {
   showSkeleton(c, 2);
   const settings = await apiGet('/settings');
+  window.__settings = settings;
   const [provData, comboData, qsData] = await Promise.all([apiGet('/providers'), apiGet('/combos'), apiGet('/quickslots')]);
   providersCache = provData.providers || [];
   const combos = comboData.combos || [];
@@ -10,114 +11,29 @@ async function renderEndpoint(c) {
   c.innerHTML = '\
     <div class="settings-layout">\
       <div class="settings-panel-left">\
-          <div class="settings-block">\
-          <div class="settings-port-row">\
-            <span class="settings-port-label">' + t('listenPort') + '</span>\
-            <input type="number" id="port" value="' + settings.port + '" class="settings-port-input">\
-            <button type="button" class="btn btn-primary btn-sm" onclick="withLoading(this, () => savePort())">' + t('save') + '</button>\
-          </div>\
-          <p class="muted mt-12">' + t('apiEndpoint') + ' <span class="code copyable" data-copy="http://localhost:' + settings.port + '/v1" onclick="copyToClipboard(this.getAttribute(\'data-copy\'))" title="' + t('clickToCopy') + '">http://localhost:' + settings.port + '/v1</span></p>\
-          <p class="muted mt-12">' + t('noKeyRequired') + '</p>\
+        <div class="settings-row">\
+          <span class="settings-row-title" title="' + escapeHtml(t('listenPortDesc')) + '">' + t('listenPort') + '</span>\
+          <button type="button" class="btn btn-sm settings-row-btn" onclick="openPortModal()">' + t('settings') + '</button>\
         </div>\
-        <div class="settings-block">\
-          <div class="settings-block-header">\
-            <span class="settings-block-title">' + t('proxySettings') + '</span>\
-            <label class="toggle-switch" for="proxy-toggle">\
-              <input type="checkbox" id="proxy-toggle" ' + (settings.proxy && settings.proxy.enabled ? 'checked' : '') + '>\
-              <span class="toggle-slider"></span>\
-            </label>\
-          </div>\
-          <p class="muted mt-12">' + t('proxyDesc') + '</p>\
-          <div class="settings-form-grid mt-12">\
-            <div class="form-group"><label for="proxy-host">' + t('proxyHost') + '</label>\
-              <input type="text" id="proxy-host" value="' + (settings.proxy ? escapeHtml(settings.proxy.host) : '') + '" placeholder="127.0.0.1">\
-            </div>\
-            <div class="form-group"><label for="proxy-port">' + t('proxyPort') + '</label>\
-              <input type="text" id="proxy-port" value="' + (settings.proxy ? escapeHtml(settings.proxy.port) : '') + '" placeholder="2080">\
-            </div>\
-          </div>\
-          <button type="button" class="btn btn-primary mt-12" onclick="withLoading(this, () => saveProxy())">' + t('save') + '</button>\
+        <div class="settings-row">\
+          <span class="settings-row-title" title="' + escapeHtml(t('proxyDesc')) + '">' + t('proxySettings') + '</span>\
+          <button type="button" class="btn btn-sm settings-row-btn" onclick="openProxyModal()">' + t('settings') + '</button>\
         </div>\
-        <div class="settings-block">\
-          <div class="settings-block-title">' + t('rotationSettings') + '</div>\
-          <div class="settings-form-grid mt-12">\
-            <div class="form-group"><label for="strategy">' + t('strategy') + '</label>\
-              <select id="strategy">\
-                <option value="fill-first"' + (settings.rotation && settings.rotation.strategy === 'fill-first' ? ' selected' : '') + '>' + t('fillFirst') + '</option>\
-                <option value="round-robin"' + (settings.rotation && settings.rotation.strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobin') + '</option>\
-                <option value="failover"' + (settings.rotation && settings.rotation.strategy === 'failover' ? ' selected' : '') + '>' + t('failover') + '</option>\
-              </select>\
-            </div>\
-            <div class="form-group"><label for="stickyLimit">' + t('stickyLimit') + '</label>\
-              <input type="number" id="stickyLimit" value="' + ((settings.rotation && settings.rotation.stickyLimit) || 3) + '">\
-            </div>\
-            <div class="form-group"><label for="maxRetries">' + t('maxRetries') + '</label>\
-              <input type="number" id="maxRetries" value="' + ((settings.rotation && settings.rotation.maxRetries) || 5) + '">\
-            </div>\
-            <div class="form-group"><label for="retryDelaySec">' + t('retryDelay') + '</label>\
-              <input type="number" id="retryDelaySec" value="' + ((settings.rotation && settings.rotation.retryDelaySec) || 5) + '">\
-            </div>\
-            <div class="form-group"><label for="backoffMaxSec">' + t('backoffMax') + '</label>\
-              <input type="number" id="backoffMaxSec" value="' + ((settings.rotation && settings.rotation.backoffMaxSec) || 300) + '">\
-            </div>\
-            <div class="form-group">\
-              <label>&nbsp;</label>\
-              <button type="button" class="btn btn-primary" style="width:100%" onclick="withLoading(this, () => saveRotation())">' + t('saveRotation') + '</button>\
-</div>\
-        <div class="settings-block">\
-          <div class="settings-block-title">' + t('serverTimeoutSettings') + '</div>\
-          <p class="muted mt-12">' + t('serverTimeoutDesc') + '</p>\
-          <div class="settings-form-grid mt-12">\
-            <div class="form-group"><label for="readTimeoutSec">' + t('readTimeout') + '</label>\
-              <input type="number" id="readTimeoutSec" value="' + ((settings.server && settings.server.readTimeoutSec) || 300) + '">\
-            </div>\
-            <div class="form-group"><label for="writeTimeoutSec">' + t('writeTimeout') + '</label>\
-              <input type="number" id="writeTimeoutSec" value="' + ((settings.server && settings.server.writeTimeoutSec) || 300) + '">\
-            </div>\
-            <div class="form-group"><label for="idleTimeoutSec">' + t('idleTimeout') + '</label>\
-              <input type="number" id="idleTimeoutSec" value="' + ((settings.server && settings.server.idleTimeoutSec) || 120) + '">\
-            </div>\
-            <div class="form-group"><label for="upstreamTimeoutSec">' + t('upstreamTimeout') + '</label>\
-              <input type="number" id="upstreamTimeoutSec" value="' + ((settings.server && settings.server.upstreamTimeoutSec) || 300) + '">\
-            </div>\
-          </div>\
-          <button type="button" class="btn btn-primary mt-12" onclick="withLoading(this, () => saveServerTimeout())">' + t('save') + '</button>\
+        <div class="settings-row">\
+          <span class="settings-row-title" title="' + escapeHtml(t('rotationDesc')) + '">' + t('rotationSettings') + '</span>\
+          <button type="button" class="btn btn-sm settings-row-btn" onclick="openRotationModal()">' + t('settings') + '</button>\
         </div>\
-        <div class="settings-block">\
-          <div class="settings-block-header">\
-            <span class="settings-block-title">' + t('passwordProtection') + '</span>\
-            <label class="toggle-switch" for="password-toggle">\
-              <input type="checkbox" id="password-toggle" ' + (settings.security && settings.security.passwordEnabled ? 'checked' : '') + ' onchange="togglePasswordProtection(this.checked)">\
-              <span class="toggle-slider"></span>\
-            </label>\
-          </div>\
-          <p class="muted mt-12">' + t('passwordProtectionDesc') + '</p>\
-          <div id="password-settings" style="display:' + (settings.security && settings.security.passwordEnabled ? 'block' : 'none') + ';margin-top:12px">\
-            <div class="form-group">\
-              <label>' + t('currentPassword') + '</label>\
-              <div style="display:flex;gap:8px;align-items:center">\
-                <input type="text" id="current-password" value="' + escapeHtml(settings.security ? settings.security.password : '') + '" readonly style="flex:1">\
-                <button type="button" class="btn btn-sm" onclick="copyToClipboard(document.getElementById(\'current-password\').value, t(\'password\'))">' + t('copy') + '</button>\
-              </div>\
-            </div>\
-            <div class="form-group">\
-              <label>' + t('newPassword') + '</label>\
-              <input type="password" id="new-password" placeholder="' + t('newPasswordPlaceholder') + '">\
-            </div>\
-            <button type="button" class="btn btn-primary" style="width:100%" onclick="withLoading(this, function() { return savePassword() })">' + t('savePassword') + '</button>\
-          </div>\
+        <div class="settings-row">\
+          <span class="settings-row-title" title="' + escapeHtml(t('serverTimeoutDesc')) + '">' + t('serverTimeoutSettings') + '</span>\
+          <button type="button" class="btn btn-sm settings-row-btn" onclick="openServerTimeoutModal()">' + t('settings') + '</button>\
         </div>\
-      </div>\
+        <div class="settings-row">\
+          <span class="settings-row-title" title="' + escapeHtml(t('passwordProtectionDesc')) + '">' + t('passwordProtection') + '</span>\
+          <button type="button" class="btn btn-sm settings-row-btn" onclick="openPasswordModal()">' + t('settings') + '</button>\
         </div>\
-        <div class="settings-block">\
-          <div class="settings-block-header">\
-            <span class="settings-block-title">' + t('debugMode') + '</span>\
-            <label class="toggle-switch" for="debug-mode-toggle">\
-              <input type="checkbox" id="debug-mode-toggle" ' + (settings.debugMode ? 'checked' : '') + ' onchange="toggleDebugMode(this.checked)">\
-              <span class="toggle-slider"></span>\
-            </label>\
-          </div>\
-          <p class="muted mt-12">' + t('debugModeDesc') + '</p>\
+        <div class="settings-row">\
+          <span class="settings-row-title" title="' + escapeHtml(t('debugModeDesc')) + '">' + t('debugMode') + '</span>\
+          <button type="button" class="btn btn-sm settings-row-btn" onclick="openDebugModal()">' + t('settings') + '</button>\
         </div>\
       </div>\
       <div class="settings-panel-right">\
@@ -335,6 +251,284 @@ async function savePassword() {
     if (toggle) toggle.checked = true;
     var pwSettings = document.getElementById('password-settings');
     if (pwSettings) pwSettings.style.display = 'block';
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
+}
+
+// ===================== Settings Modal Functions =====================
+
+function openSettingsModal(title, bodyHtml) {
+  var overlay = document.getElementById('modal-overlay');
+  overlay.innerHTML = '\
+    <div class="modal" style="min-width:400px;max-width:520px">\
+      <div class="modal-title">' + escapeHtml(title) + '</div>\
+      <div class="modal-body">' + bodyHtml + '</div>\
+      <div class="modal-footer">\
+        <button type="button" class="btn btn-ghost" onclick="closeModalOverlay()">' + t('cancel') + '</button>\
+        <button type="button" class="btn btn-primary" id="settings-modal-save">' + t('save') + '</button>\
+      </div>\
+    </div>';
+  requestAnimationFrame(function() { overlay.classList.add('show'); });
+}
+
+function openPortModal() {
+  var s = window.__settings;
+  openSettingsModal(t('listenPort'),
+    '<p class="muted">' + escapeHtml(t('listenPortDesc')) + '</p>\
+    <div class="form-group" style="margin-top:12px">\
+      <label>' + t('listenPort') + '</label>\
+      <input type="number" id="settings-modal-port" value="' + s.port + '">\
+    </div>\
+    <p class="muted">' + t('apiEndpoint') + ' <span class="code">http://localhost:' + s.port + '/v1</span></p>\
+    <p class="muted">' + t('noKeyRequired') + '</p>'
+  );
+  document.getElementById('settings-modal-save').onclick = function() {
+    withLoading(this, function() { return savePortModal(); });
+  };
+}
+
+function openProxyModal() {
+  var s = window.__settings;
+  openSettingsModal(t('proxySettings'),
+    '<p class="muted">' + escapeHtml(t('proxyDesc')) + '</p>\
+    <div class="form-group" style="margin-top:12px">\
+      <label class="toggle-switch" style="display:flex;align-items:center;gap:10px;margin-bottom:12px">\
+        <input type="checkbox" id="settings-modal-proxy-toggle" ' + (s.proxy && s.proxy.enabled ? 'checked' : '') + '>\
+        <span class="toggle-slider"></span>\
+        <span style="font-size:var(--font-base);color:var(--text)">' + t('proxyEnabled') + '</span>\
+      </label>\
+    </div>\
+    <div class="settings-form-grid">\
+      <div class="form-group"><label>' + t('proxyHost') + '</label>\
+        <input type="text" id="settings-modal-proxy-host" value="' + (s.proxy ? escapeHtml(s.proxy.host) : '') + '" placeholder="127.0.0.1">\
+      </div>\
+      <div class="form-group"><label>' + t('proxyPort') + '</label>\
+        <input type="text" id="settings-modal-proxy-port" value="' + (s.proxy ? escapeHtml(s.proxy.port) : '') + '" placeholder="2080">\
+      </div>\
+    </div>'
+  );
+  document.getElementById('settings-modal-save').onclick = function() {
+    withLoading(this, function() { return saveProxyModal(); });
+  };
+}
+
+function openRotationModal() {
+  var s = window.__settings;
+  openSettingsModal(t('rotationSettings'),
+    '<p class="muted">' + escapeHtml(t('rotationDesc')) + '</p>\
+    <div class="settings-form-grid" style="margin-top:12px">\
+      <div class="form-group"><label>' + t('strategy') + '</label>\
+        <select id="settings-modal-strategy">\
+          <option value="fill-first"' + (s.rotation && s.rotation.strategy === 'fill-first' ? ' selected' : '') + '>' + t('fillFirst') + '</option>\
+          <option value="round-robin"' + (s.rotation && s.rotation.strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobin') + '</option>\
+          <option value="failover"' + (s.rotation && s.rotation.strategy === 'failover' ? ' selected' : '') + '>' + t('failover') + '</option>\
+        </select>\
+      </div>\
+      <div class="form-group"><label>' + t('stickyLimit') + '</label>\
+        <input type="number" id="settings-modal-stickyLimit" value="' + ((s.rotation && s.rotation.stickyLimit) || 3) + '">\
+      </div>\
+      <div class="form-group"><label>' + t('maxRetries') + '</label>\
+        <input type="number" id="settings-modal-maxRetries" value="' + ((s.rotation && s.rotation.maxRetries) || 5) + '">\
+      </div>\
+      <div class="form-group"><label>' + t('retryDelay') + '</label>\
+        <input type="number" id="settings-modal-retryDelaySec" value="' + ((s.rotation && s.rotation.retryDelaySec) || 5) + '">\
+      </div>\
+      <div class="form-group"><label>' + t('backoffMax') + '</label>\
+        <input type="number" id="settings-modal-backoffMaxSec" value="' + ((s.rotation && s.rotation.backoffMaxSec) || 300) + '">\
+      </div>\
+    </div>'
+  );
+  document.getElementById('settings-modal-save').onclick = function() {
+    withLoading(this, function() { return saveRotationModal(); });
+  };
+}
+
+function openServerTimeoutModal() {
+  var s = window.__settings;
+  openSettingsModal(t('serverTimeoutSettings'),
+    '<p class="muted">' + escapeHtml(t('serverTimeoutDesc')) + '</p>\
+    <div class="settings-form-grid" style="margin-top:12px">\
+      <div class="form-group"><label>' + t('readTimeout') + '</label>\
+        <input type="number" id="settings-modal-readTimeoutSec" value="' + ((s.server && s.server.readTimeoutSec) || 300) + '">\
+      </div>\
+      <div class="form-group"><label>' + t('writeTimeout') + '</label>\
+        <input type="number" id="settings-modal-writeTimeoutSec" value="' + ((s.server && s.server.writeTimeoutSec) || 300) + '">\
+      </div>\
+      <div class="form-group"><label>' + t('idleTimeout') + '</label>\
+        <input type="number" id="settings-modal-idleTimeoutSec" value="' + ((s.server && s.server.idleTimeoutSec) || 120) + '">\
+      </div>\
+      <div class="form-group"><label>' + t('upstreamTimeout') + '</label>\
+        <input type="number" id="settings-modal-upstreamTimeoutSec" value="' + ((s.server && s.server.upstreamTimeoutSec) || 300) + '">\
+      </div>\
+    </div>'
+  );
+  document.getElementById('settings-modal-save').onclick = function() {
+    withLoading(this, function() { return saveServerTimeoutModal(); });
+  };
+}
+
+function openPasswordModal() {
+  var s = window.__settings;
+  var pwEnabled = s.security && s.security.passwordEnabled;
+  openSettingsModal(t('passwordProtection'),
+    '<p class="muted">' + escapeHtml(t('passwordProtectionDesc')) + '</p>\
+    <div class="form-group" style="margin-top:12px">\
+      <label class="toggle-switch" style="display:flex;align-items:center;gap:10px;margin-bottom:12px">\
+        <input type="checkbox" id="settings-modal-password-toggle" ' + (pwEnabled ? 'checked' : '') + '>\
+        <span class="toggle-slider"></span>\
+        <span style="font-size:var(--font-base);color:var(--text)">' + t('passwordProtection') + '</span>\
+      </label>\
+    </div>\
+    <div id="settings-modal-password-fields" style="display:' + (pwEnabled ? 'block' : 'none') + '">\
+      <div class="form-group">\
+        <label>' + t('currentPassword') + '</label>\
+        <div style="display:flex;gap:8px;align-items:center">\
+          <input type="text" id="settings-modal-current-password" value="' + escapeHtml(s.security ? s.security.password : '') + '" readonly style="flex:1">\
+          <button type="button" class="btn btn-sm" onclick="copyToClipboard(document.getElementById(\'settings-modal-current-password\').value, t(\'password\'))">' + t('copy') + '</button>\
+        </div>\
+      </div>\
+      <div class="form-group">\
+        <label>' + t('newPassword') + '</label>\
+        <input type="password" id="settings-modal-new-password" placeholder="' + t('newPasswordPlaceholder') + '">\
+      </div>\
+    </div>'
+  );
+  var toggle = document.getElementById('settings-modal-password-toggle');
+  if (toggle) {
+    toggle.onchange = function() {
+      var fields = document.getElementById('settings-modal-password-fields');
+      if (fields) fields.style.display = this.checked ? 'block' : 'none';
+    };
+  }
+  document.getElementById('settings-modal-save').onclick = function() {
+    withLoading(this, function() { return savePasswordModal(); });
+  };
+}
+
+function openDebugModal() {
+  var s = window.__settings;
+  openSettingsModal(t('debugMode'),
+    '<p class="muted">' + escapeHtml(t('debugModeDesc')) + '</p>\
+    <div class="form-group" style="margin-top:12px">\
+      <label class="toggle-switch" style="display:flex;align-items:center;gap:10px">\
+        <input type="checkbox" id="settings-modal-debug-toggle" ' + (s.debugMode ? 'checked' : '') + '>\
+        <span class="toggle-slider"></span>\
+        <span style="font-size:var(--font-base);color:var(--text)">' + t('debugMode') + '</span>\
+      </label>\
+    </div>'
+  );
+  document.getElementById('settings-modal-save').onclick = function() {
+    withLoading(this, function() { return saveDebugModal(); });
+  };
+}
+
+// ===================== Modal Save Functions =====================
+
+async function savePortModal() {
+  var port = parseInt(document.getElementById('settings-modal-port').value);
+  if (!port || port < 1 || port > 65535) {
+    toast(t('invalidPort'), 'error');
+    return;
+  }
+  var ok = await confirmModal(t('confirmRestart'));
+  if (!ok) return;
+  try {
+    var resp = await apiPatch('/settings', { port: port });
+    if (resp.error) {
+      toast(resp.error, 'error', 5000);
+      return;
+    }
+    closeModalOverlay();
+    if (resp.restart) {
+      showRestarting(port);
+      pollNewPort(port);
+    } else {
+      toast(t('portSaved'), 'success');
+    }
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
+}
+
+async function saveProxyModal() {
+  var enabled = document.getElementById('settings-modal-proxy-toggle').checked;
+  var host = document.getElementById('settings-modal-proxy-host').value;
+  var port = document.getElementById('settings-modal-proxy-port').value;
+  try {
+    await apiPatch('/settings', { proxy: { enabled: enabled, host: host, port: port } });
+    toast(t('proxySaved'), 'success');
+    closeModalOverlay();
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
+}
+
+async function saveRotationModal() {
+  var rotation = {
+    strategy: document.getElementById('settings-modal-strategy').value,
+    stickyLimit: parseInt(document.getElementById('settings-modal-stickyLimit').value),
+    maxRetries: parseInt(document.getElementById('settings-modal-maxRetries').value),
+    retryDelaySec: parseInt(document.getElementById('settings-modal-retryDelaySec').value),
+    backoffMaxSec: parseInt(document.getElementById('settings-modal-backoffMaxSec').value),
+  };
+  try {
+    await apiPatch('/settings', { rotation: rotation });
+    toast(t('rotationSaved'), 'success');
+    closeModalOverlay();
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
+}
+
+async function saveServerTimeoutModal() {
+  var server = {
+    readTimeoutSec: parseInt(document.getElementById('settings-modal-readTimeoutSec').value) || 300,
+    writeTimeoutSec: parseInt(document.getElementById('settings-modal-writeTimeoutSec').value) || 300,
+    idleTimeoutSec: parseInt(document.getElementById('settings-modal-idleTimeoutSec').value) || 120,
+    upstreamTimeoutSec: parseInt(document.getElementById('settings-modal-upstreamTimeoutSec').value) || 300,
+  };
+  try {
+    var resp = await apiPatch('/settings', { server: server });
+    closeModalOverlay();
+    if (resp.restart) {
+      showRestarting(resp.port);
+      pollNewPort(resp.port);
+    } else {
+      toast(t('serverTimeoutSaved'), 'success');
+    }
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
+}
+
+async function savePasswordModal() {
+  var enabled = document.getElementById('settings-modal-password-toggle').checked;
+  try {
+    await apiPatch('/settings', { security: { passwordEnabled: enabled } });
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+    return;
+  }
+  var newPw = document.getElementById('settings-modal-new-password');
+  if (newPw && newPw.value) {
+    try {
+      await apiPatch('/settings', { security: { password: newPw.value } });
+    } catch (e) {
+      toast(t('failed', [e.message]), 'error');
+      return;
+    }
+  }
+  toast(enabled ? t('passwordEnabled') : t('passwordDisabled'), 'success');
+  closeModalOverlay();
+}
+
+async function saveDebugModal() {
+  var enabled = document.getElementById('settings-modal-debug-toggle').checked;
+  try {
+    await apiPatch('/settings', { debugMode: enabled });
+    toast(enabled ? t('debugModeOn') : t('debugModeOff'), 'success');
+    closeModalOverlay();
   } catch (e) {
     toast(t('failed', [e.message]), 'error');
   }

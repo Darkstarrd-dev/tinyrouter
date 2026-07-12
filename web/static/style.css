@@ -841,7 +841,7 @@ tbody tr:last-child td{border-bottom:none}
 /* ===================== Settings Layout ===================== */
 .settings-layout{display:flex;gap:0;height:100%;align-items:stretch;overflow:hidden}
 
-/* Left panel: 25% width, pure rectangle, scrollable */
+/* Left panel: 25% width, minimal row layout */
 .settings-panel-left{
   flex:0 0 25%;
   min-width:0;
@@ -852,26 +852,36 @@ tbody tr:last-child td{border-bottom:none}
   flex-direction:column;
   background:var(--bg);
   padding:16px;
-  gap:16px
+  gap:0
 }
 .settings-panel-left::-webkit-scrollbar{display:none}
 
-/* Left panel blocks: no rounded corners, separated by border-bottom */
-.settings-block{
-  padding-bottom:16px
+/* Settings row: minimal title + button layout */
+.settings-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 0;
+  border-bottom:1px solid var(--glass-border);
+  min-height:0
 }
-.settings-block + .settings-block{
-  border-top:1px solid var(--glass-border);
-  padding-top:16px
+.settings-row:last-child{border-bottom:none}
+.settings-row-title{
+  font-weight:600;
+  font-size:var(--font-card-title);
+  color:var(--text);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  flex:1;
+  min-width:0;
+  margin-right:12px;
+  cursor:help
 }
-.settings-block:last-child{border-bottom:none;padding-bottom:0}
-
-/* Port row: label / input / save button on one line */
-.settings-port-row{display:flex;align-items:center;gap:12px}
-.settings-port-label{font-size:var(--font-card-title);font-weight:600;color:var(--text);white-space:nowrap}
-.settings-port-input{max-width:120px;height:30px;padding:4px 12px;font-size:var(--font-base);border-radius:8px}
-.settings-block-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.settings-block-title{font-weight:600;font-size:var(--font-card-title);color:var(--text)}
+.settings-row-btn{
+  flex-shrink:0;
+  white-space:nowrap
+}
 
 /* Right panel: 75% width, split into two sections */
 .settings-panel-right{
