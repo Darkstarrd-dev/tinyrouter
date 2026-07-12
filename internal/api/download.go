@@ -16,6 +16,10 @@ import (
 // POST /api/downloads
 // Body: { "url": "...", "type": "video"|"audio", "quality": "best"|"good"|..., "container": "auto"|"mp4"|..., "downloadDir": "..." }
 func (rt *Router) createDownload(w http.ResponseWriter, r *http.Request) {
+	if !rt.downloadMgr.Started() {
+		writeAPIError(w, http.StatusServiceUnavailable, "download manager is not started (check config: download.enabled)")
+		return
+	}
 	var input download.CreateTaskInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid request body")
@@ -104,6 +108,10 @@ func (rt *Router) getPlaylistInfo(w http.ResponseWriter, r *http.Request) {
 // Body: { "url": "...", "type": "video"|"audio", "quality": "...", "container": "...", "downloadDir": "..." }
 // 返回 { "ids": [...], "title": "..." }
 func (rt *Router) createPlaylistDownload(w http.ResponseWriter, r *http.Request) {
+	if !rt.downloadMgr.Started() {
+		writeAPIError(w, http.StatusServiceUnavailable, "download manager is not started (check config: download.enabled)")
+		return
+	}
 	var input download.CreateTaskInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid request body")
@@ -235,4 +243,18 @@ func (rt *Router) streamDownloadEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// getDownloadLog 返回任务的 yt-dlp 日志输出
+// GET /api/downloads/{id}/log
+func (rt *Router) getDownloadLog(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, ok := rt.downloadMgr.GetTask(id)
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(task.LogTail))
 }

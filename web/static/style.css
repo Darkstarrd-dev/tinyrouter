@@ -1502,14 +1502,6 @@ tbody tr:last-child td{border-bottom:none}
 .download-queue { margin-top: 0; }
 .download-sections { display: flex; flex-direction: column; }
 
-/* Queue header action buttons. */
-.download-queue-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 /* Status detail text under the badge (pending / cancelled). */
 .dl-task-status-detail {
   font-size: calc(var(--font-base) - 1.5px);
@@ -1572,4 +1564,73 @@ tbody tr:last-child td{border-bottom:none}
 }
 .dl-settings-form .input { width: 100%; }
 .dl-settings-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+
+/* ===================== Download Log Modal ===================== */
+.dl-log-modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal, 1000);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity .35s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+.dl-log-modal.show { opacity: 1; pointer-events: auto; }
+.dl-log-card {
+  background: var(--modal-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 24px;
+  min-width: 400px;
+  max-width: 800px;
+  width: 90%;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  transform: scale(0.95) translateY(10px);
+  transition: transform .35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dl-log-modal.show .dl-log-card { transform: scale(1) translateY(0); }
+.dl-log-modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: calc(var(--font-base) + 4px);
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+.dl-log-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color .15s;
+}
+.dl-log-modal-close:hover { color: var(--text); }
+.dl-log-content {
+  background: var(--log-bg);
+  padding: 12px;
+  border-radius: 8px;
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: var(--font-log);
+  color: var(--text-secondary);
+  margin: 0;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
 

@@ -32,14 +32,14 @@ func NewExecutor(settings RuntimeSettings, logger *console.Logger) *Executor {
 // 通过 context.Context 实现取消（SIGTERM 进程树）。
 // 通过 progressCh 推送进度更新（非阻塞）。
 //
-// 返回：输出文件路径（如果成功）、错误（如果失败）。
-func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Progress) (string, error) {
+// 返回：输出文件路径（如果成功）、完整 stdout 日志、错误（如果失败）。
+func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Progress) (string, string, error) {
 	ytDlpPath, err := e.resolveYtDlpPath()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if _, err := e.resolveFfmpegPath(); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	args := BuildDownloadArgs(task.URL, task.Type, task.Quality, task.Container,
@@ -54,15 +54,15 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", fmt.Errorf("stdout pipe: %w", err)
+		return "", "", fmt.Errorf("stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return "", fmt.Errorf("stderr pipe: %w", err)
+		return "", "", fmt.Errorf("stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("start yt-dlp: %w", err)
+		return "", "", fmt.Errorf("start yt-dlp: %w", err)
 	}
 
 	// 取消时杀整棵进程树（yt-dlp + ffmpeg 子进程）。
@@ -74,8 +74,8 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 	}
 
 	var (
-		stdoutTail = newTailBuffer(8 * 1024)
-		stderrTail = newTailBuffer(8 * 1024)
+		stdoutTail = newTailBuffer(64 * 1024) // 64KB buffer for full output log
+		stderrTail = newTailBuffer(64 * 1024)
 		processing bool
 		mu         sync.Mutex
 	)
@@ -116,12 +116,16 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() == context.Canceled {
-			return "", fmt.Errorf("cancelled")
+			mu.Lock()
+			log := stdoutTail.Read()
+			mu.Unlock()
+			return "", log, fmt.Errorf("cancelled")
 		}
 		mu.Lock()
 		stderrText := stderrTail.Read()
+		log := stdoutTail.Read()
 		mu.Unlock()
-		return "", classifyExitError(stderrText)
+		return "", log, classifyExitError(stderrText)
 	}
 
 	mu.Lock()
@@ -129,12 +133,12 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 	mu.Unlock()
 	filePath := extractSavedFilePath(tail)
 	if filePath == "" {
-		return "", fmt.Errorf("yt-dlp finished but output file path not found")
+		return "", tail, fmt.Errorf("yt-dlp finished but output file path not found")
 	}
 	if info, statErr := os.Stat(filePath); statErr != nil || info.Size() == 0 {
-		return "", fmt.Errorf("downloaded file missing or empty: %s", filePath)
+		return "", tail, fmt.Errorf("downloaded file missing or empty: %s", filePath)
 	}
-	return filePath, nil
+	return filePath, tail, nil
 }
 
 // ExecuteInfo 执行 yt-dlp -j 查询视频信息，返回解析后的 VideoInfo。

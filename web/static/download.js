@@ -59,17 +59,12 @@ function renderDownload(container) {
         <label class="flex-1">${escapeHtml(t('downloadDir'))}
           <input type="text" id="dl-dir" class="input" placeholder="Downloads" />
         </label>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="openDownloadSettingsModal()">${escapeHtml(t('downloadSettings'))}</button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="clearCompletedDownloads()">${escapeHtml(t('clearCompleted'))}</button>
       </div>
       <div id="dl-info-preview" class="dl-info-preview" style="display:none;"></div>
     </div>
     <div class="download-queue">
-      <div class="download-queue-header">
-        <h3>${escapeHtml(t('downloadQueue'))}</h3>
-        <div class="download-queue-actions">
-          <button class="btn btn-ghost btn-sm" type="button" onclick="openDownloadSettingsModal()">${escapeHtml(t('downloadSettings'))}</button>
-          <button class="btn btn-ghost btn-sm" type="button" onclick="clearCompletedDownloads()">${escapeHtml(t('clearCompleted'))}</button>
-        </div>
-      </div>
       <div id="dl-tasks" class="dl-tasks"></div>
     </div>
     </div>
@@ -330,6 +325,7 @@ async function startDownload() {
     toast(t('downloadFailed', [res.error]), 'error');
     return;
   }
+  showInfoPreview(null);
   toast(t('downloadStarted'), 'success');
   if (res && res.id) {
     downloadTasksMap[res.id] = res;
@@ -362,6 +358,7 @@ async function startPlaylistDownload(url) {
     toast(t('downloadFailed', [res.error]), 'error');
     return;
   }
+  showInfoPreview(null);
   toast(t('downloadStarted'), 'success');
   // The backend may return a single id, a list of ids, or a status object.
   var ids = res && res.ids ? res.ids : (res && res.id ? [res.id] : []);
@@ -492,11 +489,14 @@ function taskCardHtml(task) {
   var tid = escapeAttr(task.id);
   if (status === 'pending' || status === 'downloading' || status === 'processing') {
     actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="cancelDownload(\'' + tid + '\')">' + escapeHtml(t('cancelDownload')) + '</button>';
+    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="viewLog(\'' + tid + '\')">' + escapeHtml(t('viewLog')) + '</button>';
   } else if (status === 'error' || status === 'cancelled') {
     actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="retryDownload(\'' + tid + '\')">' + escapeHtml(t('retry')) + '</button>';
+    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="viewLog(\'' + tid + '\')">' + escapeHtml(t('viewLog')) + '</button>';
     actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
   } else if (status === 'completed') {
     actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="openDownloadDir(\'' + tid + '\')">' + escapeHtml(t('openDir')) + '</button>';
+    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="viewLog(\'' + tid + '\')">' + escapeHtml(t('viewLog')) + '</button>';
     actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
   }
 
@@ -588,6 +588,62 @@ function openDownloadDir(taskId) {
   } else {
     toast(path, 'info');
   }
+}
+
+// viewLog opens a modal displaying the yt-dlp log output for a task.
+function viewLog(taskId) {
+  if (document.getElementById('dl-log-overlay')) return;
+
+  var overlay = document.createElement('div');
+  overlay.className = 'dl-log-modal';
+  overlay.id = 'dl-log-overlay';
+  overlay.innerHTML = '' +
+    '<div class="dl-log-card">' +
+      '<div class="dl-log-modal-title">' +
+        escapeHtml(t('viewLog')) +
+        '<button class="dl-log-modal-close" id="dl-log-close" type="button">&times;</button>' +
+      '</div>' +
+      '<pre class="dl-log-content" id="dl-log-content">' + escapeHtml(t('loading')) + '...</pre>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+  requestAnimationFrame(function() { overlay.classList.add('show'); });
+
+  var keyHandler = null;
+  function closeModal() {
+    if (keyHandler) { document.removeEventListener('keydown', keyHandler); keyHandler = null; }
+    overlay.classList.remove('show');
+    overlay.addEventListener('transitionend', function() { overlay.remove(); }, { once: true });
+  }
+
+  document.getElementById('dl-log-close').onclick = closeModal;
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) closeModal();
+  });
+  keyHandler = function(e) {
+    if (e.key === 'Escape') closeModal();
+  };
+  document.addEventListener('keydown', keyHandler);
+
+  // Fetch the log content.
+  fetch('/api/downloads/' + encodeURIComponent(taskId) + '/log')
+    .then(function(resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.text();
+    })
+    .then(function(text) {
+      var el = document.getElementById('dl-log-content');
+      if (!el) return;
+      if (!text || !text.trim()) {
+        el.textContent = t('logEmpty');
+      } else {
+        el.textContent = text;
+      }
+    })
+    .catch(function(err) {
+      var el = document.getElementById('dl-log-content');
+      if (el) el.textContent = t('downloadFailed', [err && err.message ? err.message : String(err)]);
+    });
 }
 
 // formatBytes formats a byte count into a human-readable string.

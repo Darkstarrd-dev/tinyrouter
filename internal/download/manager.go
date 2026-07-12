@@ -37,6 +37,7 @@ type Manager struct {
 	maxConcurrent int
 	stopCh        chan struct{}
 	wg            sync.WaitGroup
+	started       bool
 }
 
 // taskControl 绑定每个任务的 context 与取消函数。
@@ -80,8 +81,19 @@ func (m *Manager) UpdateSettings(settings RuntimeSettings) {
 	}
 }
 
+// Started 返回管理器是否已启动。
+func (m *Manager) Started() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.started
+}
+
 // Start 启动 worker 池。
 func (m *Manager) Start() {
+	m.mu.Lock()
+	m.started = true
+	m.mu.Unlock()
+
 	for i := 0; i < m.maxConcurrent; i++ {
 		m.wg.Add(1)
 		go m.worker()
@@ -156,13 +168,17 @@ func (m *Manager) processTask(taskID string) {
 		}
 	}()
 
-	filePath, err := m.executor.Execute(tc.ctx, task, progressCh)
+	filePath, log, err := m.executor.Execute(tc.ctx, task, progressCh)
 	close(progressCh)
 	<-done
 
 	m.mu.Lock()
 	delete(m.active, taskID)
 	delete(m.controls, taskID)
+	// Store log output even on error so users can inspect what happened.
+	if task, ok := m.tasks[taskID]; ok {
+		task.LogTail = log
+	}
 	m.mu.Unlock()
 
 	switch {
