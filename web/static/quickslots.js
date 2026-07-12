@@ -392,25 +392,36 @@ async function renderHeaderQuickSlots() {
     quickslots.sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
     if (quickslots.length === 0) {
       container.innerHTML = '';
+      container.style.gridTemplateColumns = '';
       return;
     }
+    var cols = quickslots.length <= 3 ? quickslots.length : Math.ceil(quickslots.length / 2);
+    container.style.gridTemplateColumns = 'repeat(' + cols + ', 110px)';
     var html = '';
     for (var i = 0; i < quickslots.length; i++) {
       var qs = quickslots[i];
       var models = qs.models || [];
       var idx = qs.selectedIndex || 0;
       if (idx < 0 || idx >= models.length) idx = 0;
-      var prefix = '—';
+      var bottom = '—';
       if (models.length > 0) {
         var fullId = models[idx] || '';
         var slashIdx = fullId.indexOf('/');
-        prefix = slashIdx > 0 ? fullId.substring(0, slashIdx) : fullId;
+        var prefix = slashIdx > 0 ? fullId.substring(0, slashIdx) : fullId;
+        var modelPart = slashIdx > 0 ? fullId.substring(slashIdx + 1) : '';
+        var lastSlashIdx = modelPart.lastIndexOf('/');
+        var lastSegment = lastSlashIdx >= 0 ? modelPart.substring(lastSlashIdx + 1) : modelPart;
+        bottom = lastSegment ? prefix + '/' + lastSegment : prefix;
       }
       var nameEsc = escapeHtml(qs.name);
-      var prefixEsc = escapeHtml(prefix);
-      html += '<div class="quickslot-btn" onclick="showQuickSlotDropdown(\'' + qs.id + '\')" data-qs-id="' + qs.id + '" style="height:40px;min-width:56px;display:flex;flex-direction:column;justify-content:center;align-items:center;cursor:pointer;border:1px solid var(--glass-border);border-radius:8px;background:var(--glass-bg);padding:0 8px;box-sizing:border-box">\
-        <div class="qs-name" style="font-size:12px;font-weight:600;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">' + nameEsc + '</div>\
-        <div class="qs-prefix" style="font-size:10px;color:var(--text-muted);line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">' + prefixEsc + '</div>\
+      var bottomEsc = escapeHtml(bottom);
+      var num = i + 1;
+      html += '<div class="quickslot-btn" onclick="showQuickSlotDropdown(\'' + qs.id + '\')" data-qs-id="' + qs.id + '" title="' + nameEsc + '">\
+        <div class="qs-number">' + num + '</div>\
+        <div class="qs-content">\
+          <div class="qs-name">' + nameEsc + '</div>\
+          <div class="qs-bottom">' + bottomEsc + '</div>\
+        </div>\
       </div>';
     }
     container.innerHTML = html;
