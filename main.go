@@ -72,6 +72,7 @@ func main() {
 	selector := rotation.New(reg, &cfg.Rotation)
 	comboRes := combo.New(reg)
 	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, quotaTracker, logger)
+	proxyHandler.SetProxy(cfg.Proxy.Enabled, cfg.Proxy.Host, cfg.Proxy.Port)
 
 	// State persistence
 	statePath := cfg.Rotation.StatePath

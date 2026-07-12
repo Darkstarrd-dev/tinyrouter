@@ -35,7 +35,7 @@ func (rt *Router) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("Authorization", "Bearer "+key.Key)
 
-	resp, err := rt.client.Do(req)
+	resp, err := rt.proxyHandler.ManagementClient(*provider).Do(req)
 	if err != nil {
 		writeAPIError(w, http.StatusBadGateway, "request failed: "+err.Error())
 		return

@@ -138,7 +138,7 @@ func (rt *Router) testProviderModel(w http.ResponseWriter, r *http.Request) {
 	req2.Header.Set("Authorization", "Bearer "+key.Key)
 
 	start := time.Now()
-	resp, err := rt.client.Do(req2)
+	resp, err := rt.proxyHandler.ManagementClient(*provider).Do(req2)
 	latencyMs := time.Since(start).Milliseconds()
 	if err != nil {
 		safeReqHeaders := req2.Header.Clone()
@@ -510,7 +510,7 @@ func probeSingleKey(ctx context.Context, rt *Router, providerID string, provider
 	rt.logger.Debug("PROBE SEND %s/%s | Key=%s | url=%s | body=%s", provider.Name, model, k.Name, chatURL, util.TruncStr(string(bodyBytes), 200))
 
 	t0 := time.Now()
-	resp, err := rt.client.Do(httpReq)
+	resp, err := rt.proxyHandler.ManagementClient(*provider).Do(httpReq)
 	if err != nil {
 		rt.logger.Error("PROBE ERR %s/%s | Key=%s | %v", provider.Name, model, k.Name, err)
 		result.Ok = false

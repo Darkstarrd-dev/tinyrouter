@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/combo"
+	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/console"
 	"github.com/tinyrouter/tinyrouter/internal/registry"
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
@@ -24,6 +28,11 @@ type Handler struct {
 	logger            *console.Logger
 	client            *http.Client // 非流式：300s 超时
 	streamClient      *http.Client // 流式：无超时，由 r.Context() 控制
+	proxyClient       *http.Client // 经配置代理转发（非流式，300s 超时）
+	proxyStream       *http.Client // 经配置代理转发（流式，无超时）
+	mgmtClient        *http.Client // 管理类探测（模型导入/连通性/探测），直连，15s 超时
+	mgmtProxyClient   *http.Client // 同上，但经配置代理转发
+	proxyURL          atomic.Value // 当前代理 *url.URL，nil 表示不走代理
 	UsageUpdates      *Broadcaster
 	InflightUpdates   *Broadcaster
 	RequestUpdates    *Broadcaster
@@ -33,7 +42,7 @@ type Handler struct {
 }
 
 func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.Resolver, usageBuf usage.UsageStore, quotaTracker *usage.QuotaTracker, logger *console.Logger) *Handler {
-	return &Handler{
+	h := &Handler{
 		reg:             reg,
 		selector:        selector,
 		comboRes:        comboRes,
@@ -52,6 +61,47 @@ func New(reg *registry.Registry, selector rotation.KeySelector, comboRes *combo.
 		// 不设 Timeout 以避免 300s 后强制中断长 SSE 流（P3.13）。
 		streamClient: &http.Client{},
 	}
+	h.proxyURL.Store((*url.URL)(nil))
+	proxyTransport := &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) {
+			u, _ := h.proxyURL.Load().(*url.URL)
+			return u, nil
+		},
+	}
+	h.proxyClient = &http.Client{Transport: proxyTransport, Timeout: 300 * time.Second}
+	h.proxyStream = &http.Client{Transport: proxyTransport}
+	h.mgmtClient = &http.Client{Timeout: 15 * time.Second}
+	h.mgmtProxyClient = &http.Client{Transport: proxyTransport, Timeout: 15 * time.Second}
+	return h
+}
+
+// ManagementClient returns the HTTP client for management probes (model import,
+// connectivity check, model test) for provider p. It routes through the configured
+// upstream proxy when p.UseProxy is enabled.
+func (h *Handler) ManagementClient(p config.Provider) *http.Client {
+	if p.UseProxy {
+		if pu, _ := h.proxyURL.Load().(*url.URL); pu != nil {
+			return h.mgmtProxyClient
+		}
+	}
+	return h.mgmtClient
+}
+
+// SetProxy updates the upstream proxy URL used by providers with UseProxy enabled.
+// Call with enabled=false or empty host/port to disable proxying.
+func (h *Handler) SetProxy(enabled bool, host, port string) {
+	host = strings.TrimSpace(host)
+	port = strings.TrimSpace(port)
+	if !enabled || host == "" || port == "" {
+		h.proxyURL.Store((*url.URL)(nil))
+		return
+	}
+	u, err := url.Parse(fmt.Sprintf("http://%s:%s", host, port))
+	if err != nil {
+		h.proxyURL.Store((*url.URL)(nil))
+		return
+	}
+	h.proxyURL.Store(u)
 }
 
 func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {

@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/tinyrouter/tinyrouter/internal/combo"
@@ -837,4 +839,214 @@ func TestRecordUsage_DebugModeCapture(t *testing.T) {
 	}
 	headers := http.Header{"X-Custom": {"val"}}
 	h.recordUsage("test-id", "test", "gpt-4", sel, "success", 100, 50, 10, 20, "", []byte(`{"req":true}`), []byte(`{"resp":true}`), headers, 200, nil, "")
+}
+
+func TestManagementClient(t *testing.T) {
+	h := newTestHandler(t)
+
+	// UseProxy=false always returns the direct client.
+	if got := h.ManagementClient(config.Provider{UseProxy: false}); got != h.mgmtClient {
+		t.Fatalf("expected mgmtClient for UseProxy=false, got %p want %p", got, h.mgmtClient)
+	}
+
+	// UseProxy=true but SetProxy not called (proxyURL nil) → still the direct client.
+	if got := h.ManagementClient(config.Provider{UseProxy: true}); got != h.mgmtClient {
+		t.Fatalf("expected mgmtClient when proxy not configured, got %p want %p", got, h.mgmtClient)
+	}
+
+	// UseProxy=true with proxy configured → proxy client.
+	h.SetProxy(true, "127.0.0.1", "2080")
+	if got := h.ManagementClient(config.Provider{UseProxy: true}); got != h.mgmtProxyClient {
+		t.Fatalf("expected mgmtProxyClient for UseProxy=true with proxy set, got %p want %p", got, h.mgmtProxyClient)
+	}
+}
+
+func TestManagementClient_RoutesViaProxy(t *testing.T) {
+	// Mirrors TestForwardUpstream_UseProxy but asserts the ManagementClient
+	// selection actually forwards a management probe through the proxy.
+	var upstreamHits int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&upstreamHits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	var proxyHits int32
+	parsedUpstream, _ := url.Parse(upstream.URL)
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&proxyHits, 1)
+		r.URL.Scheme = parsedUpstream.Scheme
+		r.URL.Host = parsedUpstream.Host
+		r.RequestURI = ""
+		resp, err := http.DefaultClient.Do(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	}))
+	defer proxySrv.Close()
+
+	proxyURL, _ := url.Parse(proxySrv.URL)
+	proxyHost := proxyURL.Hostname()
+	proxyPort := proxyURL.Port()
+
+	h := newTestHandler(t)
+	h.SetProxy(true, proxyHost, proxyPort)
+
+	req, _ := http.NewRequest("GET", upstream.URL+"/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer sk-test")
+	resp, err := h.ManagementClient(config.Provider{UseProxy: true}).Do(req)
+	if err != nil {
+		t.Fatalf("ManagementClient request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if atomic.LoadInt32(&proxyHits) != 1 {
+		t.Fatalf("expected 1 proxy hit for ManagementClient UseProxy=true, got %d", proxyHits)
+	}
+	if atomic.LoadInt32(&upstreamHits) != 1 {
+		t.Fatalf("expected 1 upstream hit, got %d", upstreamHits)
+	}
+}
+
+func TestSetProxy(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Disabled and empty host/port must leave proxyURL nil (no proxying).
+	h.SetProxy(false, "127.0.0.1", "2080")
+	if u, _ := h.proxyURL.Load().(*url.URL); u != nil {
+		t.Fatalf("expected nil proxyURL when disabled, got %v", u)
+	}
+	h.SetProxy(true, "", "2080")
+	if u, _ := h.proxyURL.Load().(*url.URL); u != nil {
+		t.Fatalf("expected nil proxyURL when host empty, got %v", u)
+	}
+	h.SetProxy(true, "127.0.0.1", "")
+	if u, _ := h.proxyURL.Load().(*url.URL); u != nil {
+		t.Fatalf("expected nil proxyURL when port empty, got %v", u)
+	}
+
+	// Valid proxy configuration stores a *url.URL.
+	h.SetProxy(true, "127.0.0.1", "2080")
+	u, ok := h.proxyURL.Load().(*url.URL)
+	if !ok || u == nil {
+		t.Fatalf("expected non-nil *url.URL proxyURL, got %v", h.proxyURL.Load())
+	}
+	if u.Host != "127.0.0.1:2080" {
+		t.Fatalf("expected proxy host 127.0.0.1:2080, got %s", u.Host)
+	}
+}
+
+func TestForwardUpstream_UseProxy(t *testing.T) {
+	// upstream: the real target the provider points at.
+	var upstreamHits int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&upstreamHits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"ok","choices":[{"message":{"content":"done"}}]}`))
+	}))
+	defer upstream.Close()
+
+	// proxySrv: a forward proxy that relays to upstream and records the hit.
+	var proxyHits int32
+	parsedUpstream, _ := url.Parse(upstream.URL)
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&proxyHits, 1)
+		// Rewrite the request target to point at the upstream and forward it.
+		r.URL.Scheme = parsedUpstream.Scheme
+		r.URL.Host = parsedUpstream.Host
+		r.RequestURI = ""
+		resp, err := http.DefaultClient.Do(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		for k, vs := range resp.Header {
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	}))
+	defer proxySrv.Close()
+
+	proxyURL, _ := url.Parse(proxySrv.URL)
+	proxyHost := proxyURL.Hostname()
+	proxyPort := proxyURL.Port()
+
+	// Case 1: UseProxy=false → upstream hit directly, proxy bypassed.
+	h := newTestHandler(t)
+	sel := &rotation.SelectedKey{
+		Provider: config.Provider{
+			ID: "test", Name: "Test Provider", Prefix: "test",
+			BaseURL: upstream.URL, IsActive: true, UseProxy: false,
+		},
+		Key:     config.Key{ID: "key1", Key: "sk-test-key", Name: "Key Main", IsActive: true, Priority: 1},
+		KeyName: "Key Main",
+	}
+	resp, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions")
+	if err != nil {
+		t.Fatalf("forwardUpstream failed: %v", err)
+	}
+	resp.Body.Close()
+	if atomic.LoadInt32(&upstreamHits) != 1 {
+		t.Fatalf("expected 1 upstream hit, got %d", upstreamHits)
+	}
+	if atomic.LoadInt32(&proxyHits) != 0 {
+		t.Fatalf("expected 0 proxy hits for UseProxy=false, got %d", proxyHits)
+	}
+
+	// Case 2: UseProxy=true (with SetProxy) → request routed via proxySrv,
+	// which forwards to upstream.
+	h.SetProxy(true, proxyHost, proxyPort)
+	sel.Provider.UseProxy = true
+	resp2, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions")
+	if err != nil {
+		t.Fatalf("forwardUpstream (proxy) failed: %v", err)
+	}
+	resp2.Body.Close()
+	if atomic.LoadInt32(&upstreamHits) != 2 {
+		t.Fatalf("expected 2 upstream hits after proxy, got %d", upstreamHits)
+	}
+	if atomic.LoadInt32(&proxyHits) != 1 {
+		t.Fatalf("expected 1 proxy hit for UseProxy=true, got %d", proxyHits)
+	}
+}
+
+func TestForwardUpstream_UseProxyDisabledStillDirect(t *testing.T) {
+	// Even with UseProxy=true, if SetProxy was never called (proxyURL nil),
+	// the request must still go directly to upstream.
+	var upstreamHits int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&upstreamHits, 1)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	h := newTestHandler(t)
+	sel := &rotation.SelectedKey{
+		Provider: config.Provider{
+			ID: "test", Name: "Test Provider", Prefix: "test",
+			BaseURL: upstream.URL, IsActive: true, UseProxy: true,
+		},
+		Key:     config.Key{ID: "key1", Key: "sk-test-key", Name: "Key Main", IsActive: true, Priority: 1},
+		KeyName: "Key Main",
+	}
+	resp, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions")
+	if err != nil {
+		t.Fatalf("forwardUpstream failed: %v", err)
+	}
+	resp.Body.Close()
+	if atomic.LoadInt32(&upstreamHits) != 1 {
+		t.Fatalf("expected upstream hit when proxy disabled, got %d", upstreamHits)
+	}
 }

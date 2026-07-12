@@ -93,6 +93,9 @@ type Provider struct {
 	// "choices":[] while preserving the usage field. Off by default.
 	NormalizeStreamChunks bool         `yaml:"normalizeStreamChunks,omitempty" json:"normalizeStreamChunks,omitempty"`
 	NIMConfig             *NIMSettings `yaml:"nim,omitempty" json:"nim,omitempty"`
+	// UseProxy routes this provider's upstream requests through the global
+	// upstream proxy (Config.Proxy) when enabled.
+	UseProxy bool `yaml:"useProxy,omitempty" json:"useProxy,omitempty"`
 }
 
 // IsNIM reports whether this provider should use the NIM-specific key rotation
@@ -150,6 +153,14 @@ type MonitorConfig struct {
 	MaxLineLength   int      `yaml:"maxLineLength,omitempty" json:"maxLineLength,omitempty"`
 }
 
+// ProxyConfig is the global upstream HTTP proxy used only by providers that
+// opt in via Provider.UseProxy.
+type ProxyConfig struct {
+	Enabled bool   `yaml:"enabled" json:"enabled"`
+	Host    string `yaml:"host" json:"host"`
+	Port    string `yaml:"port" json:"port"`
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Port               int            `yaml:"port" json:"port"`
@@ -162,6 +173,7 @@ type Config struct {
 	QuickSlots         []QuickSlot    `yaml:"quickSlots" json:"quickSlots"`
 	Security           SecurityConfig `yaml:"security" json:"security"`
 	Monitor            MonitorConfig  `yaml:"monitor" json:"monitor"`
+	Proxy              ProxyConfig    `yaml:"proxy" json:"proxy"`
 }
 
 // DefaultConfig returns a sane default configuration.

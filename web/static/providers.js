@@ -92,6 +92,14 @@ function showAddProvider() {
     <div class="form-hint">' + t('baseUrlHint') + '</div>\
     <div class="form-group"><label for="p-apikey">' + t('apiKeyLabel') + '</label><input type="password" id="p-apikey" placeholder="sk-..."></div>\
     <div class="form-group"><label for="p-modelid">' + t('modelIdLabel') + '</label><input id="p-modelid" placeholder="deepseek-chat"></div>\
+    <div class="form-group">\
+      <label>' + t('useProxy') + '</label>\
+      <label class="toggle-switch" for="p-useproxy">\
+        <input type="checkbox" id="p-useproxy">\
+        <span class="toggle-slider"></span>\
+      </label>\
+      <div class="form-hint">' + t('useProxyDesc') + '</div>\
+    </div>\
     <div id="p-check-result" class="mt-12"></div>\
     <div class="modal-footer">\
       <button type="button" class="btn" onclick="closeModalOverlay()">' + t('cancel') + '</button>\
@@ -113,7 +121,7 @@ async function checkProvider() {
   }
   resultEl.innerHTML = '<span class="badge badge-testing">' + t('checking') + '</span>';
   try {
-    const result = await apiPost('/providers/validate', { baseUrl: baseUrl, apiKey: apiKey, modelId: modelId || undefined });
+    const result = await apiPost('/providers/validate', { baseUrl: baseUrl, apiKey: apiKey, modelId: modelId || undefined, useProxy: (document.getElementById('p-useproxy') ? document.getElementById('p-useproxy').checked : false) });
     if (result.valid) {
       const method = result.method ? ' (via ' + result.method + ')' : '';
       resultEl.innerHTML = '<span class="badge badge-valid">' + t('validProvider') + method + '</span>';
@@ -135,6 +143,7 @@ async function addProvider() {
     keys: [],
     models: []
   };
+  p.useProxy = document.getElementById('p-useproxy').checked;
   if (!p.name || !p.prefix || !p.baseUrl) {
     toast(t('requiredFields'), 'error');
     return;
@@ -1093,6 +1102,14 @@ function showEditProvider(id) {
       <div class="form-group"><label for="ep-prefix">' + t('prefixLabel') + '</label><input id="ep-prefix" value="' + escapeHtml(p.prefix) + '"></div>\
       <div class="form-group"><label for="ep-url">' + t('baseUrlLabel') + '</label><input id="ep-url" placeholder="https://api.deepseek.com  或  https://host/v1beta/openai" value="' + escapeHtml(p.baseUrl) + '"></div>\
       <div class="form-hint">' + t('baseUrlHint') + '</div>\
+      <div class="form-group mt-12">\
+        <label>' + t('useProxy') + '</label>\
+        <label class="toggle-switch" for="ep-useproxy">\
+          <input type="checkbox" id="ep-useproxy" ' + (p.useProxy ? 'checked' : '') + '>\
+          <span class="toggle-slider"></span>\
+        </label>\
+        <div class="form-hint">' + t('useProxyDesc') + '</div>\
+      </div>\
       <div class="flex" style="gap:8px">\
         <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditProvider(\'' + id + '\'))">' + t('save') + '</button>\
         <button type="button" class="btn" onclick="cancelEditProvider()">' + t('cancel') + '</button>\
@@ -1106,6 +1123,7 @@ async function saveEditProvider(id) {
   p.name = document.getElementById('ep-name').value.trim();
   p.prefix = document.getElementById('ep-prefix').value.trim();
   p.baseUrl = document.getElementById('ep-url').value.trim();
+  p.useProxy = document.getElementById('ep-useproxy').checked;
   if (!p.name || !p.prefix || !p.baseUrl) {
     toast(t('requiredFields'), 'error');
     return;

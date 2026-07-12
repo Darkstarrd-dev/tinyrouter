@@ -35,7 +35,6 @@ type Router struct {
 	proxyHandler  *proxy.Handler
 	selector      *rotation.Selector
 	comboRes      *combo.Resolver
-	client        *http.Client
 	testClient    *http.Client
 	shutdown      context.CancelFunc
 	restartFn     func(string)
@@ -59,9 +58,6 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 		shutdown:     shutdown,
 		selector:     selector,
 		comboRes:     comboRes,
-		client: &http.Client{
-			Timeout: 15 * time.Second,
-		},
 		testClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},

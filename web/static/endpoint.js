@@ -20,6 +20,25 @@ async function renderEndpoint(c) {
           <p class="muted mt-12">' + t('noKeyRequired') + '</p>\
         </div>\
         <div class="settings-block">\
+          <div class="settings-block-header">\
+            <span class="settings-block-title">' + t('proxySettings') + '</span>\
+            <label class="toggle-switch" for="proxy-toggle">\
+              <input type="checkbox" id="proxy-toggle" ' + (settings.proxy && settings.proxy.enabled ? 'checked' : '') + '>\
+              <span class="toggle-slider"></span>\
+            </label>\
+          </div>\
+          <p class="muted mt-12">' + t('proxyDesc') + '</p>\
+          <div class="settings-form-grid mt-12">\
+            <div class="form-group"><label for="proxy-host">' + t('proxyHost') + '</label>\
+              <input type="text" id="proxy-host" value="' + (settings.proxy ? escapeHtml(settings.proxy.host) : '') + '" placeholder="127.0.0.1">\
+            </div>\
+            <div class="form-group"><label for="proxy-port">' + t('proxyPort') + '</label>\
+              <input type="text" id="proxy-port" value="' + (settings.proxy ? escapeHtml(settings.proxy.port) : '') + '" placeholder="2080">\
+            </div>\
+          </div>\
+          <button type="button" class="btn btn-primary mt-12" onclick="withLoading(this, () => saveProxy())">' + t('save') + '</button>\
+        </div>\
+        <div class="settings-block">\
           <div class="settings-block-title">' + t('rotationSettings') + '</div>\
           <div class="settings-form-grid mt-12">\
             <div class="form-group"><label for="strategy">' + t('strategy') + '</label>\
@@ -222,6 +241,18 @@ async function saveRotation() {
   try {
     await apiPatch('/settings', { rotation });
     toast(t('rotationSaved'), 'success');
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+  }
+}
+
+async function saveProxy() {
+  const enabled = document.getElementById('proxy-toggle').checked;
+  const host = document.getElementById('proxy-host').value;
+  const port = document.getElementById('proxy-port').value;
+  try {
+    await apiPatch('/settings', { proxy: { enabled, host, port } });
+    toast(t('proxySaved'), 'success');
   } catch (e) {
     toast(t('failed', [e.message]), 'error');
   }

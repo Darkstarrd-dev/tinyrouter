@@ -64,9 +64,9 @@ func isHostRoot(base string) bool {
 }
 
 func (h *Handler) forwardUpstream(ctx context.Context, sel *rotation.SelectedKey, body []byte, headers http.Header, isStream bool, path string) (*http.Response, error) {
-	url := BuildUpstreamURL(sel.Provider.BaseURL, path)
+	upstreamURL := BuildUpstreamURL(sel.Provider.BaseURL, path)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, strings.NewReader(string(body)))
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +81,21 @@ func (h *Handler) forwardUpstream(ctx context.Context, sel *rotation.SelectedKey
 		req.Header.Set("Accept", "text/event-stream")
 	}
 
+	var httpClient *http.Client
+	if sel.Provider.UseProxy {
+		if pu, _ := h.proxyURL.Load().(*url.URL); pu != nil {
+			httpClient = h.proxyClient
+		} else {
+			httpClient = h.client
+		}
+	} else {
+		httpClient = h.client
+	}
 	if isStream {
+		if httpClient == h.proxyClient {
+			return h.proxyStream.Do(req)
+		}
 		return h.streamClient.Do(req)
 	}
-	return h.client.Do(req)
+	return httpClient.Do(req)
 }

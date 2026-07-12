@@ -26,6 +26,7 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 		"rotation":           cfg.Rotation,
 		"enablePlayground":   cfg.EnablePlayground,
 		"debugMode":          rt.DebugMode(),
+		"proxy":              cfg.Proxy,
 		"security": map[string]any{
 			"passwordEnabled": cfg.Security.PasswordEnabled,
 			"hasPassword":     cfg.Security.PasswordEncrypted != "",
@@ -41,6 +42,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		Rotation           *config.RotationConfig `json:"rotation"`
 		EnablePlayground   *bool                  `json:"enablePlayground"`
 		DebugMode          *bool                  `json:"debugMode"`
+		Proxy              *config.ProxyConfig    `json:"proxy"`
 		Security           *struct {
 			PasswordEnabled *bool  `json:"passwordEnabled"`
 			Password        string `json:"password"`
@@ -106,6 +108,10 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 			cfg.Security.PasswordEncrypted = encrypted
 			cfg.Security.PasswordEnabled = true
 		}
+	}
+	if updates.Proxy != nil {
+		cfg.Proxy = *updates.Proxy
+		rt.proxyHandler.SetProxy(cfg.Proxy.Enabled, cfg.Proxy.Host, cfg.Proxy.Port)
 	}
 
 	if err := config.Save(rt.configPath, &cfg); err != nil {

@@ -18,9 +18,10 @@ import (
 // Response: {valid, error?, method?}
 func (rt *Router) validateProvider(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		BaseURL string `json:"baseUrl"`
-		APIKey  string `json:"apiKey"`
-		ModelID string `json:"modelId"`
+		BaseURL  string `json:"baseUrl"`
+		APIKey   string `json:"apiKey"`
+		ModelID  string `json:"modelId"`
+		UseProxy bool   `json:"useProxy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
@@ -31,7 +32,7 @@ func (rt *Router) validateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valid, method, err := rt.probeUpstream(r.Context(), req.BaseURL, req.APIKey, req.ModelID)
+	valid, method, err := rt.probeUpstream(r.Context(), req.BaseURL, req.APIKey, req.ModelID, req.UseProxy)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"valid":  valid,
@@ -42,7 +43,7 @@ func (rt *Router) validateProvider(w http.ResponseWriter, r *http.Request) {
 
 // probeUpstream tries GET /v1/models first, then falls back to POST /v1/chat/completions if modelId is provided.
 // Returns (valid, method, errorMessage).
-func (rt *Router) probeUpstream(ctx context.Context, baseURL, apiKey, modelID string) (bool, string, string) {
+func (rt *Router) probeUpstream(ctx context.Context, baseURL, apiKey, modelID string, useProxy bool) (bool, string, string) {
 	modelsURL := proxy.BuildUpstreamURL(baseURL, "/v1/models")
 
 	req, err := http.NewRequestWithContext(ctx, "GET", modelsURL, nil)
@@ -51,7 +52,7 @@ func (rt *Router) probeUpstream(ctx context.Context, baseURL, apiKey, modelID st
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := rt.client.Do(req)
+	resp, err := rt.proxyHandler.ManagementClient(config.Provider{UseProxy: useProxy}).Do(req)
 	if err != nil {
 		return false, "", "request failed: " + err.Error()
 	}
@@ -75,7 +76,7 @@ func (rt *Router) probeUpstream(ctx context.Context, baseURL, apiKey, modelID st
 		chatReq.Header.Set("Content-Type", "application/json")
 		chatReq.Header.Set("Authorization", "Bearer "+apiKey)
 
-		chatResp, err := rt.client.Do(chatReq)
+		chatResp, err := rt.proxyHandler.ManagementClient(config.Provider{UseProxy: useProxy}).Do(chatReq)
 		if err != nil {
 			return false, "", "chat request failed: " + err.Error()
 		}
@@ -131,7 +132,7 @@ func (rt *Router) testProviderKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valid, _, errMsg := rt.probeUpstream(r.Context(), provider.BaseURL, key.Key, "")
+	valid, _, errMsg := rt.probeUpstream(r.Context(), provider.BaseURL, key.Key, "", provider.UseProxy)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"valid": valid,
