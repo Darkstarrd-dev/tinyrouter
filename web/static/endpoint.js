@@ -4,6 +4,7 @@ async function renderEndpoint(c) {
   showSkeleton(c, 2);
   const settings = await apiGet('/settings');
   window.__settings = settings;
+  const s = settings;
   const [provData, comboData, qsData] = await Promise.all([apiGet('/providers'), apiGet('/combos'), apiGet('/quickslots')]);
   providersCache = provData.providers || [];
   const combos = comboData.combos || [];
