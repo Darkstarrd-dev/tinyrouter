@@ -13,10 +13,10 @@ function renderTerminalView(container) {
     wrapper.appendChild(terminalDetachedContainer);
     container.innerHTML = '';
     container.appendChild(wrapper);
-    requestAnimationFrame(function() {
+    setTimeout(function() {
       try { terminalFitAddon.fit(); } catch(e) {}
       terminalSession.focus();
-    });
+    }, 100);
     return;
   }
   container.innerHTML = '<div id="terminal-container" class="xterm-container"><div id="terminal-xterm"></div></div>';
@@ -39,9 +39,9 @@ function initTerminal() {
   terminalSession.loadAddon(terminalFitAddon);
 
   terminalSession.open(container);
-  requestAnimationFrame(function() {
+  setTimeout(function() {
     try { terminalFitAddon.fit(); } catch(e) {}
-  });
+  }, 100);
 
   // Enable copy-to-clipboard for selected text via Ctrl+C / Ctrl+Shift+C.
   // xterm.js captures keyboard events, so the browser's native Ctrl+C
@@ -78,7 +78,11 @@ function initTerminal() {
   terminalWebSocket = new WebSocket(wsUrl);
 
   terminalWebSocket.onopen = function() {
-    sendTerminalResize();
+    setTimeout(function() {
+      try { terminalFitAddon.fit(); } catch(e) {}
+      sendTerminalResize();
+      terminalSession.focus();
+    }, 50);
   };
 
   terminalWebSocket.onmessage = function(event) {

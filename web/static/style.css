@@ -301,10 +301,10 @@ tbody tr:last-child td{border-bottom:none}
 .monitor-line{padding:1px 0}
 
 /* Terminal */
-.xterm-container{display:flex;flex:1;min-height:0;overflow:hidden;background:var(--log-bg);border:1px solid var(--glass-border)}
-.xterm-container .xterm{height:100%;padding:8px}
-#terminal-xterm{flex:1;min-height:0;display:flex}
-#terminal-xterm .xterm{flex:1}
+.xterm-container{flex:1;min-height:0;overflow:hidden;background:var(--log-bg);border:1px solid var(--glass-border)}
+#terminal-xterm{height:100%;min-height:0;position:relative}
+#terminal-xterm .xterm{height:100%;padding:8px}
+#terminal-xterm .xterm .xterm-scrollable-element{height:100%}
 #terminal-cmd-slot{display:inline-flex;align-items:center;gap:4px;margin-left:4px}
 
 /* ===================== Usage Page ===================== */

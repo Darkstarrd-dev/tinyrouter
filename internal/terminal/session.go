@@ -56,6 +56,15 @@ func NewSession(shellPath string, conn *websocket.Conn, onClose func()) (*Sessio
 		"TEMP=" + os.Getenv("TEMP"),
 		"TMP=" + os.Getenv("TMP"),
 	}
+	// NOTE: CREATE_NO_WINDOW is NOT set here even though it would hide the
+	// console window. go-pty uses ConPTY (CreatePseudoConsole) to create a
+	// pseudo console for the shell. Setting CREATE_NO_WINDOW conflicts with
+	// the ConPTY attribute list in CreateProcess, causing the shell to fail
+	// to start (the WS connects but immediately aborts with no PTY output).
+	// ConPTY itself provides the console — no visible window should appear
+	// because the process is attached to the pseudo console, not a real one.
+	// If window flashing is observed for child processes (e.g. nvidia-smi),
+	// that is a ConPTY inheritance limitation, not fixable from here.
 
 	if err := cmd.Start(); err != nil {
 		cancel()
