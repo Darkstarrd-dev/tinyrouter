@@ -24,9 +24,7 @@ var DL_STATUS_KEYS = {
 // renderDownload renders the download page into the given container.
 function renderDownload(container) {
   container.innerHTML = `
-    <div class="page-header">
-      <h2>${escapeHtml(t('download'))}</h2>
-    </div>
+    <div class="download-sections">
     <div class="card download-input-card">
       <div class="download-input-row">
         <input type="text" id="dl-url" class="input flex-1" placeholder="${escapeHtml(t('downloadUrlPlaceholder'))}" />
@@ -64,29 +62,16 @@ function renderDownload(container) {
       </div>
       <div id="dl-info-preview" class="dl-info-preview" style="display:none;"></div>
     </div>
-    <div class="card download-settings-card">
-      <div class="download-options-row">
-        <label class="flex-1">${escapeHtml(t('ytDlpPath'))}
-          <input type="text" id="dl-ytdlp-path" class="input" placeholder="yt-dlp" />
-        </label>
-        <label class="flex-1">${escapeHtml(t('ffmpegPath'))}
-          <input type="text" id="dl-ffmpeg-path" class="input" placeholder="ffmpeg" />
-        </label>
-        <label class="flex-1">${escapeHtml(t('defaultDir'))}
-          <input type="text" id="dl-default-dir" class="input" placeholder="Downloads" />
-        </label>
-        <label class="flex-1">${escapeHtml(t('downloadProxy'))}
-          <input type="text" id="dl-proxy" class="input" placeholder="http://host:port" />
-        </label>
-        <button class="btn btn-primary" id="dl-save-settings-btn" type="button" onclick="saveDownloadSettings()">${escapeHtml(t('save'))}</button>
-      </div>
-    </div>
     <div class="download-queue">
       <div class="download-queue-header">
         <h3>${escapeHtml(t('downloadQueue'))}</h3>
-        <button class="btn btn-ghost btn-sm" type="button" onclick="clearCompletedDownloads()">${escapeHtml(t('clearCompleted'))}</button>
+        <div class="download-queue-actions">
+          <button class="btn btn-ghost btn-sm" type="button" onclick="openDownloadSettingsModal()">${escapeHtml(t('downloadSettings'))}</button>
+          <button class="btn btn-ghost btn-sm" type="button" onclick="clearCompletedDownloads()">${escapeHtml(t('clearCompleted'))}</button>
+        </div>
       </div>
       <div id="dl-tasks" class="dl-tasks"></div>
+    </div>
     </div>
   `;
 
@@ -241,43 +226,89 @@ function showInfoPreview(html) {
 }
 
 // loadDownloadSettings fetches the download settings (yt-dlp / ffmpeg paths)
-// from GET /api/settings and populates the inputs.
+// and persists the default download directory used by resolveDownloadDir.
 async function loadDownloadSettings() {
   var res = await apiGet('/settings');
   var dl = (res && res.download) || {};
-  var ytInput = document.getElementById('dl-ytdlp-path');
-  var ffInput = document.getElementById('dl-ffmpeg-path');
-  var dirInput = document.getElementById('dl-default-dir');
-  var proxyInput = document.getElementById('dl-proxy');
   downloadDefaultDir = dl.defaultDir || '';
-  if (ytInput) ytInput.value = dl.ytDlpPath || '';
-  if (ffInput) ffInput.value = dl.ffmpegPath || '';
-  if (dirInput) dirInput.value = dl.defaultDir || '';
-  if (proxyInput) proxyInput.value = dl.proxy || '';
 }
 
-// saveDownloadSettings persists the yt-dlp / ffmpeg paths and the default
-// download directory via PATCH /api/settings.
-async function saveDownloadSettings() {
-  var ytInput = document.getElementById('dl-ytdlp-path');
-  var ffInput = document.getElementById('dl-ffmpeg-path');
-  var dirInput = document.getElementById('dl-default-dir');
-  var proxyInput = document.getElementById('dl-proxy');
-  if (!ytInput || !ffInput || !dirInput || !proxyInput) return;
-  var body = {
-    download: {
-      ytDlpPath: ytInput.value || '',
-      ffmpegPath: ffInput.value || '',
-      defaultDir: dirInput.value || '',
-      proxy: proxyInput.value || ''
-    }
-  };
+// openDownloadSettingsModal shows a modal with the four download tool settings
+// (yt-dlp / ffmpeg paths, default dir, proxy). Values are pre-populated from
+// GET /settings and persisted via PATCH /settings on Save. The modal can be
+// closed via the Cancel button, clicking the overlay, or pressing Escape.
+async function openDownloadSettingsModal() {
+  if (document.getElementById('dl-settings-overlay')) return;
+
+  var dl = {};
   try {
-    await apiPatch('/settings', body);
-    toast(t('downloadSettingsSaved'), 'success');
+    var res = await apiGet('/settings');
+    dl = (res && res.download) || {};
   } catch (e) {
-    toast(t('downloadSettingsSaveFailed', [e.message || String(e)]), 'error');
+    dl = {};
   }
+
+  var overlay = document.createElement('div');
+  overlay.className = 'dl-settings-modal';
+  overlay.id = 'dl-settings-overlay';
+  overlay.innerHTML = '' +
+    '<div class="dl-settings-card">' +
+      '<div class="dl-settings-modal-title">' + escapeHtml(t('downloadSettings')) + '</div>' +
+      '<form class="dl-settings-form" id="dl-settings-form" onsubmit="return false;">' +
+        '<label>' + escapeHtml(t('ytDlpPath')) +
+          '<input type="text" class="input" id="modal-dl-ytdlp-path" value="' + escapeAttr(dl.ytDlpPath || '') + '" placeholder="yt-dlp" />' +
+        '</label>' +
+        '<label>' + escapeHtml(t('ffmpegPath')) +
+          '<input type="text" class="input" id="modal-dl-ffmpeg-path" value="' + escapeAttr(dl.ffmpegPath || '') + '" placeholder="ffmpeg" />' +
+        '</label>' +
+        '<label>' + escapeHtml(t('defaultDir')) +
+          '<input type="text" class="input" id="modal-dl-default-dir" value="' + escapeAttr(dl.defaultDir || '') + '" placeholder="Downloads" />' +
+        '</label>' +
+        '<label>' + escapeHtml(t('downloadProxy')) +
+          '<input type="text" class="input" id="modal-dl-proxy" value="' + escapeAttr(dl.proxy || '') + '" placeholder="http://host:port" />' +
+        '</label>' +
+      '</form>' +
+      '<div class="dl-settings-modal-actions">' +
+        '<button class="btn btn-ghost" type="button" id="dl-settings-cancel">' + escapeHtml(t('cancel')) + '</button>' +
+        '<button class="btn btn-primary" type="button" id="dl-settings-save">' + escapeHtml(t('save')) + '</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+  requestAnimationFrame(function() { overlay.classList.add('show'); });
+
+  var keyHandler = null;
+  function closeModal() {
+    if (keyHandler) { document.removeEventListener('keydown', keyHandler); keyHandler = null; }
+    overlay.classList.remove('show');
+    overlay.addEventListener('transitionend', function() { overlay.remove(); }, { once: true });
+  }
+
+  function save() {
+    var ytDlpPath = (document.getElementById('modal-dl-ytdlp-path') || {}).value || '';
+    var ffmpegPath = (document.getElementById('modal-dl-ffmpeg-path') || {}).value || '';
+    var defaultDir = (document.getElementById('modal-dl-default-dir') || {}).value || '';
+    var proxy = (document.getElementById('modal-dl-proxy') || {}).value || '';
+    apiPatch('/settings', { download: { ytDlpPath: ytDlpPath, ffmpegPath: ffmpegPath, defaultDir: defaultDir, proxy: proxy } })
+      .then(function() {
+        downloadDefaultDir = defaultDir;
+        toast(t('downloadSettingsSaved'), 'success');
+        closeModal();
+      })
+      .catch(function(e) {
+        toast(t('downloadSettingsSaveFailed', [e && e.message ? e.message : String(e)]), 'error');
+      });
+  }
+
+  document.getElementById('dl-settings-cancel').onclick = closeModal;
+  document.getElementById('dl-settings-save').onclick = save;
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) closeModal();
+  });
+  keyHandler = function(e) {
+    if (e.key === 'Escape') closeModal();
+  };
+  document.addEventListener('keydown', keyHandler);
 }
 
 // startDownload creates a single download task from the current options.
@@ -343,11 +374,9 @@ async function startPlaylistDownload(url) {
 }
 
 // resolveDownloadDir returns the per-task dir if set, otherwise falls back to
-// the persisted default dir input, then to the server default dir.
+// the persisted server default dir.
 function resolveDownloadDir() {
   var dir = (document.getElementById('dl-dir') || {}).value || '';
-  if (dir) return dir;
-  dir = (document.getElementById('dl-default-dir') || {}).value || '';
   if (dir) return dir;
   return downloadDefaultDir || '';
 }
@@ -444,7 +473,13 @@ function taskCardHtml(task) {
   var thumb = task.thumbnail ? '<img src="' + escapeHtml(task.thumbnail) + '" alt="" onerror="this.style.display=\'none\'">' : '';
   var title = task.title || task.url || task.id;
 
-  var active = (status === 'pending' || status === 'downloading' || status === 'processing');
+  var statusDetail = '';
+  if (status === 'pending') {
+    statusDetail = t('statusPendingDetail');
+  } else if (status === 'cancelled') {
+    statusDetail = t('statusCancelledDetail');
+  }
+
   var progressText = '';
   if (status === 'downloading' || status === 'processing') {
     var parts = [pctText];
@@ -454,13 +489,15 @@ function taskCardHtml(task) {
   }
 
   var actions = '';
-  if (active) {
-    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="cancelDownload(\'' + task.id + '\')">' + escapeHtml(t('cancelDownload')) + '</button>';
-  } else {
-    if (status === 'completed') {
-      actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="openDownloadDir(\'' + task.id + '\')">' + escapeHtml(t('openDir')) + '</button>';
-    }
-    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + task.id + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
+  var tid = escapeAttr(task.id);
+  if (status === 'pending' || status === 'downloading' || status === 'processing') {
+    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="cancelDownload(\'' + tid + '\')">' + escapeHtml(t('cancelDownload')) + '</button>';
+  } else if (status === 'error' || status === 'cancelled') {
+    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="retryDownload(\'' + tid + '\')">' + escapeHtml(t('retry')) + '</button>';
+    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
+  } else if (status === 'completed') {
+    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="openDownloadDir(\'' + tid + '\')">' + escapeHtml(t('openDir')) + '</button>';
+    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
   }
 
   return '' +
@@ -471,6 +508,7 @@ function taskCardHtml(task) {
         '<div class="dl-task-status">' +
           '<span class="dl-status-badge ' + escapeAttr('dl-status-' + status) + '">' + escapeHtml(statusLabel) + '</span>' +
           (progressText ? '<span class="dl-task-progress-text">' + escapeHtml(progressText) + '</span>' : '') +
+          (statusDetail ? '<span class="dl-task-status-detail">' + escapeHtml(statusDetail) + '</span>' : '') +
           (task.error ? '<span class="dl-task-error">' + escapeHtml(task.error) + '</span>' : '') +
         '</div>' +
         '<div class="progress-bar"><div class="progress-bar-fill" style="width:' + pctWidth + '"></div></div>' +
@@ -484,6 +522,33 @@ async function cancelDownload(taskId) {
   var res = await apiPost('/downloads/' + encodeURIComponent(taskId) + '/cancel', {});
   if (res && res.error) {
     toast(t('downloadFailed', [res.error]), 'error');
+  }
+}
+
+// retryDownload re-queues a failed or cancelled task using its original
+// parameters. On success it toasts the same message as a fresh download.
+async function retryDownload(taskId) {
+  var task = downloadTasksMap[taskId];
+  if (!task || !task.url) {
+    toast(t('downloadFailed', ['task not found']), 'error');
+    return;
+  }
+  var body = {
+    url: task.url,
+    type: task.type || 'video',
+    quality: task.quality || 'best',
+    container: task.container || 'auto',
+    downloadDir: task.downloadDir || resolveDownloadDir()
+  };
+  try {
+    var res = await apiPost('/downloads', body);
+    if (res && res.error) {
+      toast(t('downloadFailed', [res.error]), 'error');
+      return;
+    }
+    toast(t('downloadStarted'), 'success');
+  } catch (e) {
+    toast(t('downloadFailed', [e && e.message ? e.message : String(e)]), 'error');
   }
 }
 
