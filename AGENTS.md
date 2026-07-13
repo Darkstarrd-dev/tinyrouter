@@ -35,9 +35,29 @@
 
 ## 项目概述
 
-TinyRouter 是从 9router (Node.js/Next.js) 中抽取核心代理功能，用 Go 重写的轻量级 LLM API 代理。
+TinyRouter 是一个轻量级 LLM API 代理与本地工具集，单二进制交付，内置 Web 管理界面，纯本地运行无需鉴权。
 
-**参考来源：** `Z:\Playground\9router` — 原始项目，实施过程中作为业务逻辑参考。不要修改该目录。
+### 功能模块
+
+| 模块 | 简介 |
+|---|---|
+| **Proxy** | OpenAI 兼容透传代理，支持多 Provider、多 Key 轮询、重试/故障转移、SSE 流式透传、上游请求改写、Gemini 签名回填 |
+| **Rotation** | Key 轮询引擎，三种策略（fill-first / round-robin / failover），指数退避冷却 + 429 日配额锁定，per-model 独立锁，NIM 限速适配 |
+| **Combo** | 模型组合解析，三种策略（fallback / round-robin / greedy-squirrel），按配额层级排序尝试 |
+| **Download** | 基于 yt-dlp 的视频/音频下载，任务队列、SSE 进度、播放列表、画质选择、代理、缩略图 |
+| **Terminal/Monitor** | PTY 交互式终端 + 白名单命令流式监控，Debug Mode 门控 |
+| **Playground** | 多模型同时请求测试 + 多模型群聊对比，Director/Narrator 模式 |
+| **Config/Registry/State** | 三层配置基础设施：YAML 持久化 + AES-GCM 加密 + 原子写入 + 双锁模型 + reload merge |
+
+### 参考来源
+
+| 来源 | 用途 | 仓库 |
+|---|---|---|
+| 9router | 代理核心业务逻辑参考（Key 选择、冷却退避、Combo、日志格式） | https://github.com/decolua/9router |
+| new-api | Playground 模块参考（多模型测试 UI 适配器契约） | https://github.com/QuantumNous/new-api |
+| VidBee | Download 模块参考（yt-dlp 任务管理与 SSE 进度） | https://github.com/nexmoe/VidBee |
+
+> 本地参考副本位于 `Z:\Playground\9router`，实施过程中作为业务逻辑参考。不要修改该目录。
 
 ## 技术栈
 
@@ -65,75 +85,32 @@ GOOS=windows GOARCH=amd64 go build -o tinyrouter-windows-amd64.exe .
 GOOS=darwin GOARCH=arm64 go build -o tinyrouter-darwin-arm64 .
 ```
 
-## 构建变体 (Build Variants)
+## 构建变体
 
-TinyRouter 通过 build tag + 链接器 flag 组合，提供多个构建变体。Windows 下用 `build.ps1` 一键产出。
+TinyRouter 通过 build tag + 链接器 flag 提供 default / tray / webview / debug 四类变体，可组合 `-Playground`（内嵌 Playground 资产）和 `-Strip`（剥离符号表）开关，共 13 个产物。完整矩阵、参数说明与图标资源见 [`docs/build-variants.md`](docs/build-variants.md)。
 
-### build.ps1 参数
+### Windows 推荐
 
 ```powershell
-./build.ps1 [-Variant default|tray|webview|debug] [-Playground] [-Strip] [-All] [-OutputDir dist]
+# webview + playground + stripped：托盘常驻 + WebView2 独立窗口 + 最小体积
+./build.ps1 -Variant webview -Playground -Strip
+# 产出 dist/tinyrouter-webview-pg-stripped.exe (~16 MB)
 ```
 
-- 不加参数 = 仅产出 default 变体一个 exe
-- `-All` = 一次性产出全部 13 个变体（忽略 `-Variant` / `-Playground` / `-Strip`）
+### mac/Linux
 
-### Variant 含义
+```bash
+# 直接构建（无 tag = console + 自动打开浏览器）
+go build -o tinyrouter .
 
-| Variant | 行为 | tags | ldflags | CGO |
-|---|---|---|---|---|
-| `default` | console 窗口 + 自动打开浏览器(当前行为) | — | — | 无 |
-| `tray` | 系统托盘常驻,无 console 窗口,右键菜单"打开控制台/退出" | `tray` | `-H windowsgui` | 无 |
-| `webview` | tray + WebView2 原生窗口右键菜单多一项"打开独立窗口"(Win10/11 自带 Runtime,纯 Go) | `tray,webview` | `-H windowsgui` | 无 |
-| `debug` | 全 DWARF/console 窗口,供 `dlv` 调试;Playground/Strip 被忽略 | — | — | 无 |
-
-### 关键开关
-
-- **-Playground**: 启用 `playground` build tag,内嵌 `web/playground/static-pg` 资产(无此 tag 用 `web/embed_playground_stub.go` 空 FS)
-- **-Strip**: 加 `-ldflags "-s -w"` 剥离符号表 + DWARF,减约 3.6 MB;失去 `dlv` 调试能力,运行不感知
-
-### 默认构建 vs 标签构建
-
-- **无 tag** = 当前行为(console 窗口 + 浏览器),`go build -o tinyrouter .` 与 `./build.ps1` 等价
-- **`-tags tray`** = 切换到 `host_tray_windows.go`,引入 `fyne.io/systray`;无此 tag 用 `host_console.go`
-- **`-tags "tray,webview"`** = tray 基础上引入 `host_webview_windows.go` + `jchv/go-webview2`;托盘菜单多一项"打开独立窗口",在 Win10/11 上用 WebView2 Runtime 弹出原生窗口加载 admin UI;关闭窗口不退出进程,仍可再次打开
-- **`-tags playground`** = 切换到 `web/embed_playground.go`,内嵌 Playground 资产;无此 tag 用 `web/embed_playground_stub.go`
-
-### 13 产物矩阵 (实际体积,基于 1024×1024 logo.png 多尺寸 ICO)
-
-| Variant | Playground | Strip | 输出文件 | 体积 |
-|---|---|---|---|---|
-| default | 否 | 否 | `tinyrouter.exe` | 15.15 MB |
-| default | 否 | 是 | `tinyrouter-stripped.exe` | 11.51 MB |
-| default | 是 | 否 | `tinyrouter-pg.exe` | 19.17 MB |
-| default | 是 | 是 | `tinyrouter-pg-stripped.exe` | 15.53 MB |
-| tray | 否 | 否 | `tinyrouter-tray.exe` | 15.62 MB |
-| tray | 否 | 是 | `tinyrouter-tray-stripped.exe` | 11.77 MB |
-| tray | 是 | 否 | `tinyrouter-tray-pg.exe` | 19.64 MB |
-| tray | 是 | 是 | `tinyrouter-tray-pg-stripped.exe` | 15.79 MB |
-| webview | 否 | 否 | `tinyrouter-webview.exe` | 16.02 MB |
-| webview | 否 | 是 | `tinyrouter-webview-stripped.exe` | 12.09 MB |
-| webview | 是 | 否 | `tinyrouter-webview-pg.exe` | 20.04 MB |
-| webview | 是 | 是 | `tinyrouter-webview-pg-stripped.exe` | 16.11 MB |
-| debug | — | — | `tinyrouter-debug.exe` | 15.15 MB |
-
-Playground 模块增量约 +4.0 MB;Strip 减约 3.6 MB;Tray 仅增约 +0.3 MB(纯 Go,无 CGO);WebView 在 tray 基础再增约 +0.4 MB(`jchv/go-webview2` 纯 Go + 内嵌 WebView2Loader 字节)。
-
-### 图标资源
-
-`web/static/favicon.ico` 通过 `gen-icon.ps1` 从 `web/static/logo.png` (1024×1024) 生成,内嵌 7 个尺寸(16/24/32/48/64/128/256),覆盖托盘、资源管理器、任务栏、Alt+Tab、jumplist 全部 DPI 场景。`rsrc.syso` 自动同步,无需手动维护;改 logo 后跑 `./gen-icon.ps1` 再 `go generate ./...`。
+# 交叉编译
+GOOS=linux GOARCH=amd64 go build -o tinyrouter-linux-amd64 .
+GOOS=darwin GOARCH=arm64 go build -o tinyrouter-darwin-arm64 .
+```
 
 ## 代码结构
 
 模块分布与文件归属详见 [`PROJECT_MAP.md`](PROJECT_MAP.md)（入口文档，含全部 `internal/` 包、`web/` 资产、build tag 矩阵、运行时文件、占位区与同步约束）。
-
-## 工作流约定
-
-本项目使用昂贵的高级模型作为计划、分配与审核中枢。
-
-- **角色定位：** 高级模型负责将用户需求拆分为合理的任务提示词，进行任务分配，并对子 agent 的产出物进行审核。高级模型本身尽量不直接执行检索或编码，但此为优先策略而非绝对约束——当判断有必要时（如快速验证、小范围修正、紧急修复等），可自行操作。
-- **代码库检索：** 通过 `task` 工具调用 `explore` agent 执行，高级模型负责构造精确的检索提示词并审核返回结果。
-- **实际实施：** 通过 `task` 工具调用 `general` agent 执行，高级模型负责构造实施提示词（含上下文、约束、验收标准）并审核产出物。
 
 ## 关键设计决策
 
@@ -174,35 +151,9 @@ HTTP server 仅监听 localhost。任意 API Key 或无 Key 均可访问 `/v1/*`
 - 429 冷却阶梯
 - 自动检测：APIType=="nim" 或 BaseURL 含 "nvidia"
 
-## 9router 参考映射
+## 9router 参考
 
-实施时需要参考 9router 的以下文件：
-
-| 功能 | 9router 文件 |
-|---|---|
-| Key 选择逻辑 | `src/sse/services/auth.js` → `getProviderCredentials()` |
-| 冷却/退避 | `src/sse/services/auth.js` → `markAccountUnavailable()`, `clearAccountError()` |
-| 代理核心 | `open-sse/handlers/chatCore.js` → `handleChatCore()` |
-| 上游转发 | `open-sse/executors/default.js` |
-| Combo 逻辑 | `open-sse/services/combo.js` |
-| Console 日志 | `src/lib/consoleLogBuffer.js` |
-| Usage 统计 | `src/lib/db/repos/usageRepo.js` |
-| Model 解析 | `src/sse/services/model.js` → `getModelInfo()` |
-| 错误规则配置 | `open-sse/config/errorConfig.js` |
-| Dashboard 导航 | `src/shared/components/Sidebar.js` |
-| Provider 常量 | `src/shared/constants/providers.js` |
-
-## 日志格式 (与 9router 保持一致)
-
-```
-[2026-01-15 10:30:00] REQUEST deepseek | deepseek-chat | 12 msgs | Key Main
-[2026-01-15 10:30:00] PROXY deepseek | deepseek-chat | conn=Main | url=https://api.deepseek.com/v1/chat/completions
-[2026-01-15 10:30:02] 📊 [stream] deepseek | in=1234 | out=567 | conn=Main
-[2026-01-15 10:30:02] 📊 [response] deepseek | in=1234 | out=567 | conn=Main
-[2026-01-15 10:30:02] 🌊 [STREAM] deepseek | deepseek-chat | 2048ms | 200
-[2026-01-15 10:30:02] 🌊 [RESPONSE] deepseek | deepseek-chat | 2048ms | 200
-[2026-01-15 10:30:02] [ERROR] upstream returned 429: rate limited
-```
+业务逻辑来源、文件映射与日志格式见 [`docs/9router-reference.md`](docs/9router-reference.md)。本地参考副本位于 `Z:\Playground\9router`，不要修改。
 
 ## 编码规范
 
