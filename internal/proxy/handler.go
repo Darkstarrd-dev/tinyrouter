@@ -31,6 +31,7 @@ type Handler struct {
 	RequestUpdates    *Broadcaster
 	Inflight          *InflightTracker
 	EntryTracker      *EntryTracker
+	sigCache          SignatureCacheProvider
 	debugModeProvider func() bool
 }
 
@@ -56,6 +57,7 @@ func New(reg ModelResolver, selector KeyProvider, comboRes ComboResolver, usageB
 		RequestUpdates:  NewBroadcaster(64),
 		Inflight:        NewInflightTracker(),
 		EntryTracker:    NewEntryTracker(),
+		sigCache:        NewSignatureCache(),
 		client: &http.Client{
 			Timeout: upstreamTimeout,
 		},

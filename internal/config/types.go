@@ -106,6 +106,16 @@ func (p Provider) IsNIM() bool {
 	return strings.Contains(strings.ToLower(p.BaseURL), "nvidia")
 }
 
+// IsGeminiOpenAICompat reports whether this provider is the Google Gemini
+// OpenAI-compatible endpoint, which requires thought_signature handling for
+// tool calls. It matches when the BaseURL contains
+// "generativelanguage.googleapis.com" AND the path contains "/openai".
+func (p Provider) IsGeminiOpenAICompat() bool {
+	u := strings.ToLower(p.BaseURL)
+	return strings.Contains(u, "generativelanguage.googleapis.com") &&
+		strings.Contains(u, "/openai")
+}
+
 // NIMSettings holds NVIDIA NIM-specific key rotation and throttling config.
 // Effective when Provider.IsNIM() is true (apiType == "nim" or BaseURL contains "nvidia").
 type NIMSettings struct {

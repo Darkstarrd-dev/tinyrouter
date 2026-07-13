@@ -162,6 +162,9 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		parsed["model"] = upstreamModel
+		if cfgProvider != nil && cfgProvider.IsGeminiOpenAICompat() {
+			backfillThoughtSignatures(parsed, h.sigCache)
+		}
 		upstreamBody, err := json.Marshal(parsed)
 		if err != nil {
 			h.logger.Error("failed to marshal upstream body: %v", err)
@@ -294,4 +297,66 @@ func maskURL(url string) string {
 		return url
 	}
 	return url[:20] + "..."
+}
+
+// backfillThoughtSignatures injects the cached Gemini thought_signature into
+// assistant tool_calls that are missing it, keyed by tool_call id. Google
+// rejects tool-call round trips whose tool_calls lack the signature that was
+// returned in the prior response; the proxy caches those signatures as it
+// streams the first response and replays them here. Existing signatures are
+// never overwritten; cache misses are silently skipped (best-effort).
+func backfillThoughtSignatures(parsed map[string]any, cache SignatureCacheProvider) {
+	msgs, ok := parsed["messages"].([]any)
+	if !ok {
+		return
+	}
+	for _, m := range msgs {
+		msg, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := msg["role"].(string)
+		if role != "assistant" {
+			continue
+		}
+		toolCalls, ok := msg["tool_calls"].([]any)
+		if !ok || len(toolCalls) == 0 {
+			continue
+		}
+		for _, tc := range toolCalls {
+			tcm, ok := tc.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := tcm["id"].(string)
+			if id == "" {
+				continue
+			}
+			if hasThoughtSignature(tcm) {
+				continue
+			}
+			sig, ok := cache.Get(id)
+			if !ok || sig == "" {
+				continue
+			}
+			tcm["extra_content"] = map[string]any{
+				"google": map[string]any{
+					"thought_signature": sig,
+				},
+			}
+		}
+	}
+}
+
+func hasThoughtSignature(tc map[string]any) bool {
+	extra, ok := tc["extra_content"].(map[string]any)
+	if !ok {
+		return false
+	}
+	google, ok := extra["google"].(map[string]any)
+	if !ok {
+		return false
+	}
+	sig, ok := google["thought_signature"].(string)
+	return ok && sig != ""
 }
