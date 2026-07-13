@@ -1,0 +1,400 @@
+# PROJECT_MAP.md — TinyRouter 模块地图
+
+> **项目入口文档。** 此文件是 TinyRouter 的"活地图"：项目启动 / 接手 / 评审时首先读取此文件以了解模块分布与文件归属。
+>
+> **同步约束（必须遵守）：** 项目推进过程中，凡涉及以下变更，必须**同一次改动中同步更新本文件**对应条目，使本文件始终代表项目的真实结构：
+> - 新增 / 删除 / 重命名 任意源码文件或目录
+> - 新增 / 移除 `internal/` 子包
+> - 新增 / 移除 build tag 或构建变体
+> - 新增 / 移除 前端页面或 `web/static`、`web/playground` 资产
+> - 模块职责发生迁移（文件/目录改属）
+> - 新增 / 移除 `docs/` 下的事实基线文档
+>
+> 不得让本文件与代码现状脱节。`AGENTS.md` / `CLAUDE.md` 中的模块说明已下放至此，两者仅保留约束与设计决策并引用本文件；若与本文件冲突，**以本文件为准**。
+
+---
+
+## 基本面
+
+| 项 | 值 |
+|---|---|
+| 模块路径 | `github.com/tinyrouter/tinyrouter` |
+| Go 版本 | 1.25.0（见 `go.mod`） |
+| 项目版本 | 见 `internal/app/version.go` 的 `Version` 常量（唯一来源） |
+| HTTP 路由 | `github.com/go-chi/chi/v5` |
+| 配置 | `gopkg.in/yaml.v3` → `config.yaml` / `state.yaml` |
+| 前端 | 原生 HTML + vanilla JS + CSS，经 `embed.FS` 内嵌 |
+| 数据库 | 无（纯内存 + YAML 文件） |
+| 部署形态 | 单二进制，仅监听 localhost |
+
+---
+
+## 1. 根目录源码（`/*.go`）
+
+入口与宿主循环。所有 `host_*.go` 通过 build tag 互斥编译，决定进程以 console / 托盘 / WebView 哪种形态常驻。
+
+| 文件 | build tag | 职责 |
+|---|---|---|
+| `main.go` | — | 进程入口：解析 `-config` flag，调用 `internal/app.New()` 构建组件，`app.Run(runHostLoop)` 进入宿主循环 |
+| `host_loop.go` | — | `runHostLoopConsole`：共享的 OS 信号（SIGINT/SIGTERM）+ UI 关停阻塞循环，被各 host 变体复用 |
+| `host_console.go` | `!tray && !webview` | 默认变体：`runHostLoop` 包裹 `runHostLoopConsole` |
+| `host_tray_windows.go` | `tray && windows` | 系统托盘常驻（`fyne.io/systray`），内嵌 favicon，右键菜单"打开控制台/退出"，调用 `addWebviewMenuItem` |
+| `host_tray_other.go` | `tray && !windows` | Linux/macOS 托盘回退为 console 行为 |
+| `host_webview_windows.go` | `tray && webview && windows` | WebView2 原生独立窗口（`jchv/go-webview2`，纯 Go 无 CGO），菜单多一项"打开独立窗口" |
+| `host_webview_other.go` | `tray && webview && !windows` | 非 Windows 的 webview stub：`addWebviewMenuItem` 返回 nil |
+| `host_webview_stub.go` | `tray && windows && !webview` | webview tag 关闭时 `addWebviewMenuItem` no-op，保持托盘菜单降级 |
+
+> 注：`version.go` 与 `server_manager.go` **不在根目录**，分别位于 `internal/app/version.go` 与 `internal/app/server_manager.go`。
+
+---
+
+## 2. `internal/app/` — 进程生命周期与组件装配
+
+进程级"胶水层"：装配所有运行时组件、管理优雅启停、HTTP 服务器端口热切换、单实例锁、按 build tag 决定启动时是否开浏览器。
+
+| 文件 | build tag | 职责 |
+|---|---|---|
+| `app.go` | — | `New()` 装配全部运行时组件（`buildComponents`），owns 生命周期与 graceful shutdown |
+| `host.go` | — | `HostContext`：把 logger / ConsoleURL / ServerManager / Quit 传递给 host 循环 |
+| `server_manager.go` | — | `ServerManager`：HTTP 服务器优雅重启，端口热切换无需重启进程 |
+| `version.go` | — | `Version` 常量（项目版本号唯一来源） |
+| `browser.go` | — | `OpenBrowser`：跨平台打开默认浏览器 |
+| `browser_console.go` | `!tray` | console 构建：启动时自动开浏览器 |
+| `browser_tray.go` | `tray` | tray/webview 构建：启动时不开浏览器 |
+| `lock_windows.go` | `windows` | `LockFileEx` 单实例文件锁 |
+| `lock_unix.go` | `!windows` | `unix.Flock` 单实例文件锁 |
+| `server_manager_test.go` | — | 测试 |
+
+---
+
+## 3. `internal/config/` — 配置结构与持久化
+
+`config.yaml` 的类型定义、默认值、原子加载/保存、校验、API Key 的 AES-256-GCM 加密。架构基线见 [`docs/config-registry-state-architecture.md`](docs/config-registry-state-architecture.md)（与 registry/state 合著，含三层归属边界、原子持久化、AES-GCM 加密、双锁模型、源码锚点）。
+
+| 文件 | 职责 |
+|---|---|
+| `types.go` | 配置结构体（`Config`/`Provider`/`Key`/`Combo`/`RotationConfig`/`SecurityConfig` 等）+ YAML/JSON tag |
+| `defaults.go` | 默认配置构造 + `Finalize*` 零值回填 |
+| `persistence.go` | `Load`/`Save`：临时文件 + rename 原子写，`.tmp` 恢复 |
+| `validate.go` | 尽力校验（API 类型、重复 ID/prefix），仅告警 |
+| `crypto.go` | AES-256-GCM：API Key 静态加密，`GenerateKey`/`encryptKeysCopy` |
+| `config.go` | 包文档 + 职责拆分说明 |
+| `config_test.go` / `crypto_test.go` | 测试 |
+
+---
+
+## 4. `internal/registry/` — Provider/Key/Combo/QuickSlot CRUD 与运行时状态
+
+线程安全的配置 + 运行时 key 状态映射；所有管理 API 的数据后端。架构基线见 [`docs/config-registry-state-architecture.md`](docs/config-registry-state-architecture.md)（与 config/state 合著，含 CRUD、KeyRuntimeState 归属、reload merge 语义、双锁模型、源码锚点）。
+
+| 文件 | 职责 |
+|---|---|
+| `registry.go` | `Registry` 结构：`sync.RWMutex` 保护的 config + 运行时 key-state map；`New`/`Config`/`Reload` |
+| `providers.go` | Provider CRUD |
+| `keys.go` | Key CRUD（provider 内） |
+| `models.go` | Provider 自定义模型列表（`ListModels`） |
+| `combos.go` | Combo CRUD |
+| `quickslots.go` | QuickSlot（预设模型切换槽）CRUD |
+| `state.go` | 每 key 运行时状态（`KeyRuntimeState`：冷却/锁/退避/NIM 计数）+ 合并/保留逻辑 |
+| `crud_test.go` / `reload_merge_test.go` / `state_test.go` | 测试 |
+
+---
+
+## 5. `internal/rotation/` — Key 选择策略 + 冷却/退避 + NIM
+
+移植自 9router `src/sse/services/auth.js`。架构基线见 [`docs/rotation-architecture.md`](docs/rotation-architecture.md)（含 SelectKey 算法、三种策略、两套退避系统、配额锁、NIM、错误分类、源码锚点）。
+
+| 文件 | 职责 |
+|---|---|
+| `selector.go` | `KeySelector` 接口 + `Selector`：组合 key 选择与冷却；`SelectKey`/`OnKeyFailure`/NIM 钩子 |
+| `strategy.go` | 轮询策略（fill-first / round-robin / failover）+ stickyLimit |
+| `cooldown.go` | 指数退避（1s→240s），429 日配额锁至次日 CST 00:05，per-model 锁 |
+| `ratelimit.go` | 每 key 请求速率记账 |
+| `error_rules.go` | 上游错误分类（transient vs fatal，429/5xx 规则） |
+| `nim.go` | NVIDIA NIM 限速：per-key 请求计数、min interval、429 冷却阶梯、自动检测 |
+| `selector_test.go` / `cooldown_test.go` / `ratelimit_test.go` / `error_rules_test.go` / `nim_test.go` | 测试 |
+
+---
+
+## 6. `internal/combo/` — Combo 解析
+
+架构基线见 [`docs/combo-architecture.md`](docs/combo-architecture.md)（含 Resolve 算法、三种策略目标排序、配额层级、状态持久化、源码锚点）。
+
+| 文件 | 职责 |
+|---|---|
+| `resolver.go` | `Resolver` + `ComboPlan`/`ModelTarget`：按策略将 combo 解析为有序 provider+model 目标列表（greedy-squirrel 按配额层级排序） |
+| `resolver_test.go` | 测试 |
+
+策略：`fallback`（顺序尝试）/ `round-robin`（轮转）/ `greedy-squirrel`（按配额层级排序后 fallback）。
+
+---
+
+## 7. `internal/proxy/` — `/v1/*` 代理处理器
+
+OpenAI 兼容透传 + SSE 流式转发 + 重试/故障转移 + 用量记录。架构基线见 [`docs/proxy-architecture.md`](docs/proxy-architecture.md)（含调用链、重试状态机、SSE 透传、Gemini 签名回填、在途跟踪、源码锚点）。
+
+| 文件 | 职责 |
+|---|---|
+| `handler.go` | `Handler`（基于接口装配，非具体类型）：路由 `/v1/*`，构造 HTTP client（普通/流式/管理 + 代理变体） |
+| `interfaces.go` | handler 依赖的能力接口（`ModelResolver`/`KeyProvider`/`ComboResolver`/`UsageRecorder`/`Logger` 等） |
+| `forward.go` | 上游请求转发 / body 改写（替换 model 字段、注入 `stream_options`） |
+| `upstream.go` | `normalizeBaseURL`：剥离已知 endpoint 后缀到 API 根 |
+| `stream.go` | SSE 流式透传（`http.Flusher` 逐 chunk 转发），提取 JSON payload，用量计数 |
+| `retry.go` | 跨 key/combo 故障转移的重试状态机 |
+| `models.go` | 模型列表/解析辅助 |
+| `recorder.go` | `recordUsage`：把完成/出错的请求写入 usage 环形缓冲 |
+| `request_events.go` | 生成全局唯一 request ID |
+| `entry_tracker.go` | `EntryTracker`：在途（processing）usage 条目并发 map |
+| `inflight.go` | `inflightEntry`：单条在途流式请求的实时输出 |
+| `broadcaster.go` | `Broadcaster`：把事件扇出到所有 SSE 订阅 channel |
+| `signature_cache.go` | `SignatureCacheProvider`：缓存 Gemini `thought_signature` 用于流式回填 |
+| `*_test.go` | 测试（handler/retry/stream/e2e/signature 多套） |
+
+> Gemini `thought_signature` 自动回填：流式中提取签名并缓存，非流式响应自动补全，对 OpenAI 兼容端点透明（见 commit `c2f89c6`）。
+
+---
+
+## 8. `internal/usage/` — 内存统计 + 配额
+
+| 文件 | 职责 |
+|---|---|
+| `ring.go` | `RingBuffer`：有界环形缓冲（默认 500 条）+ 摘要 |
+| `accumulator.go` | `CumulativeSummary` + per-model 累计（单调）统计 |
+| `quota.go` | `QuotaTracker`：per-model 配额展示/快照 |
+| `ring_test.go` / `quota_test.go` | 测试 |
+
+> 仅存内存，重启清零。
+
+---
+
+## 9. `internal/console/` — 控制台日志 + SSE 推送
+
+| 文件 | 职责 |
+|---|---|
+| `logger.go` | `Logger`：环形缓冲应用日志捕获 + 广播到 SSE 订阅者 |
+| `logger_test.go` | 测试 |
+
+日志格式与 9router 一致（详见 AGENTS.md "日志格式"）。
+
+---
+
+## 10. `internal/api/` — 管理 REST API（chi 路由）
+
+管理 UI 与外部操作的全部 HTTP 端点。
+
+| 文件 | 职责 |
+|---|---|
+| `router.go` | `New()`：装配 chi `Router`，注入所有 handler；`deps` 依赖束 |
+| `helpers.go` | 共享辅助（`saveConfig` + 状态持久触发） |
+| `auth.go` | 本地密码鉴权：AES-256-GCM、session token、HttpOnly cookie、登录 |
+| `rate_limit.go` | 登录速率限制 |
+| `compress.go` | Brotli/gzip 响应压缩中间件 |
+| `sse_events.go` | usage/inflight 事件 SSE 流 |
+| `console_logs.go` | 控制台日志 SSE |
+| `providers.go` / `providers_validate.go` / `providers_models.go` / `providers_models_crud.go` | Provider 列表/校验/模型拉取/模型增删 |
+| `keys.go` / `bulk_keys.go` / `model_keys.go` | Key 列表/CRUD、批量添加、模型可用 key 查询 |
+| `models.go` | 模型列表 |
+| `combos.go` / `quickslots.go` | Combo / QuickSlot CRUD |
+| `settings.go` | GET/PUT 设置（server/security/rotation 等） |
+| `usage.go` / `usage_reset.go` / `quota.go` | 用量摘要/重置/配额 |
+| `probe_common.go` / `probe_model.go` / `probe_keys.go` | 单模型探测 / 全 key 探测（共享 SSE 内容提取） |
+| `monitor.go` / `terminal.go` | Monitor 命令状态 / Terminal WebSocket |
+| `download.go` | 下载任务创建/状态（委托 `internal/download.Manager`） |
+| `url_validation.go` | `validateBaseURL` 辅助 |
+| `*_test.go` | 测试（api/auth/bulk_keys/url_validation/selector_hot_reload） |
+
+---
+
+## 11. `internal/state/` — `state.yaml` 运行时持久化
+
+架构基线见 [`docs/config-registry-state-architecture.md`](docs/config-registry-state-architecture.md)（与 config/registry 合著，含 Snapshot 格式、500ms 去抖、回调模式破除循环依赖、源码锚点）。
+
+| 文件 | 职责 |
+|---|---|
+| `state.go` | `Snapshot`/`KeySnapshot`/`ComboSnapshot` 类型 + YAML 序列化；`CurrentVersion=1` |
+| `manager.go` | `Manager`：500ms 去抖 + 定时器 + 原子写（经回调快照，避免 import cycle） |
+| `state_test.go` | 测试 |
+
+---
+
+## 12. `internal/util/` — 通用辅助
+
+| 文件 | 职责 |
+|---|---|
+| `util.go` | `SplitModel("provider/model")`、`TruncStr`、JSON 辅助 |
+
+---
+
+## 13. `internal/terminal/` — 交互式终端
+
+Debug Mode 下的完整交互式终端（xterm.js + WebSocket + ConPTY/PTY），支持 vim、Ctrl+C、Tab 补全，会话持久保持。架构基线见 [`docs/terminal-monitor-architecture.md`](docs/terminal-monitor-architecture.md)（与 Monitor 合著，含会话模型、调试门控、单会话守卫、平台进程生成、源码锚点）。
+
+| 文件 | build tag | 职责 |
+|---|---|---|
+| `session.go` | — | PTY 会话（`go-pty` + `gorilla/websocket`） |
+| `process_windows.go` | `windows` | ConPTY 进程生成 |
+| `process_unix.go` | `!windows` | PTY 进程生成 |
+| `session_test.go` | — | 测试 |
+
+---
+
+## 14. `internal/monitor/` — Monitor 命令
+
+实时流式运行白名单命令（如 `nvidia-smi -l 1`），输出内嵌 Console 页面。架构基线见 [`docs/terminal-monitor-architecture.md`](docs/terminal-monitor-architecture.md)（与 Terminal 合著，含 Manager、白名单、SSE 流、平台进程生成、源码锚点）。
+
+| 文件 | build tag | 职责 |
+|---|---|---|
+| `manager.go` | — | 单条 monitor 命令调度 + 输出流 |
+| `manager_windows.go` | `windows` | Windows 进程 spawn |
+| `manager_unix.go` | `!windows` | Unix 进程 spawn |
+| `manager_test.go` | — | 测试 |
+
+---
+
+## 15. `internal/download/` — 视频/音频下载
+
+基于 yt-dlp + ffmpeg 的下载任务队列/执行器（VidBee 风格 Go 原生移植，无持久化）。架构基线见 [`docs/download-architecture.md`](docs/download-architecture.md)（含任务生命周期、yt-dlp 参数构造、API 端点、与归档计划的漂移、源码锚点）。
+
+| 文件 | build tag | 职责 |
+|---|---|---|
+| `manager.go` | — | 下载任务队列管理 |
+| `executor.go` | — | yt-dlp 执行调度 |
+| `args.go` | — | yt-dlp 参数构造 |
+| `types.go` | — | 下载任务类型 |
+| `kill_windows.go` | `windows` | 进程终止 |
+| `kill_unix.go` | `!windows` | 进程终止 |
+| `download_test.go` | — | 测试 |
+
+> 外部依赖：yt-dlp、ffmpeg 需用户自装（见 README.md）。
+
+---
+
+## 16. `web/` — 内嵌前端
+
+### 16.1 Embed 门控
+
+| 文件 | build tag | 职责 |
+|---|---|---|
+| `embed.go` | `!playground` | 内嵌 `static/` 到 `web.Static`；`PlaygroundCompiled()=false` |
+| `embed_playground.go` | `playground` | 内嵌 `static/` + `playground/static-pg`；`PlaygroundCompiled()=true` |
+| `embed_playground_stub.go` | `!playground` | 空 `PlaygroundStatic` FS（调用方须判 `PlaygroundCompiled()`） |
+
+### 16.2 `web/static/` — 管理 SPA
+
+| 类别 | 文件 |
+|---|---|
+| 入口 | `index.html`、`index-nopg.html`（无 playground 变体） |
+| JS 模块 | `app.js`、`api.js`、`auth.js`、`i18n.js`、`info_common.js`、`providers.js`、`combos.js`、`quickslots.js`、`usage.js`、`console.js`、`terminal.js`、`monitor.js`、`download.js`、`endpoint.js`、`headerStats.js` |
+| 三方 JS | `chart.umd.js` |
+| 样式 | `style.css` |
+| 图标 | `logo.png`(1024 源)、`logo-sm.png`、`favicon.ico`(7 尺寸)、`favicon.png`、`icon-192.png`、`icon-512.png`、`apple-touch-icon.png`、`site.webmanifest` |
+| 终端模拟器 | `xterm/`：`xterm.js`、`xterm.css`、`xterm-addon-fit.js` |
+
+### 16.3 `web/playground/` — Playground 模块（仅 `-tags playground` 内嵌）
+
+多模型同时请求测试 + 多模型聊天群聊。前后端事实基线见 [`docs/playground-architecture.md`](docs/playground-architecture.md)。
+
+| 类别 | 内容 |
+|---|---|
+| 文档 | `README.md` |
+| 核心 JS | `static-pg/playground.js`、`playground.css` |
+| 模块 JS | `pg-core`、`pg-state`、`pg-setup`、`pg-request`、`pg-stream`、`pg-render`、`pg-markdown`、`pg-modal`、`pg-ui`、`pg-lifecycle`、`pg-i18n`、`pg-director`、`pg-autochat` |
+| vendor | `marked.min.js`、`marked-katex-extension`、`katex.min.js`/`.css`、`mermaid.min.js`、`highlight.min.js`、`purify.min.js`、`pg-highlight-theme.css`、`fonts/`(KaTeX woff2) |
+
+---
+
+## 17. `docs/` — 文档
+
+| 路径 | 状态 | 内容 |
+|---|---|---|
+| `docs/playground-architecture.md` | **当前/权威** | Playground 前后端架构基线（共享时间线群聊模型、Director/Narrator、场景、源锚点） |
+| `docs/proxy-architecture.md` | **当前/权威** | Proxy 代理核心架构基线（调用链、重试/故障转移状态机、SSE 透传、Gemini 签名回填、在途跟踪、源码锚点） |
+| `docs/rotation-architecture.md` | **当前/权威** | Rotation Key 轮询架构基线（SelectKey 算法、三种策略、两套退避系统、配额锁 CST 00:05、NIM、错误分类、源码锚点） |
+| `docs/download-architecture.md` | **当前/权威** | Download 下载架构基线（任务队列生命周期、yt-dlp 参数构造、SSE 进度、与归档计划漂移、源码锚点） |
+| `docs/combo-architecture.md` | **当前/权威** | Combo 组合策略架构基线（Resolve 算法、三种策略目标排序、greedy-squirrel 配额层级、状态持久化、源码锚点） |
+| `docs/terminal-monitor-architecture.md` | **当前/权威** | Terminal + Monitor 架构基线（PTY 会话、调试门控、白名单命令、SSE 流、平台进程生成、源码锚点） |
+| `docs/config-registry-state-architecture.md` | **当前/权威** | Config/Registry/State 基础设施架构基线（三层归属边界、原子持久化、AES-GCM 加密、双锁模型、reload merge、回调去抖、源码锚点） |
+| `docs/providerinfo.md` | 参考 | 各 Provider API 参考笔记（响应 schema、限速头、错误码） |
+| `docs/research/` | 参考 | 调研笔记（`request.md`、`respond.md` 等） |
+| `docs/archive/` | 归档 | 历史规划/审计/交接文档，**非当前事实来源** |
+
+---
+
+## 18. 脚本与构建产物
+
+| 文件 | 职责 |
+|---|---|
+| `build.ps1` | 构建脚本，产出 13 个变体（default/tray/webview/debug × playground/strip） |
+| `gen-icon.ps1` | 从 `web/static/logo.png` 经 `rsrc` 生成多尺寸 `favicon.ico` |
+| `rsrc.manifest` | Windows exe 清单 |
+| `rsrc.syso` | 图标资源（`go:generate` 自动同步，gitignored） |
+
+构建变体与 build tag 矩阵详见 **README.md "构建变体"** 与 **AGENTS.md "构建变体"**。
+
+---
+
+## 19. 运行时文件（gitignored，首次运行生成）
+
+| 文件 | 生成方 | 内容 |
+|---|---|---|
+| `config.yaml` | `internal/config` | providers + combos + settings |
+| `state.yaml` | `internal/state` | key/combo 运行时状态（冷却级别、模型锁、轮转索引） |
+
+---
+
+## 20. Gitignored 参考副本（非本项目模块）
+
+| 路径 | 说明 |
+|---|---|
+| `new-api/` | vendored 的 "new-api" LLM gateway 副本（~600+ `.go` 文件）。`.gitignore` 排除、`go.mod` 不引用、`package main` 不引用。**仅作实现参考**，不参与编译，勿计入本项目模块。 |
+
+---
+
+## 21. 规划中 / 暂未实现（占位）
+
+> 以下为本文件预留的占位区。随项目推进新增"已规划但未落地"的模块时，在此登记占位；落地后移入上文对应章节并在此标注"已落地"。当前无未实现的占位项。
+
+- _（暂无）_
+
+---
+
+## 22. 常见变更任务速查表
+
+> 从**变更任务**出发的反向索引。先读"先读文档"列对应的架构基线，再按"涉及源码"列定位修改点。跨模块变更须同时读多份文档的"变更维护清单"。
+
+| 变更任务 | 先读文档 | 涉及源码 |
+|---|---|---|
+| 新增/修改 Provider API 类型 | config-registry-state、proxy、rotation | `config/types.go`（`APIType`/`IsNIM`/`IsGeminiOpenAICompat`）、`config/validate.go`、`rotation/nim.go`、`proxy/forward.go` |
+| 新增 Key 轮询策略 | rotation | `rotation/strategy.go`+`selector.go`、`config/types.go`（`RotationConfig`）、`proxy/forward.go`（`forwardWithRetry`） |
+| 修改重试/故障转移逻辑 | proxy、rotation | `proxy/retry.go`、`rotation/error_rules.go`+`cooldown.go`、`proxy/forward.go` |
+| 新增/修改 Combo 策略 | combo、proxy | `combo/resolver.go`、`proxy/forward.go`（`handleCombo`）、`config/types.go`（`Combo`） |
+| 修改 SSE 流式透传 | proxy | `proxy/stream.go`、`proxy/forward.go` |
+| 修改上游 URL/body 改写 | proxy | `proxy/upstream.go`、`proxy/forward.go` |
+| 修改 Gemini thought_signature 回填 | proxy | `proxy/signature_cache.go`+`forward.go`+`stream.go`、`config/types.go`（`IsGeminiOpenAICompat`） |
+| 新增管理 API 端点 | （对应模块文档）、config-registry-state | `api/router.go`（挂载+鉴权边界）、`api/<域>.go`、`registry/<域>.go` |
+| 新增/修改配置字段 | config-registry-state | `config/types.go`+`defaults.go`（`finalizeConfig`）+`persistence.go`（严格解析） |
+| 修改运行时状态持久化 | config-registry-state | `state/manager.go`+`state.go`、`registry/state.go`（`KeySnapshot`）、`app/app.go`（回调接线） |
+| 修改本地密码/鉴权 | config-registry-state | `config/crypto.go`、`api/auth.go`+`settings.go`、`config/types.go`（`SecurityConfig`） |
+| 修改 NIM 限速 | rotation | `rotation/nim.go`、`config/types.go`（`NIMSettings`）、`proxy/retry.go`（429 分发） |
+| 修改配额锁/冷却退避 | rotation | `rotation/cooldown.go`、`config/defaults.go`（`BackoffMaxSec`） |
+| 新增 Provider 限速头解析 | rotation | `rotation/ratelimit.go`（adapter）、`proxy/recorder.go` |
+| 修改下载参数/任务生命周期 | download | `download/args.go`+`executor.go`+`manager.go`、`api/download.go`、`web/static/download.js` |
+| 修改终端/监控 | terminal-monitor | `terminal/session.go`、`monitor/manager.go`、`api/terminal.go`+`monitor.go`、`web/static/terminal.js`+`monitor.js` |
+| 修改用量统计/在途跟踪 | proxy | `proxy/recorder.go`+`entry_tracker.go`+`inflight.go`+`broadcaster.go`、`api/sse_events.go`、`usage/` |
+| 新增/修改 build tag | （AGENTS.md 构建变体）、PROJECT_MAP §1/§16 | `build.ps1`、`host_*.go`、`web/embed*.go`、`internal/app/browser_*.go` |
+| 修改前端页面/资产 | PROJECT_MAP §16 | `web/static/<page>.js`、`web/static/index.html`、`web/playground/static-pg/` |
+
+---
+
+## 同步约束（重申）
+
+本文件是项目结构的**唯一权威地图**。凡有以下变更，提交者**必须**在同一次改动中更新本文件：
+
+1. 新增 / 删除 / 重命名 任意 `*.go` 或目录
+2. 新增 / 移除 `internal/` 子包
+3. 新增 / 移除 build tag 或构建变体
+4. 新增 / 移除 前端页面或 `web/static`、`web/playground` 资产
+5. 模块职责迁移（文件/目录改属）
+6. 新增 / 移除 `docs/` 下的事实基线文档
+
+> `AGENTS.md` 与 `CLAUDE.md` 已不再承载模块地图，统一引用本文件。若两者与本文件冲突，**以本文件为准**。

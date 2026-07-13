@@ -33,6 +33,8 @@
 | **Download** | yt-dlp 视频/音频下载，播放列表批量、画质、代理、任务队列 |
 | **Playground** | 多模型同时测试、群聊对比（仅 `-tags playground` 构建包含） |
 
+Playground 的前后端事实基线见 [`docs/playground-architecture.md`](docs/playground-architecture.md)。
+
 ## Quick Slot 快速模型切换
 
 Quick Slot 是预设的「模型切换槽」，适合把常用的几个模型绑到一个数字键上，一键循环切换，无需打开下拉菜单。
