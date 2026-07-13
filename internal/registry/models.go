@@ -17,6 +17,8 @@ func (r *Registry) ListModels(providerID string) []config.ModelDef {
 }
 
 // AddModel appends a model def to the provider if not already present.
+// Returns false if the provider is not found, or if the model ID or alias
+// conflicts with an existing model in the same provider.
 func (r *Registry) AddModel(providerID string, model config.ModelDef) bool {
 	r.cfgMu.Lock()
 	defer r.cfgMu.Unlock()
@@ -26,7 +28,11 @@ func (r *Registry) AddModel(providerID string, model config.ModelDef) bool {
 		}
 		for _, m := range r.config.Providers[i].Models {
 			if m.ID == model.ID {
-				return true
+				return true // already exists, not an error
+			}
+			// Reject alias that conflicts with an existing model ID or alias.
+			if model.Alias != "" && (m.ID == model.Alias || m.Alias == model.Alias) {
+				return false
 			}
 		}
 		r.config.Providers[i].Models = append(r.config.Providers[i].Models, model)
@@ -72,4 +78,111 @@ func (r *Registry) UpdateModelQuotaType(providerID, modelID, quotaType string) b
 		return false
 	}
 	return false
+}
+
+// UpdateModelAlias sets the alias for a specific model on a provider. Returns
+// false if the provider or model is not found, or if the alias conflicts with
+// an existing model ID or another model's alias in the same provider.
+func (r *Registry) UpdateModelAlias(providerID, modelID, alias string) bool {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		// Check alias uniqueness: must not conflict with existing model IDs or
+		// aliases in the same provider (excluding the model being updated).
+		if alias != "" {
+			for _, m := range r.config.Providers[i].Models {
+				if m.ID == modelID {
+					continue // skip the model being updated
+				}
+				if m.Alias == alias || m.ID == alias {
+					return false // conflict with another model's ID or alias
+				}
+			}
+		}
+		for j := range r.config.Providers[i].Models {
+			if r.config.Providers[i].Models[j].ID == modelID {
+				r.config.Providers[i].Models[j].Alias = alias
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// UpdateModelNote sets the note for a specific model on a provider.
+func (r *Registry) UpdateModelNote(providerID, modelID, note string) bool {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		for j := range r.config.Providers[i].Models {
+			if r.config.Providers[i].Models[j].ID == modelID {
+				r.config.Providers[i].Models[j].Note = note
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// UpdateModelNIMOverride sets the NIM override config for a specific model on a provider.
+func (r *Registry) UpdateModelNIMOverride(providerID, modelID string, nim config.ModelNIMOverride) bool {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		for j := range r.config.Providers[i].Models {
+			if r.config.Providers[i].Models[j].ID == modelID {
+				r.config.Providers[i].Models[j].NIMOver = &nim
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// ResolveModelAlias returns the real model ID for a given alias on a provider.
+// If no model has this alias, it returns the input alias unchanged and false.
+func (r *Registry) ResolveModelAlias(providerPrefix, aliasOrModelID string) (modelID string, found bool) {
+	r.cfgMu.RLock()
+	defer r.cfgMu.RUnlock()
+	p, ok := r.GetProviderByPrefix(providerPrefix)
+	if !ok {
+		return aliasOrModelID, false
+	}
+	for _, m := range p.Models {
+		if m.Alias == aliasOrModelID {
+			return m.ID, true
+		}
+	}
+	return aliasOrModelID, false
+}
+
+// GetModelByAliasOrID returns the ModelDef for a provider that matches either
+// the alias or the model ID. Returns the model def and true if found.
+func (r *Registry) GetModelByAliasOrID(providerID, aliasOrModel string) (config.ModelDef, bool) {
+	r.cfgMu.RLock()
+	defer r.cfgMu.RUnlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		for _, m := range r.config.Providers[i].Models {
+			if m.Alias == aliasOrModel || m.ID == aliasOrModel {
+				return m, true
+			}
+		}
+		return config.ModelDef{}, false
+	}
+	return config.ModelDef{}, false
 }

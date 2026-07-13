@@ -16,7 +16,8 @@ type KeySelector interface {
 	SelectKey(providerID, model string, excludeKeyIDs []string) (*SelectedKey, error)
 	OnKeyFailure(providerID, keyID, model string, statusCode int, body string)
 	Settings() config.RotationConfig
-	WaitNIMInterval(providerID, keyID string) time.Duration
+	IsNIMEnabled(providerID, model string) bool
+	WaitNIMInterval(providerID, keyID, model string) time.Duration
 	OnNIMRequestSuccess(providerID, keyID, model string)
 	MarkNIM429(providerID, keyID, model string) time.Time
 }
@@ -76,9 +77,9 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("no available keys for provider %s (model %s)", providerID, model)
 	}
-	// Apply NIM per-key request-count filter.
-	if provider.IsNIM() {
-		candidates = s.filterNIMCandidates(provider.ID, candidates)
+	// Apply NIM per-key request-count filter when NIM throttling is active.
+	if s.IsNIMEnabled(providerID, model) {
+		candidates = s.filterNIMCandidates(provider.ID, model, candidates)
 	}
 	var chosen config.Key
 	strategy := s.effectiveStrategy(provider)
@@ -117,7 +118,7 @@ func (s *Selector) OnKeyFailure(providerID, keyID, model string, statusCode int,
 		return
 	}
 	// NIM 429 uses NIM-specific cooldown ladder, not exponential backoff.
-	if provider.IsNIM() && statusCode == 429 {
+	if statusCode == 429 && s.IsNIMEnabled(providerID, model) {
 		s.MarkNIM429(providerID, keyID, model)
 		return
 	}
@@ -155,6 +156,21 @@ func (s *Selector) UpdateSettings(newSettings config.RotationConfig) {
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 	*s.settings = newSettings
+}
+
+// IsNIMEnabled reports whether NIM throttling should be applied for this
+// (provider, model) combination. Returns true if the provider is NIM or
+// if the model has NIMOverride enabled.
+func (s *Selector) IsNIMEnabled(providerID, model string) bool {
+	provider, ok := s.reg.GetProvider(providerID)
+	if !ok {
+		return false
+	}
+	if provider.IsNIM() {
+		return true
+	}
+	modelNIM := s.getModelNIMOverride(providerID, model)
+	return modelNIM != nil && modelNIM.Enabled
 }
 
 // Compile-time interface checks.

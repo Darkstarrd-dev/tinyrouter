@@ -30,8 +30,21 @@ type Key struct {
 
 // ModelDef represents one upstream model with its quota type tag.
 type ModelDef struct {
-	ID        string `yaml:"id" json:"id"`
-	QuotaType string `yaml:"quotaType,omitempty" json:"quotaType,omitempty"` // "unlimited" | "limited" | "paid"
+	ID        string             `yaml:"id" json:"id"`
+	QuotaType string             `yaml:"quotaType,omitempty" json:"quotaType,omitempty"` // "unlimited" | "limited" | "paid"
+	Alias     string             `yaml:"alias,omitempty" json:"alias,omitempty"`
+	Note      string             `yaml:"note,omitempty" json:"note,omitempty"`
+	NIMOver   *ModelNIMOverride  `yaml:"nim,omitempty" json:"nim,omitempty"`
+}
+
+// ModelNIMOverride enables per-model NIM-style rate limiting (per-key request
+// counting and min-interval throttling). When nil or disabled, the model uses
+// standard rotation. When enabled, the model gets the same throttling as a NIM
+// provider, with its own per-key rotation count and min-interval values.
+type ModelNIMOverride struct {
+	Enabled            bool `yaml:"enabled" json:"enabled"`
+	RequestCountPerKey int  `yaml:"request_count_per_key,omitempty" json:"request_count_per_key,omitempty"`
+	MinIntervalMs      int  `yaml:"min_interval_ms,omitempty" json:"min_interval_ms,omitempty"`
 }
 
 // UnmarshalYAML supports both scalar strings and mapping nodes for backward compatibility.

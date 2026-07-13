@@ -190,45 +190,52 @@ async function renderProviderDetail(c, id) {
     return;
   }
   providerDetailCache = p;
+  var baseUrlEsc = escapeHtml(p.baseUrl);
+  var baseUrlAttr = escapeHtml(p.baseUrl);
   c.innerHTML = '\
     <div class="provider-detail">\
       <div class="provider-detail-header">\
-        <h2>' + escapeHtml(p.name) + '</h2>\
-        <div class="flex" style="gap:8px">\
-          <button type="button" class="btn btn-sm" onclick="backToProviderList()">' + t('back') + '</button>\
-          <button type="button" class="btn btn-sm" onclick="showEditProvider(\'' + p.id + '\')">' + t('edit') + '</button>\
-          <button type="button" class="btn btn-sm ' + (p.isActive ? '' : 'btn-primary') + '" onclick="toggleProvider(\'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
-          <button type="button" class="btn btn-sm btn-danger" onclick="deleteProvider(\'' + p.id + '\')">' + t('delete') + '</button>\
+        <div style="display:flex;align-items:baseline;gap:10px;min-width:0;flex:1;flex-wrap:wrap">\
+          <h2>' + escapeHtml(p.name) + '</h2>\
+          <p class="muted" id="detail-info-summary" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code copyable" data-copy="' + baseUrlAttr + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'))" title="' + t('clickToCopy') + '">' + baseUrlEsc + '</span></p>\
+          <div class="flex" style="gap:8px;flex-shrink:0">\
+            <button type="button" class="btn btn-sm" onclick="backToProviderList()">' + t('back') + '</button>\
+            <button type="button" class="btn btn-sm" onclick="showEditProvider(\'' + p.id + '\')">' + t('edit') + '</button>\
+            <button type="button" class="btn btn-sm ' + (p.isActive ? '' : 'btn-primary') + '" onclick="toggleProvider(\'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
+            <button type="button" class="btn btn-sm btn-danger" onclick="deleteProvider(\'' + p.id + '\')">' + t('delete') + '</button>\
+          </div>\
         </div>\
       </div>\
       <div class="provider-detail-body">\
         <div id="detail-info">\
-          <div class="detail-block">\
-            <p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code copyable" data-copy="' + escapeHtml(p.baseUrl) + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'))" title="' + t('clickToCopy') + '">' + escapeHtml(p.baseUrl) + '</span></p>\
-          </div>\
         </div>\
         <div id="detail-keys"></div>\
-        <div id="detail-rotation"></div>\
         <div id="detail-models"></div>\
       </div>\
     </div>';
   renderDetailKeys(p);
-  renderDetailRotation(p);
   renderDetailModels(p);
 }
 
 function renderDetailKeys(p) {
   const el = document.getElementById('detail-keys');
   const keys = p.keys || [];
+  const hasKeys = keys.length > 0;
   el.innerHTML = '\
     <div class="detail-block">\
-      <div class="section-title">' + t('keysTitle') + ' (' + keys.length + ')</div>\
-      <div class="flex mb-12" style="gap:8px">\
-        <button type="button" class="btn btn-sm btn-primary" onclick="showAddKeyDetail(\'' + p.id + '\')">' + t('addKey') + '</button>\
-        <button type="button" class="btn btn-sm" onclick="showBulkAddKeys(\'' + p.id + '\')">' + t('bulkAdd') + '</button>\
+      <div class="section-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">\
+        <span style="cursor:' + (hasKeys ? 'pointer' : 'default') + ';user-select:none" onclick="' + (hasKeys ? 'toggleKeysTable(\'' + p.id + '\')' : '') + '">\
+          <span id="keys-chevron-' + p.id + '" style="display:' + (hasKeys ? 'inline-block' : 'none') + ';transition:transform .2s;margin-right:4px;font-size:10px">\u25B6</span>' +
+          t('keysTitle') + ' (' + keys.length + ')\
+        </span>\
+        <div class="flex" style="gap:8px">\
+          <button type="button" class="btn btn-sm btn-primary" onclick="showAddKeyDetail(\'' + p.id + '\')">' + t('addKey') + '</button>\
+          <button type="button" class="btn btn-sm" onclick="showBulkAddKeys(\'' + p.id + '\')">' + t('bulkAdd') + '</button>\
+        </div>\
       </div>\
-      <div id="key-form-' + p.id + '"></div>' +
-      (keys.length === 0 ? emptyState(t('noKeys')) : '\
+      <div id="key-form-' + p.id + '"></div>\
+      <div id="keys-body-' + p.id + '" style="display:' + (hasKeys ? 'none' : '') + '">' +
+        (hasKeys ? '\
       <table>\
         <thead><tr><th>' + t('keyName') + '</th><th>' + t('actions') + '</th><th>' + t('key') + '</th><th>' + t('priority') + '</th><th>' + t('status') + '</th></tr></thead>\
         <tbody>' +
@@ -246,8 +253,20 @@ function renderDetailKeys(p) {
             </tr>';
           }).join('') + '\
         </tbody>\
-      </table>') + '\
+      </table>' : emptyState(t('noKeys'))) + '\
+      </div>\
     </div>';
+}
+
+function toggleKeysTable(pid) {
+  var body = document.getElementById('keys-body-' + pid);
+  var chevron = document.getElementById('keys-chevron-' + pid);
+  if (!body) return;
+  var isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? '' : 'none';
+  if (chevron) {
+    chevron.style.transform = isHidden ? 'rotate(90deg)' : '';
+  }
 }
 
 function showAddKeyDetail(providerId) {
@@ -426,6 +445,9 @@ function buildModelRowMainInner(p, m) {
   var pidEsc = escapeHtml(p.id);
   var prefixEsc = escapeHtml(p.prefix);
   var prefixJs = escapeForJsString(p.prefix);
+  // If alias exists, use it for display and copy instead of model id
+  var displayId = m.alias ? escapeHtml(m.alias) : midEsc;
+  var copySuffix = m.alias ? escapeForJsString(m.alias) : midJs;
   var allRes = allKeysTestResults[p.id + '/' + m.id];
   var allBadge = '';
   if (allRes && allRes.results) {
@@ -441,7 +463,7 @@ function buildModelRowMainInner(p, m) {
     : 'toggleModelDetailRow(event, \'' + pidEsc + '\', \'' + midJs + '\')';
   var modelIdOnclick = batchManageMode
     ? 'event.stopPropagation(); batchToggleModel(\'' + midJs + '\')'
-    : 'event.stopPropagation(); copyToClipboard(\'' + prefixJs + '/' + midJs + '\')';
+    : 'event.stopPropagation(); copyToClipboard(\'' + prefixJs + '/' + copySuffix + '\')';
   return '<div class="model-row-main" onclick="' + rowOnclick + '">' +
     chevronDown +
     '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midJs + '\'))">' + t('test') + '</button>' +
@@ -454,7 +476,10 @@ function buildModelRowMainInner(p, m) {
     allBadge +
     '<span class="model-quota-numbers"></span>' +
     '<button type="button" class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midJs + '\')">' + t('delete') + '</button>' +
-    '<span class="model-id copyable" onclick="' + modelIdOnclick + '" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + midEsc + '</span>' +
+    '<button type="button" class="btn btn-sm ' + (m.alias ? 'btn-primary' : '') + '" data-alias="' + escapeHtml(m.alias || '') + '" onclick="event.stopPropagation(); showModelAliasModal(\'' + pidEsc + '\', \'' + midJs + '\', this.getAttribute(\'data-alias\'))" title="' + t('alias') + '">' + t('alias') + '</button>' +
+    '<button type="button" class="btn btn-sm ' + (m.note ? 'btn-info' : '') + '" data-note="' + escapeHtml(m.note || '') + '" onclick="event.stopPropagation(); showModelNoteModal(\'' + pidEsc + '\', \'' + midJs + '\', this.getAttribute(\'data-note\'))" title="' + escapeHtml(m.note || t('note')) + '">' + t('note') + '</button>' +
+    '<button type="button" class="btn btn-sm ' + (m.nim && m.nim.enabled ? 'btn-primary' : '') + '" data-nim-enabled="' + (m.nim && m.nim.enabled ? '1' : '0') + '" data-nim-count="' + (m.nim ? (m.nim.request_count_per_key || 0) : 0) + '" data-nim-interval="' + (m.nim ? (m.nim.min_interval_ms || 0) : 0) + '" onclick="event.stopPropagation(); showModelNIMModal(\'' + pidEsc + '\', \'' + midJs + '\', this)" title="' + t('modelNIM') + '">' + t('modelNIM') + '</button>' +
+    '<span class="model-id copyable" onclick="' + modelIdOnclick + '" title="' + t('clickToCopy') + '">' + prefixEsc + '/' + displayId + '</span>' +
   '</div>';
 }
 
@@ -1094,21 +1119,38 @@ async function deleteProvider(id) {
 function showEditProvider(id) {
   var p = providerDetailCache;
   if (!p) return;
+  var strategy = p.rotationStrategy || '';
+  var sticky = p.stickyLimit || 0;
+  var summary = document.getElementById('detail-info-summary');
+  if (summary) summary.style.display = 'none';
   var el = document.getElementById('detail-info');
   el.innerHTML = '\
     <div class="card">\
       <div class="card-title">' + t('editProvider') + '</div>\
-      <div class="form-group mt-12"><label for="ep-name">' + t('name') + '</label><input id="ep-name" value="' + escapeHtml(p.name) + '"></div>\
-      <div class="form-group"><label for="ep-prefix">' + t('prefixLabel') + '</label><input id="ep-prefix" value="' + escapeHtml(p.prefix) + '"></div>\
-      <div class="form-group"><label for="ep-url">' + t('baseUrlLabel') + '</label><input id="ep-url" placeholder="https://api.deepseek.com  或  https://host/v1beta/openai" value="' + escapeHtml(p.baseUrl) + '"></div>\
-      <div class="form-hint">' + t('baseUrlHint') + '</div>\
+      <div class="flex" style="gap:12px">\
+        <div class="form-group" style="flex:1"><label for="ep-prefix">' + t('prefixLabel') + '</label><input id="ep-prefix" value="' + escapeHtml(p.prefix) + '"></div>\
+        <div class="form-group" style="flex:1"><label for="ep-name">' + t('name') + '</label><input id="ep-name" value="' + escapeHtml(p.name) + '"></div>\
+      </div>\
+      <div class="form-group"><label for="ep-url">' + t('baseUrlLabel') + ' <span class="form-hint" style="display:inline;margin:0 0 0 8px">' + t('baseUrlHint') + '</span></label><input id="ep-url" placeholder="https://api.deepseek.com  或  https://host/v1beta/openai" value="' + escapeHtml(p.baseUrl) + '"></div>\
       <div class="form-group mt-12">\
-        <label>' + t('useProxy') + '</label>\
+        <label>' + t('useProxy') + ' <span class="form-hint" style="display:inline;margin:0 0 0 8px">' + t('useProxyDesc') + '</span></label>\
         <label class="toggle-switch" for="ep-useproxy">\
           <input type="checkbox" id="ep-useproxy" ' + (p.useProxy ? 'checked' : '') + '>\
           <span class="toggle-slider"></span>\
         </label>\
-        <div class="form-hint">' + t('useProxyDesc') + '</div>\
+      </div>\
+      <div class="form-group mt-12">\
+        <label for="r-strategy">' + t('strategy') + '</label>\
+        <select id="r-strategy">\
+          <option value=""' + (strategy === '' ? ' selected' : '') + '>' + t('inheritGlobal') + '</option>\
+          <option value="fill-first"' + (strategy === 'fill-first' ? ' selected' : '') + '>' + t('fillFirst') + '</option>\
+          <option value="round-robin"' + (strategy === 'round-robin' ? ' selected' : '') + '>' + t('roundRobin') + '</option>\
+          <option value="failover"' + (strategy === 'failover' ? ' selected' : '') + '>' + t('failover') + '</option>\
+        </select>\
+      </div>\
+      <div class="form-group">\
+        <label for="r-sticky">' + t('stickyLabel') + '</label>\
+        <input type="number" id="r-sticky" value="' + sticky + '" style="max-width:120px">\
       </div>\
       <div class="flex" style="gap:8px">\
         <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditProvider(\'' + id + '\'))">' + t('save') + '</button>\
@@ -1124,6 +1166,8 @@ async function saveEditProvider(id) {
   p.prefix = document.getElementById('ep-prefix').value.trim();
   p.baseUrl = document.getElementById('ep-url').value.trim();
   p.useProxy = document.getElementById('ep-useproxy').checked;
+  p.rotationStrategy = document.getElementById('r-strategy').value;
+  p.stickyLimit = parseInt(document.getElementById('r-sticky').value) || 0;
   if (!p.name || !p.prefix || !p.baseUrl) {
     toast(t('requiredFields'), 'error');
     return;
@@ -1135,22 +1179,131 @@ async function saveEditProvider(id) {
   const np = (data.providers || []).find(function(x) { return x.id === id; });
   if (np) {
     providerDetailCache = np;
+    // Update h2 text
+    var h2 = document.querySelector('.provider-detail-header h2');
+    if (h2) h2.textContent = np.name;
+    // Update and show summary in header
+    var summary = document.getElementById('detail-info-summary');
+    if (summary) {
+      summary.innerHTML = t('prefix') + ' <span class="code">' + escapeHtml(np.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code copyable" data-copy="' + escapeHtml(np.baseUrl) + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'))" title="' + t('clickToCopy') + '">' + escapeHtml(np.baseUrl) + '</span>';
+      summary.style.display = '';
+    }
+    // Clear detail-info (rotation is now part of edit form)
     var infoEl = document.getElementById('detail-info');
     if (infoEl) {
-      infoEl.innerHTML = '<div class="card"><p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(np.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code">' + escapeHtml(np.baseUrl) + '</span></p></div>';
+      infoEl.innerHTML = '';
     }
-    var h2 = document.querySelector('.detail-header h2');
-    if (h2) h2.textContent = np.name;
-    renderDetailRotation(np);
   }
 }
 
 function cancelEditProvider() {
   var p = providerDetailCache;
   if (!p) return;
+  var summary = document.getElementById('detail-info-summary');
+  if (summary) summary.style.display = '';
   var el = document.getElementById('detail-info');
-  el.innerHTML = '\
-    <div class="card">\
-      <p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code">' + escapeHtml(p.baseUrl) + '</span></p>\
-    </div>';
+  el.innerHTML = '';
+}
+
+// ===================== Model Alias / Note / NIM Modals =====================
+
+function showModelAliasModal(pid, mid, currentAlias) {
+  openSettingsModal(t('setAlias'),
+    '<div class="form-group">\
+      <label>' + t('aliasDesc') + '</label>\
+      <input id="modal-alias-input" value="' + escapeHtml(currentAlias) + '" placeholder="e.g. my-fast-model">\
+    </div>'
+  );
+  document.getElementById('settings-modal-save').onclick = function() {
+    withLoading(this, function() { return saveModelAlias(pid, mid); });
+  };
+}
+
+async function saveModelAlias(pid, mid) {
+  var alias = document.getElementById('modal-alias-input').value.trim();
+  try {
+    await apiPatch('/providers/' + pid + '/models/alias', { model: mid, alias: alias });
+    toast(t('aliasSaved'), 'success');
+    closeModalOverlay();
+    currentProviderId = pid;
+    renderProviders(document.getElementById('page-content'));
+  } catch (e) {
+    toast(e.message || t('failed'), 'error');
+  }
+}
+
+function showModelNoteModal(pid, mid, currentNote) {
+  openSettingsModal(t('setNote'),
+    '<div class="form-group">\
+      <label>' + t('noteDesc') + '</label>\
+      <textarea id="modal-note-input" rows="4" style="width:100%;resize:vertical">' + escapeHtml(currentNote) + '</textarea>\
+    </div>'
+  );
+  document.getElementById('settings-modal-save').onclick = function() {
+    withLoading(this, function() { return saveModelNote(pid, mid); });
+  };
+}
+
+async function saveModelNote(pid, mid) {
+  var note = document.getElementById('modal-note-input').value.trim();
+  try {
+    await apiPatch('/providers/' + pid + '/models/note', { model: mid, note: note });
+    toast(t('noteSaved'), 'success');
+    closeModalOverlay();
+    currentProviderId = pid;
+    renderProviders(document.getElementById('page-content'));
+  } catch (e) {
+    toast(e.message || t('failed'), 'error');
+  }
+}
+
+function showModelNIMModal(pid, mid, btnEl) {
+  var enabled = btnEl.getAttribute('data-nim-enabled') === '1';
+  var reqCount = parseInt(btnEl.getAttribute('data-nim-count')) || 0;
+  var minInterval = parseInt(btnEl.getAttribute('data-nim-interval')) || 0;
+  openSettingsModal(t('modelNIM'),
+    '<p class="muted">' + t('nimDesc') + '</p>\
+    <div class="form-group">\
+      <label>' + t('nimEnabled') + '\
+        <label class="toggle-switch" style="margin-left:8px">\
+          <input type="checkbox" id="modal-nim-enabled" ' + (enabled ? 'checked' : '') + '>\
+          <span class="toggle-slider"></span>\
+        </label>\
+      </label>\
+    </div>\
+    <div class="form-group">\
+      <label>' + t('nimRequestCount') + '</label>\
+      <input type="number" id="modal-nim-count" value="' + reqCount + '" placeholder="30" style="max-width:120px">\
+    </div>\
+    <div class="form-group">\
+      <label>' + t('nimMinInterval') + '</label>\
+      <input type="number" id="modal-nim-interval" value="' + minInterval + '" placeholder="2000" style="max-width:120px">\
+      <div class="form-hint">' + t('nimMinIntervalHint') + '</div>\
+    </div>'
+  );
+  document.getElementById('settings-modal-save').onclick = function() {
+    withLoading(this, function() { return saveModelNIM(pid, mid); });
+  };
+}
+
+async function saveModelNIM(pid, mid) {
+  var enabled = document.getElementById('modal-nim-enabled').checked;
+  var count = parseInt(document.getElementById('modal-nim-count').value) || 0;
+  var interval = parseInt(document.getElementById('modal-nim-interval').value) || 0;
+  try {
+    await apiPatch('/providers/' + pid + '/models/nim', {
+      model: mid,
+      nim: {
+        enabled: enabled,
+        request_count_per_key: count,
+        min_interval_ms: interval
+      }
+    });
+    toast(t('nimSaved'), 'success');
+    closeModalOverlay();
+    currentProviderId = pid;
+    renderProviders(document.getElementById('page-content'));
+  } catch (e) {
+    toast(e.message || t('failed'), 'error');
+  }
 }

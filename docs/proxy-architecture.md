@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/proxy/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-13，仓库提交 `c2f89c6`（`main`）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-14，当前 HEAD。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -33,10 +33,10 @@ flowchart LR
 本文的核心结论：
 
 1. `proxy` 包通过 6 个能力接口（而非具体类型）接收依赖，使代理核心对 `rotation`/`combo`/`registry`/`usage`/`config` 仅做结构性依赖（interfaces.go）。
-2. 请求生命周期在 `handleProxy` → `forwardWithRetry`（for 循环）→ `forwardUpstream` → `streamResponse`/`passThroughResponse` 中闭环；combo 在 `handleCombo` 中逐目标递归进入 `forwardWithRetry`（forward.go:14、forward.go:87、forward.go:124、upstream.go:66、stream.go:138、stream.go:309）。
+2. 请求生命周期在 `handleProxy` → `forwardWithRetry`（for 循环）→ `forwardUpstream` → `streamResponse`/`passThroughResponse` 中闭环；combo 在 `handleCombo` 中逐目标递归进入 `forwardWithRetry`（forward.go:14、forward.go:93、forward.go:130、upstream.go:66、stream.go:138、stream.go:309）。
 3. SSE 默认原样透传（逐 32KB 块读取 + flush），仅在 `NormalizeStreamChunks` 开启时把 `"choices":null` 规范为 `[]`；流式与非流式的 token 提取均为 last-chunk-wins（stream.go:181-293、stream.go:309-341）。
 4. 重试/故障转移是一台纯“切 Key”的状态机（除 SenseNova TPM 同 Key 等待重试外），决策分布在 3 个错误处理器中（handleNetworkError/handle429/handleUpstreamError，retry.go:52-305）。
-5. Gemini OpenAI-compatible 的 `thought_signature` 采用“流式捕获、发出请求时回填”的非对称缓存（signature_cache.go:25-104、forward.go:308-349、stream.go:444-490）。
+5. Gemini OpenAI-compatible 的 `thought_signature` 采用“流式捕获、发出请求时回填”的非对称缓存（signature_cache.go:25-104、forward.go:314-355、stream.go:444-490）。
 
 ## 2. 事实优先级
 
@@ -98,8 +98,8 @@ flowchart LR
 | 接口 | 行 | 实现类型 | 关键方法 |
 |---|---|---|---|
 | `Logger` | interfaces.go:16-21 | `*console.Logger` | `Info/Error/Warn/Debug` |
-| `KeyProvider` | interfaces.go:27-38 | `*rotation.Selector` | `SelectKey`、`WaitNIMInterval`、`ClearError`、`OnNIMRequestSuccess`、`Settings`、`OnKeyFailure`、`MarkNIM429`、`MarkDailyQuotaLocked`、`MarkRateLimited`、`MarkBalanceLocked` |
-| `ModelResolver` | interfaces.go:48-56 | `*registry.Registry` | `GetQuickSlotByName`、`GetProviderByPrefix`、`GetProvider`、`GetKeyState`、`ListProviders`、`ListCombos`、`ListQuickSlots` |
+| `KeyProvider` | interfaces.go:27-39 | `*rotation.Selector` | `SelectKey`、`IsNIMEnabled`、`WaitNIMInterval`、`ClearError`、`OnNIMRequestSuccess`、`Settings`、`OnKeyFailure`、`MarkNIM429`、`MarkDailyQuotaLocked`、`MarkRateLimited`、`MarkBalanceLocked` |
+| `ModelResolver` | interfaces.go:48-58 | `*registry.Registry` | `GetQuickSlotByName`、`GetProviderByPrefix`、`GetProvider`、`GetKeyState`、`ListProviders`、`ListCombos`、`ListQuickSlots`、`ResolveModelAlias` |
 | `ComboResolver` | interfaces.go:61-64 | `*combo.Resolver` | `IsComboName`、`Resolve` |
 | `UsageRecorder` | interfaces.go:68-70 | `usage.UsageStore`（含 `*usage.RingBuffer`） | `Add` |
 | `QuotaTracker` | interfaces.go:75-77 | `*usage.QuotaTracker` | `Update`、`RemoveKey` |
@@ -120,10 +120,10 @@ flowchart LR
 flowchart TD
     R["router.go:194 ChatCompletions"] --> HC["handler.go:156 ChatCompletions"]
     HC --> HP["forward.go:14 handleProxy"]
-    HP -->|"IsComboName"| HCB["forward.go:87 handleCombo"]
+    HP -->|"IsComboName"| HCB["forward.go:93 handleCombo"]
     HP -->|"quickslot"| QS["forward.go:51 GetQuickSlotByName + SelectedIndex"]
     HP --> PR["forward.go:65 util.SplitModel + GetProviderByPrefix"]
-    HCB --> FWR["forward.go:124 forwardWithRetry (for)"]
+    HCB --> FWR["forward.go:130 forwardWithRetry (for)"]
     QS --> FWR
     PR --> FWR
     FWR --> SEL["rotation.SelectKey (retry.go 通过 KeyProvider)"]
@@ -141,31 +141,31 @@ flowchart TD
 
 关键阶段：
 
-1. **入口与解析：** `ChatCompletions`（handler.go:156-158）调用 `handleProxy(w, r, "/v1/chat/completions")`。`handleProxy`（forward.go:14-85）先用 `http.MaxBytesReader` 限制请求体 32 MiB（forward.go:17），读全部 body 并 `json.Unmarshal`（forward.go:18-28），强制校验非空 `model`（forward.go:30-34）；其余字段原则上透传。
+1. **入口与解析：** `ChatCompletions`（handler.go:156-158）调用 `handleProxy(w, r, "/v1/chat/completions")`。`handleProxy`（forward.go:14-91）先用 `http.MaxBytesReader` 限制请求体 32 MiB（forward.go:17），读全部 body 并 `json.Unmarshal`（forward.go:18-28），强制校验非空 `model`（forward.go:30-34）；其余字段原则上透传。
 2. **模型解析分支：**
    - 命中 combo 名 → `handleCombo`（forward.go:46-49）。
    - 命中 quickslot → 取 `qs.Models[qs.SelectedIndex]`（越界回退 0，forward.go:51-63）。
-   - 否则 `util.SplitModel` 拆 `provider/model`，再 `GetProviderByPrefix` 解析为真实 provider ID（forward.go:65-77）。
-3. **`forwardWithRetry` 循环（forward.go:124-269）：** 每次迭代 `SelectKey`（forward.go:135），标记 key in-flight（forward.go:142-145），写 request-start 事件（forward.go:179-202），调用 `forwardUpstream`（forward.go:205）。根据返回分流：
-   - 网络错误 → `handleNetworkError` → `continue`（forward.go:207-217）；
-   - 429 → `handle429` → `continue`（forward.go:219-227）；
-   - `>=400` → `handleUpstreamError` → `continue`（forward.go:229-237）；
-   - 2xx → `ClearError`、更新 quota、NIM 成功计数，然后按 `isStream` 进入 `streamResponse` 或 `passThroughResponse` 并返回 `true`（forward.go:239-268）。
+   - 否则 `util.SplitModel` 拆 `provider/model`，再 `GetProviderByPrefix` 解析为真实 provider ID（forward.go:65-77），然后 `ResolveModelAlias` 将 alias 解析为真实 model ID（forward.go:79-83）。
+3. **`forwardWithRetry` 循环（forward.go:130-276）：** 每次迭代 `SelectKey`（forward.go:141），标记 key in-flight（forward.go:148-151），写 request-start 事件（forward.go:186-208），调用 `forwardUpstream`（forward.go:211）。根据返回分流：
+   - 网络错误 → `handleNetworkError` → `continue`（forward.go:213-223）；
+   - 429 → `handle429` → `continue`（forward.go:225-233）；
+   - `>=400` → `handleUpstreamError` → `continue`（forward.go:235-243）；
+   - 2xx → `ClearError`、更新 quota、NIM 成功计数，然后按 `isStream` 进入 `streamResponse` 或 `passThroughResponse` 并返回 `true`（forward.go:245-274）。
 4. **流式 vs 非流式：** 流式走 `streamResponse`（stream.go:138-307）逐块转发并 flush；非流式走 `passThroughResponse`（stream.go:309-341）整段读取后写出。
-5. **重试循环：** 循环在 `forwardWithRetry` 顶层的 `for {}`（forward.go:134）中持续，直到成功返回或所有 key 耗尽（`excludeKeyIDs` 覆盖全部可用 key 后 `SelectKey` 报错，forward.go:135-139）。
+5. **重试循环：** 循环在 `forwardWithRetry` 顶层的 `for {}`（forward.go:140）中持续，直到成功返回或所有 key 耗尽（`excludeKeyIDs` 覆盖全部可用 key 后 `SelectKey` 报错，forward.go:141-145）。
 
 ## 6. 模型解析
 
-### 6.1 Combo（handleCombo，forward.go:87-122）
+### 6.1 Combo（handleCombo，forward.go:93-128）
 
-`handleCombo` 先 `comboRes.Resolve`（forward.go:88）拿到 `plan.Targets`，再按 `plan.Strategy` 分支：
+`handleCombo` 先 `comboRes.Resolve`（forward.go:94）拿到 `plan.Targets`，再按 `plan.Strategy` 分支：
 
-- **fallback：** 遍历 `plan.Targets`，对每个目标调用 `forwardWithRetry`；任一成功即 `return`，全部失败回 502（forward.go:100-106）。
-- **round-robin：** **固定使用 `plan.Targets[0]`**，仅调用一次 `forwardWithRetry`（forward.go:107-111）。注意：轮转由 `rotation` 内部 key 选择完成，combo 层不轮转目标。
-- **greedy-squirrel：** 与 fallback 同形，遍历 `plan.Targets` 逐个 `forwardWithRetry`（forward.go:112-118）。
-- 未知策略 → 400（forward.go:119-120）。
+- **fallback：** 遍历 `plan.Targets`，对每个目标调用 `forwardWithRetry`；任一成功即 `return`，全部失败回 502（forward.go:106-112）。
+- **round-robin：** **固定使用 `plan.Targets[0]`**，仅调用一次 `forwardWithRetry`（forward.go:113-117）。注意：轮转由 `rotation` 内部 key 选择完成，combo 层不轮转目标。
+- **greedy-squirrel：** 与 fallback 同形，遍历 `plan.Targets` 逐个 `forwardWithRetry`（forward.go:118-124）。
+- 未知策略 → 400（forward.go:125-127）。
 
-`forwardWithRetry` 的 `logLabel` 传入 `"[combo:name] "` 前缀用于日志区分（forward.go:98）。
+`forwardWithRetry` 的 `logLabel` 传入 `"[combo:name] "` 前缀用于日志区分（forward.go:104）。
 
 ### 6.2 QuickSlot
 
@@ -175,6 +175,7 @@ flowchart TD
 
 - `util.SplitModel(modelStr)` 把 `provider/model` 拆为 `providerID, upstreamModel`（forward.go:65）。
 - `reg.GetProviderByPrefix(providerID)` 按前缀解析为真实 provider（forward.go:72-77），随后 `providerID` 被替换为 `provider.ID`，供 `forwardWithRetry` 使用。
+- **Alias 解析**：`GetProviderByPrefix` 之后调用 `ResolveModelAlias`（forward.go:79-83），将用户可能使用的 alias 解析为真实 model ID。如果该 model 设置了 alias 且用户发送的是 `prefix/alias`，此处将 `upstreamModel` 替换为真实 model ID 再转发给上游。未设置 alias 时行为不变。
 ## 7. 上游转发与 body 改写
 
 ### 7.1 forwardUpstream（upstream.go:66-100）
@@ -195,13 +196,13 @@ flowchart TD
   2. **Host root（无路径）：** `isHostRoot` 为真（`u.Path==""` 或 `"/"`）→ 注入 `/v1` 后追加完整 `endpointPath`（upstream.go:49-51、upstream.go:58-64）。
   3. **Path-bearing：** 去掉 endpointPath 的 `/v1` 前缀，把剩余 suffix 直接拼到归一化 base（upstream.go:46、upstream.go:53-54）。
 
-### 7.3 Body 改写（在 forwardWithRetry 内，forward.go:124-173）
+### 7.3 Body 改写（在 forwardWithRetry 内，forward.go:130-179）
 
 在每次 `forwardUpstream` 之前、选定 key 之后改写 `parsed` map 并重新 `json.Marshal`：
 
-- **`stream_options` 注入：** 仅当 `isStream && cfgProvider.InjectStreamOpts` 且 body 无 `stream_options` 时注入 `{"include_usage":true}`（forward.go:128-132）。
-- **model 替换：** `parsed["model"] = upstreamModel`，用真实上游模型名替换客户端模型名（forward.go:164）。
-- **thought_signature 回填：** 仅当 `cfgProvider.IsGeminiOpenAICompat()` 时调用 `backfillThoughtSignatures(parsed, h.sigCache)`（forward.go:165-167），见第 10 节。
+- **`stream_options` 注入：** 仅当 `isStream && cfgProvider.InjectStreamOpts` 且 body 无 `stream_options` 时注入 `{"include_usage":true}`（forward.go:134-138）。
+- **model 替换：** `parsed["model"] = upstreamModel`，用真实上游模型名替换客户端模型名（forward.go:170）。
+- **thought_signature 回填：** 仅当 `cfgProvider.IsGeminiOpenAICompat()` 时调用 `backfillThoughtSignatures(parsed, h.sigCache)`（forward.go:171-173），见第 10 节。
 
 上述改写作用于当前重试迭代的 body；每次循环都基于原始 `parsed`（combo 传入的同一 map）重新执行，因此重试之间不会互相污染。
 
@@ -292,7 +293,7 @@ type retryState struct {
 | SenseNova tpm | **同一 key 等待 15s 重试一次**（最长阻塞一个 goroutine），失败再冷却切 key（retry.go:153-174） |
 | 402 余额耗尽 | `MarkBalanceLocked` + 移除 quota，切下一 key（retry.go:255-263） |
 | 5xx | `ClassifyError` 动作 + 短退避，切下一 key（retry.go:241-305） |
-| combo 目标全部失败 | 上一层 `handleCombo` 切**下一 combo 目标**（forward.go:100-118） |
+| combo 目标全部失败 | 上一层 `handleCombo` 切**下一 combo 目标**（forward.go:106-124） |
 
 `excludeSameAccountKeys`（retry.go:332-342）把当前 key 及同 `Account` 的其他 key 一并加入 `excludeKeyIDs`。
 
@@ -302,8 +303,8 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 
 - **SignatureCache（signature_cache.go:25-104）：** 内存缓存，key 为 `tool_call id`，value 为 `sigEntry{signature, putAt}`（signature_cache.go:16-19）。`TTL = 10m`、`maxEntries = 10000`（signature_cache.go:32-35）。**惰性驱逐**：`Put` 时删除过期项，达容量则删除 `putAt` 最早项（signature_cache.go:52-79）；`Get` 不刷新 `putAt`，读取不会“续命”条目（signature_cache.go:83-94）。`SignatureCacheProvider` 接口（signature_cache.go:11-14）使测试可注入 mock。
 - **流式提取：** `extractThoughtSignature`（stream.go:444-490）在 `streamResponse` 每收到 `data:` payload 时从 `delta.tool_calls[].extra_content.google.thought_signature` 提取首个匹配并 `sigCache.Put`（stream.go:200-202、228-230、280-282）。**签名仅从流式响应捕获。**
-- **回填（backfillThoughtSignatures，forward.go:308-349）：** 遍历请求的 `messages`，对 `role==assistant` 且 `tool_calls` 中缺少 `thought_signature` 的项，按 `tool_call id` 从 `sigCache.Get` 回填到 `extra_content.google.thought_signature`（forward.go:342-346）。已存在签名不覆盖，cache miss 静默跳过（best-effort）。
-- **触发条件：** 仅在 `cfgProvider.IsGeminiOpenAICompat()` 为真时回填（forward.go:165-167）。该判定要求 BaseURL 同时包含 `generativelanguage.googleapis.com` 与 `/openai`（config/types.go:109-117）。
+- **回填（backfillThoughtSignatures，forward.go:314-355）：** 遍历请求的 `messages`，对 `role==assistant` 且 `tool_calls` 中缺少 `thought_signature` 的项，按 `tool_call id` 从 `sigCache.Get` 回填到 `extra_content.google.thought_signature`（forward.go:348-352）。已存在签名不覆盖，cache miss 静默跳过（best-effort）。
+- **触发条件：** 仅在 `cfgProvider.IsGeminiOpenAICompat()` 为真时回填（forward.go:171-173）。该判定要求 BaseURL 同时包含 `generativelanguage.googleapis.com` 与 `/openai`（config/types.go:109-117）。
 - **非对称性：** 签名只从流式响应捕获，回填进**发出**的请求 body（上游非流式、combo、quickslot 等路径只要经 `forwardWithRetry` 且命中 Gemini 条件即回填）。
 - **往返测试：** `stream_signature_e2e_test.go`（`TestStreamSignature_RoundTrip`）覆盖捕获→回填闭环。相关提交 `c2f89c6`。
 
@@ -330,7 +331,7 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 
 ### 12.1 EntryTracker（entry_tracker.go:13-82）
 
-按 request ID 跟踪“处理中（processing）”用量条目（`map[string]usage.Entry` + `sync.RWMutex`）。`Register`/`Get`/`Remove`/`All`/`Exists`（entry_tracker.go:25-72），`MarshalEntryJSON` 做 JSON 序列化（entry_tracker.go:76-82）。`streamResponse` 进入前 `EntryTracker.Register(processingEntry)` 并 `broadcastRequestStart`，结束/失败后 `EntryTracker.Remove`（forward.go:179-202、209、221、231、261、272-282）。
+按 request ID 跟踪“处理中（processing）”用量条目（`map[string]usage.Entry` + `sync.RWMutex`）。`Register`/`Get`/`Remove`/`All`/`Exists`（entry_tracker.go:25-72），`MarshalEntryJSON` 做 JSON 序列化（entry_tracker.go:76-82）。`streamResponse` 进入前 `EntryTracker.Register(processingEntry)` 并 `broadcastRequestStart`，结束/失败后 `EntryTracker.Remove`（forward.go:186-208、215、227、237、267、278-288）。
 
 ### 12.2 InflightTracker（inflight.go:11-88）
 
@@ -363,13 +364,13 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
    - `ctx.Done()` → 退出；
    - `30s` 超时 → `: keepalive` 注释行（api/sse_events.go:74-76）。
 
-`broadcastRequestStart`（forward.go:272-282）在每次 `forwardWithRetry` 迭代发出 `request-start` 事件，经 `RequestUpdates.Broadcast`。
+`broadcastRequestStart`（forward.go:278-288）在每次 `forwardWithRetry` 迭代发出 `request-start` 事件，经 `RequestUpdates.Broadcast`。
 ## 13. 响应契约
 
 - **流式成功头**（stream.go:157-163）：`Content-Type: text/event-stream`、`Cache-Control: no-cache`、`Connection: keep-alive`、`X-TinyRouter-Provider`、`X-TinyRouter-Key`；状态码恒为 200（stream.go:164）。
 - **非流式成功头**（stream.go:312-316）：`Content-Type: application/json` + `X-TinyRouter-*`；**状态码原样透传上游**（stream.go:317）。
-- **本地代理错误**：`writeError`（forward.go:284-293）写 `Content-Type: application/json` + 状态码 + `{"error":{"message":...,"type":"proxy_error"}}`。
-- **502 全 key 耗尽**：`handleProxy` 在 `forwardWithRetry` 返回 `false` 时写 `writeError(w, 502, "all keys exhausted")`；combo 全目标失败写 `all keys exhausted for combo: <name>`（forward.go:82-84、106、110、118）。
+- **本地代理错误**：`writeError`（forward.go:290-298）写 `Content-Type: application/json` + 状态码 + `{"error":{"message":...,"type":"proxy_error"}}`。
+- **502 全 key 耗尽**：`handleProxy` 在 `forwardWithRetry` 返回 `false` 时写 `writeError(w, 502, "all keys exhausted")`；combo 全目标失败写 `all keys exhausted for combo: <name>`（forward.go:88-90、112、116、124）。
 - **上游状态透传语义**：非流式 verbatim（stream.go:317）；流式恒 200（错误已在重试阶段拦截或回 502）。
 
 ## 14. 状态模型（结构体总览）
@@ -394,7 +395,7 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 以下为当前实现事实，不代表都要在同一轮修复：
 
 1. **未鉴权的 `/v1/*`：** `/v1/chat/completions`、`/v1/completions`、`/v1/models` 在 `AuthMiddleware` 之外（router.go:194-196、213-215），任意客户端（含跨域）可达。
-2. **流式 body 改写无连接级隔离：** `backfillThoughtSignatures` / `stream_options` 注入直接改写共享的 `parsed` map（虽每次循环重做，但同一迭代内生效），combo 多目标共享同一 `bodyBytes`/`parsed` 引用（forward.go:128-167）。
+2. **流式 body 改写无连接级隔离：** `backfillThoughtSignatures` / `stream_options` 注入直接改写共享的 `parsed` map（虽每次循环重做，但同一迭代内生效），combo 多目标共享同一 `bodyBytes`/`parsed` 引用（forward.go:134-173）。
 3. **64 MiB 非流式缓冲：** `passThroughResponse` 整段读取上限 64 MiB，超大上游响应会占内存（stream.go:319）。
 4. **normalize-false 双写 guard 微妙：** raw 模式的尾部 `Remaining` 已在循环中写出，必须避免重复写出（stream.go:256-290），逻辑依赖“循环中已 `w.Write(buf[:n])`”的隐式约定。
 5. **last-chunk-wins token：** `inputTokens`/`outputTokens` 被后续 chunk 覆盖，usage 仅反映最后一次提取结果（stream.go:196-199、224-227、276-279）。
@@ -428,10 +429,10 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 
 - **已测：** 上游转发成功/网络错误、URL 构造、重试耗尽、429/5xx/402 各类错误分支、SenseNova rpm/tpm、combo fallback、SSE 行缓冲与 normalize、token/签名提取、签名缓存 LRU/TTL、回填、在途速度、recordUsage、调试捕获、SetProxy、UseProxy。
 - **未充分覆盖：**
-  - **greedy-squirrel / round-robin combo：** 仅 `fallback` 路径经 `TestComboResponse_Fallback` 测试；`round-robin`（Targets[0]，forward.go:108）与 `greedy-squirrel`（forward.go:112-118）无专门单测。
+  - **greedy-squirrel / round-robin combo：** 仅 `fallback` 路径经 `TestComboResponse_Fallback` 测试；`round-robin`（Targets[0]，forward.go:114）与 `greedy-squirrel`（forward.go:118-124）无专门单测。
   - **Completions 入口：** `Completions`（handler.go:160）仅作转发，无针对 `/v1/completions` 的专用测试。
   - **passThroughResponse：** 仅经往返/e2e 间接覆盖，SSE 行级测试集中于 `stream_test.go`，非流式写出逻辑缺少独立单测。
-  - **broadcastRequestStart / EntryTracker 重放：** `broadcastRequestStart`（forward.go:272-282）经 handler 测试间接覆盖；`EntryTracker.All` 重放（api/sse_events.go:34-42）无单测。
+  - **broadcastRequestStart / EntryTracker 重放：** `broadcastRequestStart`（forward.go:278-288）经 handler 测试间接覆盖；`EntryTracker.All` 重放（api/sse_events.go:34-42）无单测。
   - **Broadcaster 满缓冲丢弃：** `Broadcast`/`Signal` 的 buffer-drop 行为无直接单测（broadcaster.go:57-80）。
   - **maxBackoffRetries 边界：** `maxBackoffRetries=10`（retry.go:114）的边界未被专门测试。
 
@@ -450,8 +451,8 @@ go build -o tinyrouter .
 后端与集成：
 
 - `internal/proxy/handler.go`：Handler 结构体（15-36）、构造函数 New（43-80）、ChatCompletions/Completions（156-162）、SetProxy（102-142）、SetUpstreamTimeout（147-154）、SetDebugModeProvider（164-173）。
-- `internal/proxy/interfaces.go`：6 个能力接口 Logger/KeyProvider/ModelResolver/ComboResolver/UsageRecorder/QuotaTracker（16-77）。
-- `internal/proxy/forward.go`：handleProxy（14-85）、handleCombo（87-122）、forwardWithRetry（124-269）、broadcastRequestStart（272-282）、writeError（284-293）、backfillThoughtSignatures（308-349）、hasThoughtSignature（351-362）。
+- `internal/proxy/interfaces.go`：6 个能力接口 Logger/KeyProvider/ModelResolver/ComboResolver/UsageRecorder/QuotaTracker（16-81）。
+- `internal/proxy/forward.go`：handleProxy（14-91）、handleCombo（93-128）、forwardWithRetry（130-276）、broadcastRequestStart（278-288）、writeError（290-298）、backfillThoughtSignatures（314-355）、hasThoughtSignature（357-368）。
 - `internal/proxy/upstream.go`：normalizeBaseURL（16-25）、BuildUpstreamURL（37-55）、forwardUpstream（66-100）。
 - `internal/proxy/stream.go`：SSELineBuffer（15-40）、SSEDataPayloads（49-63）、normalizeSSEChunk（73-109）、streamResponse（138-307）、passThroughResponse（309-341）、parseAndBroadcastChunk（349-368）、chunkDelta/parseSSEChunkDelta（371-418）、extractThoughtSignature（444-490）。
 - `internal/proxy/retry.go`：retryState（14-21）、maxRetries（33-39）、logRequest（42-49）、handleNetworkError（52-59）、handle429（62-235）、handleUpstreamError（241-305）、classifySenseNova429（318-327）、excludeSameAccountKeys（332-342）。
@@ -481,8 +482,8 @@ go build -o tinyrouter .
 |---|---|
 | 新增/修改 `/v1/*` 路由 | api/router.go 挂载（194-196）+ CORS preflight（181-191）+ 鉴权边界（auth 组外，213-215）+ securityHeaders 跳过（151-164） |
 | 修改重试策略 | retry.go 三个错误处理器（52-305）+ rotation.ClassifyError / Selector + retryState（14-21） |
-| 修改 body 改写 | forward.go:124-173（stream_options / model / backfill）+ upstream.go（头与 URL） |
+| 修改 body 改写 | forward.go:79-83（alias 解析）+ forward.go:130-179（stream_options / model / backfill）+ upstream.go（头与 URL） |
 | 修改 SSE 改写 | stream.go:138-307 + normalizeSSEChunk（73-109）+ SSELineBuffer（15-40）+ passThroughResponse（309-341） |
-| 修改 Gemini 签名 | signature_cache.go（11-104）+ forward.go backfill（308-349）+ stream.go extract（444-490）+ config IsGeminiOpenAICompat（109-117） |
+| 修改 Gemini 签名 | signature_cache.go（11-104）+ forward.go backfill（314-355）+ stream.go extract（444-490）+ config IsGeminiOpenAICompat（109-117） |
 | 修改用量/在途 | recorder.go（16-90）+ entry_tracker.go（13-82）+ inflight.go（11-88）+ broadcaster.go（9-80）+ api/sse_events.go（16-79） |
-| 新增 combo 策略 | combo/resolver + handleCombo 分支（forward.go:87-122） |
+| 新增 combo 策略 | combo/resolver + handleCombo 分支（forward.go:93-128） |

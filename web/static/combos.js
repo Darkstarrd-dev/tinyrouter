@@ -203,7 +203,8 @@ async function importModelsFromProvider(target) {
       html += '<div class="muted" style="margin-bottom:8px">' + t('noModels') + '</div>';
     } else {
       for (var j = 0; j < models.length; j++) {
-        var fullId = p.prefix + '/' + models[j].id;
+        var displayId = models[j].alias || models[j].id;
+        var fullId = p.prefix + '/' + displayId;
         html += '<div class="import-model-item" data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
       }
     }

@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/combo/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-13，仓库提交 `c2f89c6`（`main`）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-14，当前 HEAD。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -103,6 +103,7 @@ func (r *Resolver) IsComboName(name string) bool {
    - `isModelDisabled(m, combo.DisabledModels)` 为真（精确相等）→ 跳过（resolver.go:58-60、193-200）；
    - `prefix, model := util.SplitModel(m)`（resolver.go:61），`prefix==""`（无 `/`）→ 跳过（resolver.go:62-64）；
    - `provider, ok := r.reg.GetProviderByPrefix(prefix)`（resolver.go:66），未命中 → `log.Printf` 警告并跳过（resolver.go:67-70）；
+   - **Alias 解析**：`r.reg.ResolveModelAlias(prefix, model)`（resolver.go:74），若命中则用真实 ID 替换 `model`（resolver.go:75-76）；因为 API 返回的 model 列表使用 alias（如果有），combo 配置中存储的也是 `prefix/alias`，所以需要先解析为真实 ID 再匹配 provider 的 Models 列表中的 QuotaType；
    - 构建 `ModelTarget{ProviderID: provider.ID, Model: model}`（resolver.go:71），遍历 `provider.Models` 按 `md.ID == model` 取 `QuotaType`（resolver.go:72-77），空则兜底 `"limited"`（resolver.go:78-80）；
    - append（resolver.go:81）。
 4. **空 targets：** `len(targets)==0` → 返回 `(nil, nil)`（resolver.go:84-86）。
@@ -164,6 +165,7 @@ proxy 只取 `plan.Targets[0]`（forward.go:108-111），失败写 502（forward
 
 - **字符串格式：** `combo.Models` 元素为 `"prefix/model"`，`util.SplitModel` 在**第一个** `/` 处切分（util/util.go:6-13）。`"a/b/c"` → `("a","b/c")`（测试 resolver_test.go:222-236 验证）；无 `/` → `("", 原串)`（resolver.go:62-64 跳过）。
 - **前缀解析：** `prefix` 经 `GetProviderByPrefix` 解出 provider（resolver.go:66），`ModelTarget.ProviderID` 存 `provider.ID` 而非 `prefix`（resolver.go:71）；`ModelTarget.Model` 存切分后的剩余部分。
+- **Alias 解析：** 当 model 设置了 alias 时，API 返回 `prefix/alias`，combo 配置中存储的也是 `prefix/alias`。Resolver 在解析时会先通过 `ResolveModelAlias`（resolver.go:74）将 alias 解析为真实 model ID，再进行 QuotaType 匹配（resolver.go:78-83）。
 - **配额层级来源：** `QuotaType` 来自 `config.ModelDef`（types.go:32-34），按 `provider.Models` 中 `md.ID == model` 匹配（resolver.go:72-77）。`finalizeConfig` 把空 `QuotaType` 填 `"limited"`（defaults.go:98-100）；`Resolve` 内若仍取不到也兜底 `"limited"`（resolver.go:78-80）。
 - **层级判定：** `sortTargetsByTier` 的 `switch`（resolver.go:177-184）：`"unlimited"` / `"paid"` 各有专属桶，`default`（含任意未知字符串、空串）落入 `limited` 桶——**不做 QuotaType 合法性校验**。
 
@@ -294,7 +296,7 @@ go build -o tinyrouter .
 
 本包（internal/combo）：
 
-- `resolver.go`：ModelTarget（15-19）、ComboPlan（22-25）、Resolver 结构体（28-34）、comboState（36-39）、New（42-44）、Resolve 算法（47-100）、rotateTargets（103-129）、SetStateHook（132-136）、SnapshotComboStates（139-151）、RestoreComboState（155-170）、sortTargetsByTier（174-191）、isModelDisabled（193-200）、IsComboName（203-206）、ListCombos（209-211）。
+- `resolver.go`：ModelTarget（15-19）、ComboPlan（22-25）、Resolver 结构体（28-34）、comboState（36-39）、New（42-44）、Resolve 算法（47-106）、rotateTargets（103-129）、SetStateHook（132-136）、SnapshotComboStates（139-151）、RestoreComboState（155-170）、sortTargetsByTier（174-191）、isModelDisabled（193-200）、IsComboName（203-206）、ListCombos（209-211）。
 
 外部依赖：
 
@@ -311,8 +313,8 @@ go build -o tinyrouter .
 
 | 变更类型 | 必查位置 |
 |---|---|
-| 新增/修改策略 | resolver.go Resolve（47-100）+ rotateTargets（103-129）/sortTargetsByTier（174-191）+ proxy/forward.go handleCombo（87-122） |
-| 修改配额层级 | sortTargetsByTier（177-184）+ config/types.go ModelDef.QuotaType（32-34）+ defaults.go（98-100）+ resolver.go 兜底 limited（78-80） |
+| 新增/修改策略 | resolver.go Resolve（47-106）+ rotateTargets（103-129）/sortTargetsByTier（174-191）+ proxy/forward.go handleCombo（87-122） |
+| 修改配额层级 | sortTargetsByTier（177-184）+ config/types.go ModelDef.QuotaType（32-34）+ defaults.go（98-100）+ resolver.go 兜底 limited（78-80）+ alias 解析 resolver.go:74-76 |
 | 修改 combo 配置 | config/types.go Combo（129-136）+ defaults.go Combos（55）+ registry/combos.go 读写 |
 | 修改状态持久化 | resolver.go SnapshotComboStates（139-151）/RestoreComboState（155-170）+ state/state.go ComboSnapshot（41-44）+ app.go 接线（165、168） |
 | 修改 model 字符串格式 | util/util.go SplitModel（6-13）+ resolver.go Resolve 遍历与 SplitModel 调用（56-82） |

@@ -13,6 +13,46 @@ func getNIMDefaults() (int, int, []int) {
 	return 30, 2200, []int{15, 30}
 }
 
+// getModelNIMOverride returns the per-model NIM override config if enabled.
+// Returns nil if the override is not set or not enabled.
+func (s *Selector) getModelNIMOverride(providerID, model string) *config.ModelNIMOverride {
+	provider, ok := s.reg.GetProvider(providerID)
+	if !ok {
+		return nil
+	}
+	for _, m := range provider.Models {
+		if m.ID == model {
+			if m.NIMOver != nil && m.NIMOver.Enabled {
+				return m.NIMOver
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+// getEffectiveNIMSettings returns NIM settings, considering per-model override.
+// If the model has NIMOverride enabled, use the model's settings (with default
+// cooldown ladder). Otherwise, fall back to the provider's NIMConfig.
+func (s *Selector) getEffectiveNIMSettings(providerID, model string) (reqCount int, minIntervalMs int, ladderMin []int) {
+	// First check model-level override
+	if modelNIM := s.getModelNIMOverride(providerID, model); modelNIM != nil {
+		reqCount = modelNIM.RequestCountPerKey
+		if reqCount <= 0 {
+			reqCount = 30
+		}
+		minIntervalMs = modelNIM.MinIntervalMs
+		if minIntervalMs <= 0 {
+			minIntervalMs = 2200
+		}
+		// Model-level override has no cooldown ladder config; use defaults.
+		_, _, ladderMin = getNIMDefaults()
+		return
+	}
+	// Fall back to provider level
+	return s.getNIMSettings(providerID)
+}
+
 // getNIMSettings reads the provider's NIMConfig and returns effective values.
 func (s *Selector) getNIMSettings(providerID string) (reqCount int, minIntervalMs int, ladderMin []int) {
 	provider, ok := s.reg.GetProvider(providerID)
@@ -38,7 +78,8 @@ func (s *Selector) getNIMSettings(providerID string) (reqCount int, minIntervalM
 
 // WaitNIMInterval returns the duration to wait before sending the next request on
 // this (key, model) pair to satisfy min_interval. Returns 0 if no wait is needed.
-func (s *Selector) WaitNIMInterval(providerID, keyID string) time.Duration {
+// The model parameter is used to resolve per-model NIM override settings.
+func (s *Selector) WaitNIMInterval(providerID, keyID, model string) time.Duration {
 	state := s.reg.GetKeyState(providerID, keyID)
 	if state == nil {
 		return 0
@@ -46,7 +87,7 @@ func (s *Selector) WaitNIMInterval(providerID, keyID string) time.Duration {
 	state.Lock()
 	defer state.Unlock()
 
-	_, minIntervalMs, _ := s.getNIMSettings(providerID)
+	_, minIntervalMs, _ := s.getEffectiveNIMSettings(providerID, model)
 	if state.NIMLastSendTime.IsZero() {
 		return 0
 	}
@@ -61,6 +102,7 @@ func (s *Selector) WaitNIMInterval(providerID, keyID string) time.Duration {
 // OnNIMRequestSuccess increments the NIM request count for the key and updates
 // the last send timestamp. If the count reaches RequestCountPerKey, the key is
 // rotated to the back of the queue (count reset, RotatedAt = now).
+// The model parameter is used to resolve per-model NIM override settings.
 func (s *Selector) OnNIMRequestSuccess(providerID, keyID, model string) {
 	state := s.reg.GetKeyState(providerID, keyID)
 	if state == nil {
@@ -72,7 +114,7 @@ func (s *Selector) OnNIMRequestSuccess(providerID, keyID, model string) {
 	state.NIMRequestCount++
 	state.NIMLastSendTime = time.Now()
 
-	reqCount, _, _ := s.getNIMSettings(providerID)
+	reqCount, _, _ := s.getEffectiveNIMSettings(providerID, model)
 	if state.NIMRequestCount >= reqCount {
 		state.NIMRequestCount = 0
 		state.RotatedAt = time.Now()
@@ -86,6 +128,7 @@ func (s *Selector) OnNIMRequestSuccess(providerID, keyID, model string) {
 // the cooldown level, computes the lock duration from the ladder (capped at the
 // last entry), sets ModelLocks[model], rotates the key to back, and records the
 // 429 time for 24h level reset.
+// The model parameter is used to resolve per-model NIM override settings.
 func (s *Selector) MarkNIM429(providerID, keyID, model string) time.Time {
 	state := s.reg.GetKeyState(providerID, keyID)
 	if state == nil {
@@ -94,7 +137,7 @@ func (s *Selector) MarkNIM429(providerID, keyID, model string) time.Time {
 	state.Lock()
 	defer state.Unlock()
 
-	_, _, ladderMin := s.getNIMSettings(providerID)
+	_, _, ladderMin := s.getEffectiveNIMSettings(providerID, model)
 
 	if state.NIMLast429Time.IsZero() || time.Since(state.NIMLast429Time) > 24*time.Hour {
 		state.NIMCooldownLevel = 0
@@ -141,8 +184,9 @@ func resetNIMRequestCount(state *registry.KeyRuntimeState) {
 // the next round — this models "rotate-to-back without cooldown": a key that
 // has finished its 30 requests is reusable as soon as it naturally reaches
 // the front of the queue again.
-func (s *Selector) filterNIMCandidates(providerID string, candidates []config.Key) []config.Key {
-	reqCount, _, _ := s.getNIMSettings(providerID)
+// The model parameter is used to resolve per-model NIM override settings.
+func (s *Selector) filterNIMCandidates(providerID, model string, candidates []config.Key) []config.Key {
+	reqCount, _, _ := s.getEffectiveNIMSettings(providerID, model)
 
 	var filtered []config.Key
 	for _, k := range candidates {

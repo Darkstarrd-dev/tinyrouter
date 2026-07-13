@@ -187,7 +187,7 @@ func TestWaitMinInterval(t *testing.T) {
 	_, sel := setupNIMTest(t)
 
 	// No previous send → wait should be 0.
-	wait := sel.WaitNIMInterval("nvidia", "a")
+	wait := sel.WaitNIMInterval("nvidia", "a", "gpt-4")
 	if wait != 0 {
 		t.Fatalf("expected wait 0 for first send, got %v", wait)
 	}
@@ -198,7 +198,7 @@ func TestWaitMinInterval(t *testing.T) {
 	state.NIMLastSendTime = time.Now().Add(-50 * time.Millisecond) // 50ms ago, min_interval is 100ms
 	state.Unlock()
 
-	wait = sel.WaitNIMInterval("nvidia", "a")
+	wait = sel.WaitNIMInterval("nvidia", "a", "gpt-4")
 	if wait <= 0 {
 		t.Fatal("expected positive wait when interval not yet elapsed")
 	}
@@ -211,7 +211,7 @@ func TestWaitMinInterval(t *testing.T) {
 	state.NIMLastSendTime = time.Now().Add(-200 * time.Millisecond)
 	state.Unlock()
 
-	wait = sel.WaitNIMInterval("nvidia", "a")
+	wait = sel.WaitNIMInterval("nvidia", "a", "gpt-4")
 	if wait != 0 {
 		t.Fatalf("expected wait 0 after interval elapsed, got %v", wait)
 	}

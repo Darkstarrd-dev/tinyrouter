@@ -22,8 +22,12 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(p.Models) > 0 {
 			for _, m := range p.Models {
+				displayID := m.ID
+				if m.Alias != "" {
+					displayID = m.Alias
+				}
 				models = append(models, modelObj{
-					ID:      p.Prefix + "/" + m.ID,
+					ID:      p.Prefix + "/" + displayID,
 					Object:  "model",
 					OwnedBy: p.Name,
 				})

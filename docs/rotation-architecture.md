@@ -1,8 +1,8 @@
-# TinyRouter Rotation Key 轮询架构
+﻿# TinyRouter Rotation Key 轮询架构
 
 > **文档定位：** `internal/rotation/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-13，仓库提交 `c2f89c6`（`main`）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-14，当前 HEAD。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -305,41 +305,57 @@ type ErrorRule struct {
 
 ## 10. NIM 支持
 
-NIM（NVIDIA）走独立路径，由 `Provider.IsNIM()`（config/types.go:102-107，APIType=="nim" 或 BaseURL 含 "nvidia"）自动判定。
+NIM（NVIDIA）走独立路径，由 `Provider.IsNIM()`（config/types.go:102-107，APIType=="nim" 或 BaseURL 含 "nvidia"）自动判定。此外，**非 NIM provider 下的单个 model 也可通过 `ModelNIMOverride` 独立启用 NIM 限速**（见 10.6 节）。provider 级别 NIM 优先级高于 model 级别。
 
 ### 10.1 配置与默认值
 
 - `NIMSettings`（config/types.go:121-126）：`RequestCountPerKey`、`MinIntervalMs`、`CooldownLadderMin`、`MaxConcurrent`。
+- `ModelNIMOverride`（config/types.go:40-48）：per-model 级别 NIM 覆盖，含 `Enabled`、`RequestCountPerKey`、`MinIntervalMs`（无 `CooldownLadderMin`，使用默认值）。
 - `getNIMDefaults`（nim.go:12-14）：`reqCount=30`、`minIntervalMs=2200`、`ladder=[15,30]`（分钟）。
 - `getNIMSettings`（nim.go:17-37）：无 `NIMConfig` 或字段为 0 时回退默认值（nim.go:19-35）。
+- `getModelNIMOverride`（nim.go:18-35）：在 provider.Models 中查找匹配 model 的 `NIMOver` 字段；若 `nil` 或 `Enabled==false` 返回 nil。
+- `getEffectiveNIMSettings`（nim.go:37-55）：先尝试 model 级别覆盖（`getModelNIMOverride`），若命中且启用则使用其值（cooldown ladder 用默认 `[15,30]`），否则回退到 provider 级别的 `getNIMSettings`。
 
 ### 10.2 最小间隔与成功计数
 
-- `WaitNIMInterval`（nim.go:41-59）：读取 `NIMLastSendTime`，若 `elapsed < minIntervalMs` 返回剩余等待，否则 0；无前次发送返回 0（nim.go:50-52）。
-- `OnNIMRequestSuccess`（nim.go:64-83）：`NIMRequestCount++`、`NIMLastSendTime=now`；达 `reqCount` 时计数清零并 `RotatedAt=now`（nim.go:72-79），触发 `onStateChange`（nim.go:80-82）。
+- `WaitNIMInterval(providerID, keyID, model)`（nim.go:82-104）：读取 `NIMLastSendTime`，若 `elapsed < minIntervalMs` 返回剩余等待，否则 0；无前次发送返回 0。`minIntervalMs` 通过 `getEffectiveNIMSettings` 解析，支持 per-model 覆盖。
+- `OnNIMRequestSuccess`（nim.go:106-130）：`NIMRequestCount++`、`NIMLastSendTime=now`；达 `reqCount` 时计数清零并 `RotatedAt=now`（通过 `getEffectiveNIMSettings` 读取 `reqCount`），触发 `onStateChange`。
 
 ### 10.3 NIM 429 阶梯
 
-`MarkNIM429`（nim.go:89-121）：若距 `NIMLast429Time` 超过 24h 则 `NIMCooldownLevel` 归零（nim.go:99-101）；否则 `++`（nim.go:103）；按 `ladderMin[idx]` 取时长、`idx` 越界取末项（nim.go:105-109）；设 `ModelLocks[model]`、`ModelStatus="cooldown"`、`NIMLast429Time=now`、`RotatedAt=now`（nim.go:112-116）。
+`MarkNIM429`（nim.go:132-172）：若距 `NIMLast429Time` 超过 24h 则 `NIMCooldownLevel` 归零；否则 `++`；按 `ladderMin[idx]` 取时长、`idx` 越界取末项；设 `ModelLocks[model]`、`ModelStatus="cooldown"`、`NIMLast429Time=now`、`RotatedAt=now`。`ladderMin` 通过 `getEffectiveNIMSettings` 解析（provider 的 `CooldownLadderMin` 或 model 覆盖的默认 `[15,30]` 分钟）。
 
 ### 10.4 候选过滤（key 计数轮转）
 
-`filterNIMCandidates`（nim.go:144-171）：保留 `NIMRequestCount < reqCount` 的 key（nim.go:148-156，经 `isNIMCandidateAvailable` nim.go:123-127）；若**全部** key 都已用尽本轮配额（无 429 冷却），则整体 `resetNIMRequestCount`（nim.go:129-133、164-170）重置本轮计数再返回全部候选——即“计数轮转、无冷却”（nim.go:144-171）。
+`filterNIMCandidates(providerID, model, candidates)`（nim.go:188-216）：保留 `NIMRequestCount < reqCount` 的 key（经 `isNIMCandidateAvailable`）；若**全部** key 都已用尽本轮配额（无 429 冷却），则整体 `resetNIMRequestCount` 重置本轮计数再返回全部候选——即“计数轮转、无冷却”。`reqCount` 通过 `getEffectiveNIMSettings` 解析，支持 per-model 覆盖。
 
 ### 10.5 失败分发（OnKeyFailure）
 
-`OnKeyFailure`（selector.go:113-129）：provider 不存在 → `MarkUnavailable`（selector.go:115-117）；**NIM 且 statusCode==429** → `MarkNIM429`（selector.go:119-123）；failover 策略 → `RotateToBack`（selector.go:124-127）；其余 → `MarkUnavailable`（selector.go:128）。
+`OnKeyFailure`（selector.go:114-133）：provider 不存在 → `MarkUnavailable`；**`IsNIMEnabled` 且 statusCode==429** → `MarkNIM429`；failover 策略 → `RotateToBack`；其余 → `MarkUnavailable`。`IsNIMEnabled`（selector.go:164-177）检查 provider 级别（`provider.IsNIM()`）和 model 级别（`getModelNIMOverride`）的 NIM 状态，provider 级别优先。
 
 ```mermaid
 flowchart TD
-    OF["OnKeyFailure (selector.go:113)"] -->|"provider 不存在"| MA["MarkUnavailable"]
-    OF -->|"IsNIM && 429"| N429["MarkNIM429 (nim.go:89)"]
-    OF -->|"failover"| RB["RotateToBack (selector.go:134)"]
+    OF["OnKeyFailure (selector.go:114)"] -->|"provider 不存在"| MA["MarkUnavailable"]
+    OF -->|"IsNIMEnabled && 429"| N429["MarkNIM429 (nim.go:132)"]
+    OF -->|"failover"| RB["RotateToBack (selector.go:135)"]
     OF -->|"其他"| MA
-    SK["SelectKey NIM 分支 (selector.go:80)"] --> FN["filterNIMCandidates (nim.go:144)"]
+    SK["SelectKey (selector.go:48)"] --> ISNIM{"IsNIMEnabled?"}
+    ISNIM -->|"是"| FN["filterNIMCandidates (nim.go:188)"]
+    ISNIM -->|"否"| ST["策略分发"]
     FN -->|"有可用"| F1["返回 filtered"]
-    FN -->|"全部用尽"| F2["resetNIMRequestCount 全池 (164-170)"]
+    FN -->|"全部用尽"| F2["resetNIMRequestCount 全池"]
 ```
+
+### 10.6 Per-model NIM 覆盖
+
+非 NIM provider 下的单个 model 可通过 `ModelNIMOverride` 独立启用 NIM 限速：
+
+- **配置入口：** `ModelDef.NIMOver`（config/types.go:37），YAML 字段 `model.nim`。
+- **字段：** `Enabled`（bool）、`RequestCountPerKey`（int，默认 30）、`MinIntervalMs`（int，默认 2200）。
+- **无 `CooldownLadderMin`**：per-model 覆盖使用默认阶梯 `[15, 30]` 分钟。
+- **优先级：** provider 级别 `IsNIM()` 为 true 时，model 级别 `NIMOverride` 被忽略，所有 model 使用 provider 的 `NIMConfig`。
+- **生效路径：** `getModelNIMOverride`（nim.go:18-35）在 provider.Models 中查找匹配 model 的 `NIMOver`；`getEffectiveNIMSettings`（nim.go:37-55）先查 model 覆盖，未命中或未启用时回退到 `getNIMSettings`；所有 NIM 方法（`WaitNIMInterval`、`OnNIMRequestSuccess`、`MarkNIM429`、`filterNIMCandidates`）均通过 `getEffectiveNIMSettings` 读取参数。
+- **门控：** `IsNIMEnabled(providerID, model)`（selector.go:164-177）代替 `provider.IsNIM()` 作为 NIM 限速的总入口，proxy 层（forward.go、retry.go）和 `SelectKey`、`OnKeyFailure` 均使用此方法。
 
 ## 11. 速率限制头解析
 
@@ -462,19 +478,19 @@ go build -o tinyrouter .
 
 本包（internal/rotation）：
 
-- `selector.go`：KeySelector 接口（14-22）、Selector 结构体（24-30）、New（32-34）、SetStateHook（36-39）、SelectedKey（41-45）、SelectKey 算法（47-108）、OnKeyFailure 分发（113-129）、RotateToBack（134-146）、Settings（148-152）、UpdateSettings（154-158）、编译期检查（160-161）。
+- `selector.go`：KeySelector 接口（xx-xx）、Selector 结构体（xx-xx）、New（xx-xx）、SetStateHook（xx-xx）、SelectedKey（xx-xx）、SelectKey 算法（xx-xx）、IsNIMEnabled（xx-xx）、OnKeyFailure 分发（xx-xx）、RotateToBack（xx-xx）、Settings（xx-xx）、UpdateSettings（xx-xx）、编译期检查（xx-xx）。
 - `strategy.go`：selectRotation（39-64）、selectFillFirst（66-77）、selectRoundRobin（79-130）、effectiveStrategy（132-137）、effectiveStickyLimit（139-144）。
 - `cooldown.go`：CooldownManager 接口（14-20）、MarkUnavailable（22-49）、ClearError（51-68）、isKeyAvailable（70-92）、BackoffSequence（96-113）、IsDailyQuota429（123-128）、nextCSTMidnight05（130-141）、MarkDailyQuotaLocked（143-159）、MarkBalanceLocked（165-181）、MarkRateLimited（186-202）、编译期检查（204-205）。
 - `error_rules.go`：ErrorAction（8-15）、ErrorRule（17-23）、DefaultErrorRules（28-50）、DefaultTransientCooldownSec（53）、ClassifyError（58-74）、IsBalanceExhausted（80-86）。
-- `nim.go`：getNIMDefaults（12-14）、getNIMSettings（17-37）、WaitNIMInterval（41-59）、OnNIMRequestSuccess（64-83）、MarkNIM429（89-121）、isNIMCandidateAvailable（123-127）、resetNIMRequestCount（129-133）、filterNIMCandidates（144-171）。
+- `nim.go`：getNIMDefaults（xx-xx）、getNIMSettings（xx-xx）、getModelNIMOverride（xx-xx）、getEffectiveNIMSettings（xx-xx）、WaitNIMInterval（xx-xx）、OnNIMRequestSuccess（xx-xx）、MarkNIM429（xx-xx）、isNIMCandidateAvailable（xx-xx）、resetNIMRequestCount（xx-xx）、filterNIMCandidates（xx-xx）。
 - `ratelimit.go`：QuotaSnapshot（13-18）、HasQuota/ModelExhausted（21-28）、RatelimitAdapter（31-33）、ModelScopeAdapter（36-49）、NoopAdapter（52-56）、adapterRegistry（59-64）、GetAdapter（71-80）、atoiSafe（82-85）。
 
 外部依赖：
 
 - `internal/registry/state.go`：KeyRuntimeState 承载 per-key 运行时状态（21-45）、QuotaInfo（12-18）、GetKeyState（69-73）、Inc/Dec/GetInFlight（48-60）、UpdateQuota/GetQuota（166-186）。
-- `internal/config/types.go`：RotationConfig（11-19）、Provider（74-96，含 RotationStrategy 83、StickyLimit 84、NIMConfig 92）、IsNIM（102-107）、NIMSettings（121-126）、Config.Rotation（208）。
+- `internal/config/types.go`：RotationConfig（11-19）、Provider（74-96，含 RotationStrategy 83、StickyLimit 84、NIMConfig 92）、ModelDef（32-38，含 Alias 35、Note 36、NIMOver 37）、ModelNIMOverride（44-48）、IsNIM（102-107）、NIMSettings（121-126）、Config.Rotation（208）。
 - `internal/config/defaults.go`：DefaultConfig 的 Rotation 默认（44-52，含 Strategy 45、StickyLimit 46、MaxRetries 47、RetryDelaySec 48、BackoffMaxSec 49）。
-- `internal/proxy/interfaces.go`：KeyProvider（27-38，省略 MarkUnavailable 的 KeySelector 子集）。
+- `internal/proxy/interfaces.go`：KeyProvider（xx-xx，含 IsNIMEnabled、WaitNIMInterval 带 model 参数，省略 MarkUnavailable 的 KeySelector 子集）。
 
 ## 18. 变更维护清单
 
@@ -484,6 +500,6 @@ go build -o tinyrouter .
 | 修改冷却 / 退避 | cooldown.go MarkUnavailable（22-49）与 BackoffSequence（96-113）+ BackoffMaxSec（34-37、defaults.go:49）；注意两套系统相互独立 |
 | 修改配额锁 | nextCSTMidnight05（130-141）+ MarkDailyQuotaLocked（143-159）/ MarkBalanceLocked（165-181）+ IsDailyQuota429（123-128） |
 | 修改错误分类 | error_rules.go DefaultErrorRules（28-50）+ ClassifyError（58-74）+ IsBalanceExhausted（80-86）+ DefaultTransientCooldownSec（53） |
-| 修改 NIM | nim.go（getNIMSettings/WaitNIMInterval/OnNIMRequestSuccess/MarkNIM429/filterNIMCandidates）+ config NIMSettings（121-126）+ IsNIM（102-107）+ OnKeyFailure NIM 分支（selector.go:119-123） |
+| 修改 NIM | nim.go（getNIMSettings/getModelNIMOverride/getEffectiveNIMSettings/WaitNIMInterval/OnNIMRequestSuccess/MarkNIM429/filterNIMCandidates）+ config NIMSettings（121-126）+ ModelNIMOverride（40-48）+ IsNIM（102-107）+ selector.go IsNIMEnabled + OnKeyFailure NIM 分支 + proxy 层 IsNIMEnabled 门控（forward.go、retry.go） |
 | 修改速率限制头 | ratelimit.go 各 Adapter（36-56）+ adapterRegistry（59-64）+ GetAdapter（71-80） |
 | 修改运行时状态字段 | registry/state.go KeyRuntimeState（21-45）+ state.yaml 快照/恢复（SnapshotKeyState 90-116、RestoreKeyState 130-163） |

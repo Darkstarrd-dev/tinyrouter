@@ -69,6 +69,12 @@ func (r *Resolver) Resolve(comboName string) (*ComboPlan, error) {
 			continue
 		}
 		mt := ModelTarget{ProviderID: provider.ID, Model: model}
+		// Resolve alias to real model ID: combo config may reference models by
+		// alias (matching the display ID returned by the API).
+		if realID, found := r.reg.ResolveModelAlias(prefix, model); found {
+			mt.Model = realID
+			model = realID
+		}
 		for _, md := range provider.Models {
 			if md.ID == model {
 				mt.QuotaType = md.QuotaType

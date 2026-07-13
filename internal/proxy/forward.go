@@ -76,6 +76,12 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 	}
 	providerID = provider.ID
 
+	// Resolve alias to real model ID: if the user specified an alias, find
+	// the actual model ID before forwarding to the upstream.
+	if realID, found := h.reg.ResolveModelAlias(provider.Prefix, upstreamModel); found {
+		upstreamModel = realID
+	}
+
 	// NIM providers must not participate in Combo routing: the model name
 	// carries a nv/* prefix and never matches a combo name, so no combo
 	// resolution is attempted for them — fall through to the forward path.
@@ -149,8 +155,8 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		// NIM min_interval: wait if too soon since last send on this key.
-		if cfgProvider != nil && cfgProvider.IsNIM() {
-			if wait := h.selector.WaitNIMInterval(providerID, sel.Key.ID); wait > 0 {
+		if cfgProvider != nil && h.selector.IsNIMEnabled(providerID, upstreamModel) {
+			if wait := h.selector.WaitNIMInterval(providerID, sel.Key.ID, upstreamModel); wait > 0 {
 				h.logger.Debug("NIM min_interval wait %v for key %s", wait, sel.Key.Name)
 				select {
 				case <-r.Context().Done():
@@ -243,7 +249,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		h.parseAndUpdateQuota(sel, providerID, upstreamModel, resp.Header)
 
 		// NIM: track request count and rotate if limit reached.
-		if cfgProvider != nil && cfgProvider.IsNIM() {
+		if cfgProvider != nil && h.selector.IsNIMEnabled(providerID, upstreamModel) {
 			h.selector.OnNIMRequestSuccess(providerID, sel.Key.ID, upstreamModel)
 		}
 

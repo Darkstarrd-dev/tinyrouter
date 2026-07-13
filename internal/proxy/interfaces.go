@@ -26,7 +26,8 @@ type Logger interface {
 // satisfies it structurally, so the proxy no longer names the concrete type.
 type KeyProvider interface {
 	SelectKey(providerID, model string, excluded []string) (*rotation.SelectedKey, error)
-	WaitNIMInterval(providerID, keyID string) time.Duration
+	IsNIMEnabled(providerID, model string) bool
+	WaitNIMInterval(providerID, keyID, model string) time.Duration
 	ClearError(providerID, keyID, model string)
 	OnNIMRequestSuccess(providerID, keyID, model string)
 	Settings() config.RotationConfig
@@ -53,6 +54,7 @@ type ModelResolver interface {
 	ListProviders() []config.Provider
 	ListCombos() []config.Combo
 	ListQuickSlots() []config.QuickSlot
+	ResolveModelAlias(providerPrefix, aliasOrModelID string) (modelID string, found bool)
 }
 
 // ComboResolver abstracts combo-name resolution. It is the exact subset of
