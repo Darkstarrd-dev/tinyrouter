@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/config/`、`internal/registry/`、`internal/state/` 三个包共同构成的 **配置定义 + 内存注册表 + 运行时状态持久化** 基础设施的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-14，当前 HEAD。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-14，仓库提交 `69df6de`（`main`，v1.6.5）。`QuickSlot.SelectedIndex` 去除 `omitempty`（0 值持久化），类型行号随 `ModelDef` 扩展整体下移。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -96,9 +96,9 @@ flowchart TD
 | `Provider` | types.go:74-96 | `ID`/`Name`/`Prefix`/`BaseURL`/`APIType`/`IsActive`/`Keys`/`Models`/`RotationStrategy`/`StickyLimit`/`InjectStreamOpts`/`NormalizeStreamChunks`/`NIMConfig`/`UseProxy` 等 |
 | `ModelNIMOverride` | types.go:44-48 | per-model NIM 限速覆盖（`Enabled`、`RequestCountPerKey`、`MinIntervalMs`），为 nil 时使用标准轮转 |
 | `NIMSettings` | types.go:121-126 | `RequestCountPerKey` / `MinIntervalMs` / `CooldownLadderMin` / `MaxConcurrent` |
-| `Combo` | types.go:129-136 | `ID` / `Name` / `Strategy` / `Models` / `Disabled` / `DisabledModels` |
-| `QuickSlot` | types.go:139-147 | `ID` / `Name` / `Models` / `Disabled` / `DisabledModels` / `Order` / `SelectedIndex` |
-| `SecurityConfig` | types.go:150-154 | `PasswordEnabled` / `PasswordEncrypted` / `EncryptionKey` |
+| `Combo` | types.go:142-149 | `ID` / `Name` / `Strategy` / `Models` / `Disabled` / `DisabledModels` |
+| `QuickSlot` | types.go:152-160 | `ID` / `Name` / `Models` / `Disabled` / `DisabledModels` / `Order` / `SelectedIndex`。`SelectedIndex` 无 `omitempty`——0 值也会落盘/回传，保证选中第 1 个模型（index 0）在前端 round-trip 后不丢失 |
+| `SecurityConfig` | types.go:163-167 | `PasswordEnabled` / `PasswordEncrypted` / `EncryptionKey` |
 | `MonitorConfig` | types.go:157-161 | `Enabled` / `AllowedCommands` / `MaxLineLength` |
 | `ServerConfig` | types.go:175-180 | `ReadTimeoutSec` / `WriteTimeoutSec` / `IdleTimeoutSec` / `UpstreamTimeoutSec` |
 | `ProxyConfig` | types.go:184-188 | `Enabled` / `Host` / `Port` |

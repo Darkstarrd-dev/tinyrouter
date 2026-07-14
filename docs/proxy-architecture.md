@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/proxy/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-14，当前 HEAD。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-14，仓库提交 `69df6de`（`main`，v1.6.5）。`recordUsage` 新增 `entry.Source` 回填（来自 `X-TinyRouter-Source` 头）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -310,13 +310,14 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 
 ## 11. 用量记录与请求事件
 
-### 11.1 recordUsage（recorder.go:16-66）
+### 11.1 recordUsage（recorder.go:16-69）
 
 `recordUsage` 在成功（流式/非流式）与所有错误处理器中被调用，写入一条 `usage.Entry`：
 
 - 字段： `ID`、`Timestamp`、`Provider`、`Model`、`KeyID`、`KeyName`、`Status`、`LatencyMs`、`TTFTMs`、`InputTokens`、`OutputTokens`、`Error`，以及调试态的 `ReqPayload`/`RespPayload`/`RespHeaders`/`RespStatus`/`ReqHeaders`/`UpstreamURL`（recorder.go:17-53）。
-- **调试捕获：** 仅 `debugMode()` 时记录；响应体超过 `512 KiB` 截断，非法 JSON 包装为 `{"raw":...}`（recorder.go:31-52）。
-- **广播链路：** `h.usage.Add(entry)`（recorder.go:54）→ `RequestUpdates.Broadcast(RequestEvent{Type:"request-done", ...})`（recorder.go:57-64）→ `h.UsageUpdates.Signal()`（recorder.go:65）。
+- **来源标记（始终写入，非仅调试态）：** 若请求带 `X-TinyRouter-Source` 头，则 `entry.Source = reqHeaders.Get("X-TinyRouter-Source")`（recorder.go:31-33）。当前 Playground 前端固定发 `X-TinyRouter-Source: playground`，使管理 UI 的 Recent Requests 面板可按 `source` 过滤；未带该头的请求 `Source` 为空（`json:"source,omitempty"` 不输出）。
+- **调试捕获：** 仅 `debugMode()` 时记录；响应体超过 `512 KiB` 截断，非法 JSON 包装为 `{"raw":...}`（recorder.go:34-55）。
+- **广播链路：** `h.usage.Add(entry)`（recorder.go:56）→ `RequestUpdates.Broadcast(RequestEvent{Type:"request-done", ...})`（recorder.go:59-66）→ `h.UsageUpdates.Signal()`（recorder.go:67）。
 - **调用点：** 成功流式（stream.go:306）、成功非流式（stream.go:340）、网络错误（retry.go:56）、429（retry.go:78、108、120、133、152、160、173、186、193、200、211、220、234）、上游错误（retry.go:250、259、278）。
 
 ### 11.2 generateRequestID（request_events.go:24-31）
@@ -472,7 +473,7 @@ go build -o tinyrouter .
 - `internal/rotation`：`Selector` 实现 KeyProvider（SelectKey/WaitNIMInterval/ClearError/OnNIMRequestSuccess/Settings/OnKeyFailure/MarkNIM429/MarkDailyQuotaLocked/MarkRateLimited/MarkBalanceLocked）；`GetAdapter`/`ParseHeaders`/`BackoffSequence`/`ClassifyError`/`IsDailyQuota429`/`IsBalanceExhausted`/`DefaultTransientCooldownSec`。
 - `internal/combo`：`Resolver` 实现 ComboResolver（`IsComboName`/`Resolve`）；`ComboPlan.Targets` 携带 `ProviderID`/`Model`。
 - `internal/registry`：`Registry` 实现 ModelResolver；`KeyRuntimeState` 承载 per-key 运行时状态（InFlight/Quota）。
-- `internal/usage`：`RingBuffer` 实现 UsageRecorder.Add；`Entry` 为用量记录结构；`QuotaTracker` 实现 QuotaTracker（Update/RemoveKey）。
+- `internal/usage`：`RingBuffer` 实现 UsageRecorder.Add；`Entry` 为用量记录结构（含 `Source` 来源标记字段）；`QuotaTracker` 实现 QuotaTracker（Update/RemoveKey）。
 - `internal/config`：`Provider`/`QuickSlot`/`Combo`/`RotationConfig`；`Provider.IsNIM`/`IsGeminiOpenAICompat` 决定特殊转发/回填分支。
 - `internal/util`：`SplitModel`（拆 provider/model）、`ExtractTokens`（提 token）、`TruncStr`（日志截断）。
 
@@ -485,5 +486,5 @@ go build -o tinyrouter .
 | 修改 body 改写 | forward.go:79-83（alias 解析）+ forward.go:130-179（stream_options / model / backfill）+ upstream.go（头与 URL） |
 | 修改 SSE 改写 | stream.go:138-307 + normalizeSSEChunk（73-109）+ SSELineBuffer（15-40）+ passThroughResponse（309-341） |
 | 修改 Gemini 签名 | signature_cache.go（11-104）+ forward.go backfill（314-355）+ stream.go extract（444-490）+ config IsGeminiOpenAICompat（109-117） |
-| 修改用量/在途 | recorder.go（16-90）+ entry_tracker.go（13-82）+ inflight.go（11-88）+ broadcaster.go（9-80）+ api/sse_events.go（16-79） |
+| 修改用量/在途 | recorder.go（16-90）+ entry_tracker.go（13-82）+ inflight.go（11-88）+ broadcaster.go（9-80）+ api/sse_events.go（16-79）；改 `Entry.Source` 来源标记须同步前端 `X-TinyRouter-Source` 头（pg-stream.js） |
 | 新增 combo 策略 | combo/resolver + handleCombo 分支（forward.go:93-128） |
