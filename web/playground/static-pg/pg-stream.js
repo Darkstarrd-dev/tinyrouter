@@ -193,7 +193,7 @@ function pgFlushRender(i, assistantIdx) {
     }
     pgRenderBubble(i, assistantIdx);
     pgRenderDebug();
-    pgScrollBottom(i);
+    pgScrollBottom(i, assistantIdx);
     // Group chat modal live-stream hook (guarded; optional module).
     if (typeof pgGcOnStreamChunk === 'function') {
       pgGcOnStreamChunk(i, assistantIdx);
@@ -437,6 +437,7 @@ function pgFinish(i, assistantIdx) {
   if (i === 0) pgSave();
   pgRenderBubble(i, assistantIdx);
   pgRenderDebug();
+  pgScrollBottomReasoning(i, assistantIdx);
   pgUpdateInputBar();
   // Auto chat hook: notify round orchestration (guarded; optional module).
   if (typeof pgAutoChatOnFinish === 'function' && pgState.autoChat && pgState.autoChat.isRunning) {

@@ -14,9 +14,29 @@ function pgSafeHref(href) {
   return '#';
 }
 
-function pgScrollBottom(i) {
+function pgScrollBottom(i, assistantIdx) {
+  pgScrollBottomReasoning(i, assistantIdx, true);
   var box = document.getElementById('pg-messages-' + i);
   if (box) box.scrollTop = box.scrollHeight;
+}
+
+function pgScrollBottomReasoning(i, assistantIdx, streamingOnly) {
+  var w = pgWinAt(i);
+  if (!w) return;
+  if (streamingOnly && !w.streaming) return;
+  if (assistantIdx == null || !w.messages[assistantIdx]) return;
+  try {
+    var bub = document.getElementById('pg-bubble-' + i + '-' + assistantIdx);
+    if (!bub) return;
+    var bodies = bub.querySelectorAll('.pg-thinking-body');
+    for (var k = 0; k < bodies.length; k++) {
+      var b = bodies[k];
+      var pp = b.parentElement;
+      if (pp && pp.classList && !pp.classList.contains('collapsed')) {
+        b.scrollTop = b.scrollHeight;
+      }
+    }
+  } catch (e) {}
 }
 
 function pgFormatTime(ts) {
@@ -55,8 +75,9 @@ function pgRenderBubble(i, idx) {
       }
     }
   } catch (e) { /* meta 更新失败不影响气泡内容 */ }
+  var isStreaming = msg.status === 'streaming' || msg.status === 'loading';
   pgHighlight(wrap);
-  pgPostProcessCode(wrap);
+  pgPostProcessCode(wrap, isStreaming);
   wrap.querySelectorAll('.pg-code-copy').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var codeEl = btn.parentElement && btn.parentElement.querySelector('code');
@@ -68,7 +89,7 @@ function pgRenderBubble(i, idx) {
   });
 }
 
-function pgPostProcessCode(container) {
+function pgPostProcessCode(container, isStreaming) {
   var pres = container.querySelectorAll('pre');
   pres.forEach(function(pre) {
     if (pre.dataset.pgPost === '1') return;
@@ -80,28 +101,54 @@ function pgPostProcessCode(container) {
     var lang = langMatch ? langMatch[1] : '';
     var raw = codeEl.textContent || '';
     if (lang === 'mermaid') {
-      pgRenderMermaid(pre, raw);
+      pgRenderMermaid(pre, raw, isStreaming);
     } else if (lang === 'html' || /^<!DOCTYPE/i.test(raw) || /^<svg/i.test(raw) || /^<\?xml/i.test(raw)) {
       pgRenderHtmlPreview(pre, raw);
     }
   });
 }
 
-function pgRenderMermaid(pre, code) {
+function pgRenderMermaid(pre, code, isStreaming) {
   if (typeof window.mermaid === 'undefined') return;
   var placeholder = document.createElement('div');
   placeholder.className = 'pg-mermaid';
   placeholder.textContent = code;
   pre.parentNode.insertBefore(placeholder, pre.nextSibling);
-  try {
-    window.mermaid.run({ nodes: [placeholder], suppressErrors: true }).catch(function(e) {
+  var cached = !isStreaming && PG_MERMAID_MAP[code];
+  if (cached) {
+    insertMermaidSvg(placeholder, cached);
+    return;
+  }
+  placeholder.id = 'pg-mmd-' + (++PG_MERMAID_SEQ);
+  pgMermaidQueue(function() {
+    return window.mermaid.run({ nodes: [placeholder], suppressErrors: true }).then(function() {
+      var svg = placeholder.querySelector('svg');
+      if (svg && !isStreaming) {
+        try { var s = new XMLSerializer().serializeToString(svg); PG_MERMAID_MAP[code] = s; } catch (e) {}
+      }
+    }).catch(function(e) {
       placeholder.classList.add('mermaid-error');
       placeholder.textContent = '[mermaid] ' + (e && e.message ? e.message : String(e));
     });
-  } catch (e) {
-    placeholder.classList.add('mermaid-error');
-    placeholder.textContent = '[mermaid] ' + (e && e.message ? e.message : String(e));
-  }
+  });
+}
+
+function insertMermaidSvg(placeholder, svgString) {
+  try {
+    placeholder.textContent = '';
+    var tpl = document.createElement('template');
+    tpl.innerHTML = svgString;
+    var svg = tpl.content.firstChild;
+    if (svg) placeholder.appendChild(svg);
+  } catch (e) {}
+}
+
+var PG_MERMAID_MAP = Object.create(null);
+var PG_MERMAID_SEQ = 0;
+var PG_MERMAID_QUEUE = Promise.resolve();
+function pgMermaidQueue(task) {
+  PG_MERMAID_QUEUE = PG_MERMAID_QUEUE.then(task, task);
+  return PG_MERMAID_QUEUE;
 }
 
 function pgOpenMermaidSvg(el) {

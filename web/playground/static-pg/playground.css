@@ -159,7 +159,7 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 @keyframes pg-spin{to{transform:rotate(360deg)}}
 .pg-think-chev{transition:transform .2s}
 .pg-thinking.collapsed .pg-think-chev{transform:rotate(-90deg)}
-.pg-thinking-body{margin:0 12px 10px;padding-top:8px;border-top:1px solid rgba(196,166,255,.2);font-size:var(--font-body);color:var(--text-secondary)}
+.pg-thinking-body{margin:0 12px 10px;padding-top:8px;border-top:1px solid rgba(196,166,255,.2);font-size:var(--font-body);color:var(--text-secondary);white-space:normal;max-height:60vh;overflow-y:auto;scrollbar-width:thin}
 .pg-thinking.collapsed .pg-thinking-body{display:none}
 
 /* Sources */
