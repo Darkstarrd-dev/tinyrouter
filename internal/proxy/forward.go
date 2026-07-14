@@ -193,17 +193,15 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			Status:    "processing",
 		}
 		upstreamURL := BuildUpstreamURL(sel.Provider.BaseURL, path)
-		if h.debugMode() {
-			if len(bodyBytes) > 0 {
-				rb := bodyBytes
-				if !json.Valid(rb) {
-					rb, _ = json.Marshal(map[string]string{"raw": string(rb)})
-				}
-				processingEntry.ReqPayload = append([]byte(nil), rb...)
+		if len(bodyBytes) > 0 {
+			rb := bodyBytes
+			if !json.Valid(rb) {
+				rb, _ = json.Marshal(map[string]string{"raw": string(rb)})
 			}
-			processingEntry.ReqHeaders = r.Header.Clone()
-			processingEntry.UpstreamURL = upstreamURL
+			processingEntry.ReqPayload = append([]byte(nil), rb...)
 		}
+		processingEntry.ReqHeaders = r.Header.Clone()
+		processingEntry.UpstreamURL = upstreamURL
 		h.EntryTracker.Register(processingEntry)
 		h.broadcastRequestStart(reqID, processingEntry)
 

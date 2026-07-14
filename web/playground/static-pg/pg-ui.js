@@ -20,7 +20,7 @@ function pgBeginEdit(i, idx) {
   if (ta) {
     ta.focus();
     ta.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') { e.preventDefault(); pgCancelEdit(i, idx); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pgCancelEdit(i, idx); }
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         pgApplyEdit(i, idx, true);
@@ -629,51 +629,53 @@ var pgReqLeftEntries = [];
 function pgShowReqDetail(idx) {
   var e = pgReqLeftEntries[idx];
   if (!e) return;
-  function kv(label, value) {
-    if (value === undefined || value === null || value === '') return '';
-    return '<div class="pg-req-detail-row"><span class="pg-req-detail-k">' + pgEscapeHtml(label) + '</span><span class="pg-req-detail-v">' + pgEscapeHtml(String(value)) + '</span></div>';
+  var overlay = document.getElementById('info-modal-overlay');
+  if (!overlay) return;
+  var titleEl = document.getElementById('info-modal-title');
+  var bodyEl = document.getElementById('info-modal-body');
+  if (!titleEl || !bodyEl) return;
+
+  titleEl.textContent = (e.provider || '?') + ' / ' + (e.model || '?') + ' \u2014 ' + (e.status || 'unknown') + ' (' + formatLatency(e.latencyMs || 0) + ')';
+
+  __infoModalSections = [];
+  var html = '';
+
+  var summaryData = {};
+  if (e.id) summaryData['ID'] = e.id;
+  if (e.timestamp) summaryData['Timestamp'] = e.timestamp;
+  if (e.provider) summaryData['Provider'] = e.provider;
+  if (e.model) summaryData['Model'] = e.model;
+  if (e.keyName) summaryData['Key'] = e.keyName;
+  if (e.status) summaryData['Status'] = e.status;
+  if (e.latencyMs !== undefined && e.latencyMs !== null) summaryData['Latency'] = formatLatency(e.latencyMs);
+  if (e.ttftMs) summaryData['TTFT'] = e.ttftMs + 'ms';
+  if (e.inputTokens) summaryData['Input Tokens'] = e.inputTokens;
+  if (e.outputTokens) summaryData['Output Tokens'] = e.outputTokens;
+  if (e.error) summaryData['Error'] = e.error;
+  if (e.upstreamUrl) summaryData['Upstream URL'] = e.upstreamUrl;
+  if (e.respStatus) summaryData['Response Status'] = e.respStatus;
+  if (Object.keys(summaryData).length > 0) {
+    html += renderInfoSection('Request Info', summaryData);
   }
-  function pre(label, value) {
-    if (!value) return '';
-    var pretty = value;
-    try { pretty = JSON.stringify(typeof value === 'string' ? JSON.parse(value) : value, null, 2); } catch (ex) {}
-    return '<div class="pg-req-detail-pre-label">' + pgEscapeHtml(label) + '</div><pre class="pg-req-detail-pre">' + pgEscapeHtml(pretty) + '</pre>';
+  if (e.reqPayload) {
+    html += renderInfoSection('Request', e.reqPayload);
   }
-  function hdr(label, value) {
-    if (!value) return '';
-    var obj = (typeof value === 'object') ? value : {};
-    var lines = [];
-    Object.keys(obj).forEach(function(k) { lines.push(k + ': ' + obj[k]); });
-    if (!lines.length) return '';
-    return '<div class="pg-req-detail-pre-label">' + pgEscapeHtml(label) + '</div><pre class="pg-req-detail-pre">' + pgEscapeHtml(lines.join('\n')) + '</pre>';
+  if (e.reqHeaders) {
+    html += renderInfoSection('Request Headers', e.reqHeaders);
   }
-  var timeStr = e.timestamp ? new Date(e.timestamp).toLocaleString() : '—';
-  var latStr = e.latencyMs ? (e.latencyMs / 1000).toFixed(2) + 's' : '—';
-  var ttftStr = e.ttftMs ? (e.ttftMs) + 'ms' : '—';
-  var tokStr = (e.inputTokens || 0) + ' / ' + (e.outputTokens || 0);
-  var html =
-    '<div class="pg-modal-header">' +
-      '<span class="pg-modal-title">' + pgEscapeHtml(pgT('pgReqDetail')) + '</span>' +
-      '<button class="pg-modal-close" onclick="pgCloseModal()">✕</button>' +
-    '</div>' +
-    '<div class="pg-modal-body">' +
-      kv(pgT('pgReqColTime'), timeStr) +
-      kv(pgT('pgReqFieldProvider'), e.provider) +
-      kv(pgT('pgReqFieldModel'), e.model) +
-      kv(pgT('pgReqFieldKey'), e.keyName) +
-      kv(pgT('pgReqFieldStatus'), e.status) +
-      kv(pgT('pgReqColLatency'), latStr) +
-      kv(pgT('pgReqFieldTTFT'), ttftStr) +
-      kv(pgT('pgReqColTokens'), tokStr) +
-      kv(pgT('pgReqFieldRespStatus'), e.respStatus) +
-      kv(pgT('pgReqFieldUpstream'), e.upstreamUrl) +
-      kv(pgT('pgReqFieldError'), e.error) +
-      hdr(pgT('pgReqFieldReqHeaders'), e.reqHeaders) +
-      hdr(pgT('pgReqFieldRespHeaders'), e.respHeaders) +
-      pre(pgT('pgReqFieldReqPayload'), e.reqPayload) +
-      pre(pgT('pgReqFieldRespPayload'), e.respPayload) +
-    '</div>';
-  pgShowModal(html);
+  if (e.respHeaders) {
+    html += renderInfoSection('Response Headers', e.respHeaders);
+  }
+  if (e.respPayload) {
+    html += renderInfoSection('Response Body', e.respPayload);
+  }
+
+  bodyEl.innerHTML = html || '<div class="info-section">' + t('noData') + '</div>';
+  postProcessRawFields();
+
+  overlay.classList.add('show');
+  bodyEl.setAttribute('tabindex', '-1');
+  bodyEl.focus();
 }
 
 // ----- Input bar (send/stop + clear) --------------------------------

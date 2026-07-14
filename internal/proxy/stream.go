@@ -205,9 +205,9 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					}
 					if h.debugMode() && reqID != "" {
 						h.parseAndBroadcastChunk(reqID, line, sb)
-						sseBuf.WriteString(line)
-						sseBuf.WriteByte('\n')
 					}
+					sseBuf.WriteString(line)
+					sseBuf.WriteByte('\n')
 				}
 			} else {
 				if _, err := w.Write(buf[:n]); err != nil {
@@ -232,9 +232,9 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					}
 					if h.debugMode() && reqID != "" {
 						h.parseAndBroadcastChunk(reqID, line, sb)
-						sseBuf.WriteString(line)
-						sseBuf.WriteByte('\n')
 					}
+					sseBuf.WriteString(line)
+					sseBuf.WriteByte('\n')
 				}
 			}
 			flusher.Flush()
@@ -284,9 +284,9 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 				}
 				if h.debugMode() && reqID != "" {
 					h.parseAndBroadcastChunk(reqID, line, sb)
-					sseBuf.WriteString(line)
-					sseBuf.WriteByte('\n')
 				}
+				sseBuf.WriteString(line)
+				sseBuf.WriteByte('\n')
 			}
 			break
 		}
@@ -299,10 +299,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	totalLatencyMs := latencyMs + time.Since(streamStart).Milliseconds()
 	h.logger.Info("\U0001f4ca [stream] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", sel.Provider.Name, model, totalLatencyMs, resp.StatusCode)
-	var sseBody []byte
-	if h.debugMode() {
-		sseBody = sseBuf.Bytes()
-	}
+	sseBody := sseBuf.Bytes()
 	h.recordUsage(reqID, sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, sseBody, resp.Header, resp.StatusCode, reqHeaders, upstreamURL)
 }
 

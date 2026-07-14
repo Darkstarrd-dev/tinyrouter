@@ -201,7 +201,7 @@ function pgModelPickerSelectedIndex(visible) {
 }
 
 function pgModelPickerKeydown(e) {
-  if (e.key === 'Escape') { e.preventDefault(); pgCloseModelPicker(); return; }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pgCloseModelPicker(); return; }
   if (e.key === 'Enter') { e.preventDefault(); pgModelPickerConfirm(); return; }
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();

@@ -4,6 +4,8 @@
 >
 > **最后核对：** 2026-07-14，仓库提交 `69df6de`（`main`，v1.6.5）。`recordUsage` 新增 `entry.Source` 回填（来自 `X-TinyRouter-Source` 头）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
+> **2026-07-14 更新：** `recorder.go`、`forward.go`、`stream.go` 不再以 `debugMode()` 门控 payload/headers 捕获——始终捕获 `ReqPayload`、`RespPayload`、`ReqHeaders`、`RespHeaders`、`UpstreamURL`、`RespStatus` 及 SSE 累积体。`debugMode()` 仅保留对 `parseAndBroadcastChunk`（实时 SSE chunk 广播）的门控。
+
 ## 1. 范围与结论
 
 `internal/proxy/` 是 TinyRouter 的**代理核心包**，承载所有 `/v1/*`（OpenAI-compatible）请求的处理：模型解析、Key 选择、上游转发、SSE 流式透传、重试/故障转移、用量记录、在途跟踪与事件广播。它自身不含任何管理接口、配置加载或 UI 逻辑。

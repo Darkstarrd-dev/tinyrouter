@@ -4,6 +4,8 @@
 >
 > **最后核对：** 2026-07-14，仓库提交 `69df6de`（`main`，v1.6.5）。Recent Requests 面板改为仅显示 Playground 发起请求、可点击查看详情；发送按钮在选模型后即时启用。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
+> **2026-07-14 更新：** Playground 请求详情弹窗改为复用 Usage 页面的 `info-modal-overlay` + `renderInfoSection` 基础设施，具备 pretty/raw 切换和 copy 按钮；服务端 `recorder.go`、`forward.go`、`stream.go` 不再依赖 debug mode 门控，始终捕获请求/响应 payload 与 headers，使弹窗在 debug mode 关闭时也能显示完整信息。`app.js` 的 `topOpenModal()`/`dismissTopModal()` 扩展支持 `pg-modal-overlay`，修复 Playground 弹窗 ESC 穿透触发关闭应用的问题。
+
 ## 1. 范围与结论
 
 Playground 是 TinyRouter 管理 UI 中的可选交互式 LLM 客户端，覆盖以下能力：
@@ -297,7 +299,7 @@ grid-template-columns: 260px 1fr 320px
 
 离开普通模式或切换到多窗口时，`pgStopReqLeftPolling()` 清除定时器并清空面板内容。`cleanupPlayground()` 也会调用此函数。
 
-**点击查看详情：** 表格每一行带 `onclick="pgShowReqDetail(i)"`，`pgShowReqDetail` 用 Playground 模态（`pgShowModal`）展示该条目的字段：时间/Provider/模型/Key/状态/延迟/首 Token/Tokens/响应状态/上游/错误；若 Debug 模式捕获了请求头、响应头、请求体、响应体（`reqHeaders`/`respHeaders`/`reqPayload`/`respPayload`）也一并展示。当前条目缓存于模块变量 `pgReqLeftEntries`。
+**点击查看详情：** 表格每一行带 `onclick="pgShowReqDetail(i)"`，`pgShowReqDetail` 复用主 UI 的 `info-modal-overlay`（与 Usage 页面 Recent Requests 详情相同的模态），通过 `renderInfoSection` / `buildInfoField`（`info_common.js`）构建内容，每字段具备 pretty/raw 切换和 copy 按钮、模态头部有 Copy All。展示该条目的全部字段：Request Info（时间/Provider/模型/Key/状态/延迟/首 Token/Tokens/错误/上游/响应状态）、Request Body、Request Headers、Response Headers、Response Body。**不依赖 debug mode**——服务端始终捕获 payload 和 headers。当前条目缓存于模块变量 `pgReqLeftEntries`。
 
 ## 7. 状态模型与持久化
 
@@ -582,7 +584,7 @@ go build -tags playground -o tinyrouter-pg.exe .
 - `web/playground/static-pg/pg-director.js`：剧情推进；
 - `web/playground/static-pg/pg-markdown.js`、`pg-render.js`：内容安全与渲染；
 - `web/playground/static-pg/pg-ui.js`、`pg-modal.js`、`pg-lifecycle.js`：交互和页面生命周期；
-- `web/playground/static-pg/pg-ui.js` 中的 `pgRenderReqLeft`/`pgStartReqLeftPolling`/`pgRenderReqLeftContent`/`pgShowReqDetail`：普通模式左侧 Recent Requests 面板（来源过滤 + 点击详情）；
+- `web/playground/static-pg/pg-ui.js` 中的 `pgRenderReqLeft`/`pgStartReqLeftPolling`/`pgRenderReqLeftContent`/`pgShowReqDetail`：普通模式左侧 Recent Requests 面板（来源过滤 + 点击详情，复用 `info-modal-overlay`）；
 - `web/playground/static-pg/playground.css` 中的 `.pg-mode-toggle`、`.pg-req-left`、`.pg-req-table`：模式切换按钮和左侧面板布局。
 
 ## 15. 变更维护清单
@@ -596,6 +598,6 @@ go build -tags playground -o tinyrouter-pg.exe .
 | 修改场景档案 | schema/version、导入迁移、localStorage、应用映射 |
 | 修改持久化 | localStorage key/version、容量限制、多窗口语义 |
 | 修改渲染 | DOMPurify、URL 协议、iframe sandbox、Mermaid security |
-| 修改模式切换或左侧面板 | `pgSetMode`、`pgAutoChatToggle`、`pgRenderPanes` 布局类、`pgRenderReqLeft*`、`pgShowReqDetail`、`.pg-req-left-mode` CSS；改来源过滤须同步 `pg-stream.js` 的 `X-TinyRouter-Source` 头与 `recordUsage` 的 `Entry.Source` 回填 |
+| 修改模式切换或左侧面板 | `pgSetMode`、`pgAutoChatToggle`、`pgRenderPanes` 布局类、`pgRenderReqLeft*`、`pgShowReqDetail`、`info-modal-overlay`/`info_common.js`（详情弹窗基础设施）、`.pg-req-left-mode` CSS；改来源过滤须同步 `pg-stream.js` 的 `X-TinyRouter-Source` 头与 `recordUsage` 的 `Entry.Source` 回填；改详情弹窗须同步 `app.js` 的 `topOpenModal`/`dismissTopModal` 对 `pg-modal-overlay` 的 ESC 处理 |
 | 发布 Playground 变体 | 无 tag/tag 测试、资源 200、完整首页手测 |
 

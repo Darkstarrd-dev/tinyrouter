@@ -296,7 +296,7 @@ function showSkeleton(container, count) {
 // ===================== Global Modal & Keyboard =====================
 // Returns the topmost currently-open modal overlay (.modal-overlay or .info-modal-overlay).
 function topOpenModal() {
-  var ms = document.querySelectorAll('.modal-overlay.show, .info-modal-overlay.show');
+  var ms = document.querySelectorAll('.modal-overlay.show, .info-modal-overlay.show, .pg-modal-overlay.show');
   return ms.length ? ms[ms.length - 1] : null;
 }
 
@@ -316,6 +316,14 @@ function dismissTopModal() {
   }
   if (m.classList.contains('info-modal-overlay')) {
     if (typeof closeInfoModal === 'function') closeInfoModal();
+    return;
+  }
+  if (m.classList.contains('pg-modal-overlay')) {
+    if (m.id === 'pg-model-picker-overlay') {
+      if (typeof pgCloseModelPicker === 'function') pgCloseModelPicker();
+    } else {
+      if (typeof pgCloseModal === 'function') pgCloseModal();
+    }
     return;
   }
   if (typeof m.__close === 'function') { m.__close(); return; }
