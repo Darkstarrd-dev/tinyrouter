@@ -130,7 +130,7 @@ function pgInitImageZoom() {
     if (!bw || !bh) return 1;
     var scaleW = bw / img.naturalWidth;
     var scaleH = bh / img.naturalHeight;
-    return Math.min(scaleW, scaleH, 1);
+    return Math.min(scaleW, scaleH);
   }
 
   var fitScale = 1;
