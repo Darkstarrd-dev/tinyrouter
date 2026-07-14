@@ -151,6 +151,44 @@ func (r *Registry) UpdateModelNIMOverride(providerID, modelID string, nim config
 	return false
 }
 
+// UpdateModelKind sets the kind (text/image) for a specific model on a provider.
+func (r *Registry) UpdateModelKind(providerID, modelID, kind string) bool {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		for j := range r.config.Providers[i].Models {
+			if r.config.Providers[i].Models[j].ID == modelID {
+				r.config.Providers[i].Models[j].Kind = kind
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// UpdateModelImgProtocol sets the image protocol for a specific model on a provider.
+func (r *Registry) UpdateModelImgProtocol(providerID, modelID, imgProtocol string) bool {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		for j := range r.config.Providers[i].Models {
+			if r.config.Providers[i].Models[j].ID == modelID {
+				r.config.Providers[i].Models[j].ImgProtocol = imgProtocol
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
 // ResolveModelAlias returns the real model ID for a given alias on a provider.
 // If no model has this alias, it returns the input alias unchanged and false.
 func (r *Registry) ResolveModelAlias(providerPrefix, aliasOrModelID string) (modelID string, found bool) {

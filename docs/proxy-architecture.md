@@ -6,11 +6,13 @@
 
 > **2026-07-14 更新：** `recorder.go`、`forward.go`、`stream.go` 不再以 `debugMode()` 门控 payload/headers 捕获——始终捕获 `ReqPayload`、`RespPayload`、`ReqHeaders`、`RespHeaders`、`UpstreamURL`、`RespStatus` 及 SSE 累积体。`debugMode()` 仅保留对 `parseAndBroadcastChunk`（实时 SSE chunk 广播）的门控。
 
+> **2026-07-14 更新（Image 模式）：** 代理核心新增两个 `/v1/*` 端点：`POST /v1/images/generations`（`ImagesGenerations`，透明转发，复用 `handleProxy`）与 `POST /v1/tasks/{taskId}`（`PollTask`，ModelScope 异步任务轮询），路由总数由 3 个升至 5 个。`normalizeBaseURL` 的 suffix 剥离列表新增 `"/images/generations"`；`forwardUpstream` 新增 `X-Modelscope-Async-Mode` 请求头透传。两端点同样位于 `AuthMiddleware` 之外、CORS preflight 覆盖范围内。
+
 ## 1. 范围与结论
 
 `internal/proxy/` 是 TinyRouter 的**代理核心包**，承载所有 `/v1/*`（OpenAI-compatible）请求的处理：模型解析、Key 选择、上游转发、SSE 流式透传、重试/故障转移、用量记录、在途跟踪与事件广播。它自身不含任何管理接口、配置加载或 UI 逻辑。
 
-- **谁调用它：** `internal/api/router.go` 在顶层挂载三个路由（`/v1/chat/completions`、`/v1/completions`、`/v1/models`，见 router.go:194-196），把请求派发到 `proxy.Handler`；`internal/app/app.go` 作为组合根构造 `Handler` 并注入依赖（`app/app.go:129`）；`internal/api/sse_events.go` 消费 `Handler` 暴露的 `Broadcaster` / `EntryTracker`，把用量/在途/请求事件以 SSE 推送给管理 UI。
+- **谁调用它：** `internal/api/router.go` 在顶层挂载五个路由（`/v1/chat/completions`、`/v1/completions`、`/v1/models`、`/v1/images/generations`、`/v1/tasks/{taskId}`，见 router.go:194-198），把请求派发到 `proxy.Handler`；`internal/app/app.go` 作为组合根构造 `Handler` 并注入依赖（`app/app.go:129`）；`internal/api/sse_events.go` 消费 `Handler` 暴露的 `Broadcaster` / `EntryTracker`，把用量/在途/请求事件以 SSE 推送给管理 UI。
 - **它调用谁：** `rotation.Selector`（Key 选择、冷却、退避、锁定）、`combo.Resolver`（combo 解析）、`registry.Registry`（provider/quickslot/key 运行时状态）、`usage.RingBuffer` 与 `usage.QuotaTracker`（用量）、`config`（配置与 provider 判定）、`util`（模型名拆分、token 提取、日志截断）。
 
 ```mermaid
@@ -55,12 +57,14 @@ flowchart LR
 
 `internal/api/router.go` 在 `Routes` 中通过 chi 挂载代理路由：
 
-- 三个 `/v1/*` 路由（router.go:194-196）：
+- 五个 `/v1/*` 路由（router.go:194-198）：
   - `r.Post("/v1/chat/completions", proxyHandler.ChatCompletions)`；
   - `r.Post("/v1/completions", proxyHandler.Completions)`；
-  - `r.Get("/v1/models", proxyHandler.ListModels)`。
+  - `r.Get("/v1/models", proxyHandler.ListModels)`；
+  - `r.Post("/v1/images/generations", proxyHandler.ImagesGenerations)`；
+  - `r.Post("/v1/tasks/{taskId}", proxyHandler.PollTask)`。
 
-- **鉴权边界：** `/v1/*` 路由写在 `Routes` 函数顶层（router.go:194-196），而 `AuthMiddleware` 只包裹 `/api` 路由组（router.go:213-215）。因此 `/v1/*` 完全在 `AuthMiddleware` 之外，任意 API Key 或无 Key 均可访问（与 AGENTS.md “纯本地，无对外鉴权”一致）。
+- **鉴权边界：** `/v1/*` 路由写在 `Routes` 函数顶层（router.go:194-198），而 `AuthMiddleware` 只包裹 `/api` 路由组（router.go:213-215）。因此 `/v1/*` 完全在 `AuthMiddleware` 之外，任意 API Key 或无 Key 均可访问（与 AGENTS.md “纯本地，无对外鉴权”一致）。
 - **CORS preflight（仅 `/v1/*`）：** router.go:181-191 处理 `OPTIONS /v1/*`，设置 `Access-Control-Allow-Origin` 为请求方 `Origin`、`Allow-Methods: GET, POST, OPTIONS`、`Allow-Headers: Content-Type, Authorization`、`Expose-Headers: X-TinyRouter-Provider, X-TinyRouter-Key`，并以 204 响应。管理 `/api/*` 无 CORS（同源管理 UI），外部页面不能跨域读取配置或密钥。
 - **securityHeaders 跳过 `/v1/`：** `securityHeaders` 中间件（router.go:151-164）对 `/v1/` 前缀路径跳过设置 CSP / `X-Content-Type-Options` / `X-Frame-Options` / `X-XSS-Protection`，使上游响应头透传（router.go:154）。
 - **上游 HTTP 代理：** `proxy.Handler.SetProxy`（handler.go:102-142）设置走代理的 `*url.URL`；`provider.UseProxy` 为 true 时，`forwardUpstream` 选择代理 client（upstream.go:84-93）。代理 URL 始终以 `http://host:port` 重建，端口范围 `[1,65535]`，非法则禁用代理并返回错误（handler.go:129-141）。
@@ -397,7 +401,7 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 
 以下为当前实现事实，不代表都要在同一轮修复：
 
-1. **未鉴权的 `/v1/*`：** `/v1/chat/completions`、`/v1/completions`、`/v1/models` 在 `AuthMiddleware` 之外（router.go:194-196、213-215），任意客户端（含跨域）可达。
+1. **未鉴权的 `/v1/*`：** `/v1/chat/completions`、`/v1/completions`、`/v1/models`、`/v1/images/generations`、`/v1/tasks/{taskId}` 在 `AuthMiddleware` 之外（router.go:194-198、213-215），任意客户端（含跨域）可达。
 2. **流式 body 改写无连接级隔离：** `backfillThoughtSignatures` / `stream_options` 注入直接改写共享的 `parsed` map（虽每次循环重做，但同一迭代内生效），combo 多目标共享同一 `bodyBytes`/`parsed` 引用（forward.go:134-173）。
 3. **64 MiB 非流式缓冲：** `passThroughResponse` 整段读取上限 64 MiB，超大上游响应会占内存（stream.go:319）。
 4. **normalize-false 双写 guard 微妙：** raw 模式的尾部 `Remaining` 已在循环中写出，必须避免重复写出（stream.go:256-290），逻辑依赖“循环中已 `w.Write(buf[:n])`”的隐式约定。
@@ -453,10 +457,10 @@ go build -o tinyrouter .
 
 后端与集成：
 
-- `internal/proxy/handler.go`：Handler 结构体（15-36）、构造函数 New（43-80）、ChatCompletions/Completions（156-162）、SetProxy（102-142）、SetUpstreamTimeout（147-154）、SetDebugModeProvider（164-173）。
+- `internal/proxy/handler.go`：Handler 结构体（15-36）、构造函数 New（43-80）、ChatCompletions/Completions（156-162）、SetProxy（102-142）、SetUpstreamTimeout（147-154）、SetDebugModeProvider（164-173）、ImagesGenerations（164-166）、PollTask（168-170）。
 - `internal/proxy/interfaces.go`：6 个能力接口 Logger/KeyProvider/ModelResolver/ComboResolver/UsageRecorder/QuotaTracker（16-81）。
 - `internal/proxy/forward.go`：handleProxy（14-91）、handleCombo（93-128）、forwardWithRetry（130-276）、broadcastRequestStart（278-288）、writeError（290-298）、backfillThoughtSignatures（314-355）、hasThoughtSignature（357-368）。
-- `internal/proxy/upstream.go`：normalizeBaseURL（16-25）、BuildUpstreamURL（37-55）、forwardUpstream（66-100）。
+- `internal/proxy/upstream.go`：normalizeBaseURL（16-25，suffix 剥离列表新增 `"/images/generations"`）、BuildUpstreamURL（37-55）、forwardUpstream（66-100，新增 `X-Modelscope-Async-Mode` 请求头转发）。
 - `internal/proxy/stream.go`：SSELineBuffer（15-40）、SSEDataPayloads（49-63）、normalizeSSEChunk（73-109）、streamResponse（138-307）、passThroughResponse（309-341）、parseAndBroadcastChunk（349-368）、chunkDelta/parseSSEChunkDelta（371-418）、extractThoughtSignature（444-490）。
 - `internal/proxy/retry.go`：retryState（14-21）、maxRetries（33-39）、logRequest（42-49）、handleNetworkError（52-59）、handle429（62-235）、handleUpstreamError（241-305）、classifySenseNova429（318-327）、excludeSameAccountKeys（332-342）。
 - `internal/proxy/recorder.go`：recordUsage（16-66）、parseAndUpdateQuota（68-90）。
@@ -483,7 +487,7 @@ go build -o tinyrouter .
 
 | 变更类型 | 必查位置 |
 |---|---|
-| 新增/修改 `/v1/*` 路由 | api/router.go 挂载（194-196）+ CORS preflight（181-191）+ 鉴权边界（auth 组外，213-215）+ securityHeaders 跳过（151-164） |
+| 新增/修改 `/v1/*` 路由 | api/router.go 挂载（194-198）+ CORS preflight（181-191）+ 鉴权边界（auth 组外，213-215）+ securityHeaders 跳过（151-164） |
 | 修改重试策略 | retry.go 三个错误处理器（52-305）+ rotation.ClassifyError / Selector + retryState（14-21） |
 | 修改 body 改写 | forward.go:79-83（alias 解析）+ forward.go:130-179（stream_options / model / backfill）+ upstream.go（头与 URL） |
 | 修改 SSE 改写 | stream.go:138-307 + normalizeSSEChunk（73-109）+ SSELineBuffer（15-40）+ passThroughResponse（309-341） |

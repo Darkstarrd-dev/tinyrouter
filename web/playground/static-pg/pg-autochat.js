@@ -24,8 +24,10 @@ function pgAutoChatToggle(enabled) {
   }
   var wasRunning = pgState.autoChat.isRunning;
   pgState.autoChat.enabled = enabled;
+  pgState.mode = enabled ? 'autochat' : 'normal';
   pgRenderSidebar();
   pgRenderPanes();
+  pgRenderInputBar();
   if (!enabled && wasRunning) {
     pgAutoChatStop();
   }

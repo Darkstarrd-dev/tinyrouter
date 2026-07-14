@@ -40,6 +40,19 @@ var PG_DEFAULT_CFG = {
   agentName: '',
   contextLimit: 8000,
   thinkingBudget: 4096,
+  // Image generation params
+  imgSize: '',
+  imgQuality: '',
+  imgBackground: '',
+  imgModeration: '',
+  imgAspectRatio: '1:1',
+  imgResolution: '2k',
+  imgN: 1,
+  // ModelScope params
+  imgNegativePrompt: '',
+  imgSteps: 0,
+  imgGuidance: 0,
+  imgSeed: 0,
 };
 
 // parameterEnabled mirrors new-api defaults: max_tokens + seed off.

@@ -161,6 +161,14 @@ func (h *Handler) Completions(w http.ResponseWriter, r *http.Request) {
 	h.handleProxy(w, r, "/v1/completions")
 }
 
+func (h *Handler) ImagesGenerations(w http.ResponseWriter, r *http.Request) {
+	h.handleProxy(w, r, "/v1/images/generations")
+}
+
+func (h *Handler) PollTask(w http.ResponseWriter, r *http.Request) {
+	h.handleProxy(w, r, r.URL.Path)
+}
+
 func (h *Handler) SetDebugModeProvider(fn func() bool) {
 	h.debugModeProvider = fn
 }

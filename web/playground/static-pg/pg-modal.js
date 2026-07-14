@@ -294,7 +294,12 @@ function pgOpenModelPicker(currentValue, onSelect, opts) {
   if (allowEmpty) {
     itemsHtml += '<div class="pg-model-picker-item' + (!currentValue ? ' selected' : '') + '" data-value="" tabindex="-1" onclick="pgModelPickerSelect(this)">' + pgEscapeHtml(emptyLabel) + '</div>';
   }
-  var models = pgState.models || [];
+  var kindFilter = opts && opts.kindFilter;
+  var models = (pgState.models || []).filter(function(m) {
+    if (!kindFilter) return true;
+    if (kindFilter === 'image') return m.kind === 'image';
+    return m.kind !== 'image';
+  });
   if (!models.length && !allowEmpty) {
     itemsHtml = '<div style="padding:20px;text-align:center;opacity:0.6">' + pgEscapeHtml(pgT('No models available')) + '</div>';
   }

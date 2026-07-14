@@ -108,3 +108,38 @@ function pgFinalizeBodyForSend(body, lastUserMessage, i) {
   }
   return body;
 }
+
+function pgBuildImageBody(i) {
+  var w = pgWinAt(i);
+  var cfg = w.config;
+  if (!cfg.model) return null;
+  // Extract prompt from last user message
+  var prompt = '';
+  for (var j = w.messages.length - 1; j >= 0; j--) {
+    if (w.messages[j].role === 'user') {
+      prompt = pgTextContent(w.messages[j].content);
+      break;
+    }
+  }
+  if (!prompt) return null;
+  var proto = (typeof pgGetImgProtocol === 'function') ? pgGetImgProtocol(cfg.model) : 'gpt';
+  var body = { model: cfg.model, prompt: prompt };
+  if (proto === 'gpt') {
+    if (cfg.imgSize) body.size = cfg.imgSize;
+    if (cfg.imgQuality) body.quality = cfg.imgQuality;
+    if (cfg.imgBackground) body.background = cfg.imgBackground;
+    if (cfg.imgModeration) body.moderation = cfg.imgModeration;
+  } else if (proto === 'xai') {
+    body.n = cfg.imgN || 1;
+    body.response_format = 'b64_json';
+    body.aspect_ratio = cfg.imgAspectRatio || '1:1';
+    body.resolution = cfg.imgResolution || '2k';
+  } else if (proto === 'modelscope') {
+    if (cfg.imgSize) body.size = cfg.imgSize;
+    if (cfg.imgNegativePrompt) body.negative_prompt = cfg.imgNegativePrompt;
+    if (cfg.imgSteps > 0) body.steps = cfg.imgSteps;
+    if (cfg.imgGuidance > 0) body.guidance = cfg.imgGuidance;
+    if (cfg.imgSeed > 0) body.seed = cfg.imgSeed;
+  }
+  return body;
+}

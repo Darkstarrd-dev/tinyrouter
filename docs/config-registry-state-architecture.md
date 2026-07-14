@@ -92,7 +92,7 @@ flowchart TD
 |---|---|---|
 | `RotationConfig` | types.go:11-19 | `Strategy` / `StickyLimit` / `MaxRetries` / `RetryDelaySec` / `BackoffMaxSec` / `StatePersist` / `StatePath` |
 | `Key` | types.go:22-29 | `ID` / `Key` / `Name` / `Priority` / `IsActive` / `Account`（omitempty） |
-| `ModelDef` | types.go:32-38 | `ID` / `QuotaType`（"unlimited"|"limited"|"paid"） / `Alias`（可选别名）/ `Note`（可选备注）/ `NIMOver`（per-model NIM 限速覆盖，指针类型） |
+| `ModelDef` | types.go:32-38 | `ID` / `QuotaType`（"unlimited"|"limited"|"paid"） / `Alias`（可选别名）/ `Note`（可选备注）/ `NIMOver`（per-model NIM 限速覆盖，指针类型）/ `Kind`（"text"|"image"，模型能力类型）/ `ImgProtocol`（"gpt"|"xai"|"modelscope"，图片生成协议分支，仅 Image 模式使用） |
 | `Provider` | types.go:74-96 | `ID`/`Name`/`Prefix`/`BaseURL`/`APIType`/`IsActive`/`Keys`/`Models`/`RotationStrategy`/`StickyLimit`/`InjectStreamOpts`/`NormalizeStreamChunks`/`NIMConfig`/`UseProxy` 等 |
 | `ModelNIMOverride` | types.go:44-48 | per-model NIM 限速覆盖（`Enabled`、`RequestCountPerKey`、`MinIntervalMs`），为 nil 时使用标准轮转 |
 | `NIMSettings` | types.go:121-126 | `RequestCountPerKey` / `MinIntervalMs` / `CooldownLadderMin` / `MaxConcurrent` |
@@ -209,7 +209,7 @@ type Registry struct {
 |---|---|---|
 | `providers.go` | `ListProviders`(11-17)、`HasProvider`(20-29)、`GetProvider`(31-41)、`GetProviderByPrefix`(44-54)、`AddProvider`(56-70)、`UpdateProvider`(72-94)、`DeleteProvider`(96-113)、`UpdateProviderStrategy`(116-127) | `AddProvider` 为每个 key 初始化 `KeyRuntimeState`（61-69）；`UpdateProvider` **仅更新标量字段**，**不触碰 Keys/Models**（注释 88-89）；`DeleteProvider` 在 `stateMu` 下清理该 provider 全部 key 的 state（103-107）。读返回副本（35-38、49-52） |
 | `keys.go` | `HasKey`(12-26)、`AddKey`(28-48)、`DeleteKey`(50-71)、`UpdateKey`(73-93) | `AddKey`/`DeleteKey` 在 `cfgMu` 下再取 `stateMu` 增删 state（37-43、62-64）；`UpdateKey` 仅改 `Name/Key/Priority/IsActive/Account`，不动运行时状态 |
-| `models.go` | `ListModels`(6-17)、`AddModel`(20-36)、`DeleteModel`(39-56)、`UpdateModelQuotaType`(59-75)、`UpdateModelAlias`(86-113)、`UpdateModelNote`(117-135)、`UpdateModelNIMOverride`(136-151)、`ResolveModelAlias`(156-168)、`GetModelByAliasOrID`(173-185) | `AddModel` 去重 + 别名冲突检查（27-36）；`UpdateModelQuotaType` 改模型 `QuotaType`；`UpdateModelAlias` 别名唯一性校验；`ResolveModelAlias` / `GetModelByAliasOrID` 按别名或 ID 查找 |
+| `models.go` | `ListModels`(6-17)、`AddModel`(20-36)、`DeleteModel`(39-56)、`UpdateModelQuotaType`(59-75)、`UpdateModelAlias`(86-113)、`UpdateModelNote`(117-135)、`UpdateModelNIMOverride`(136-151)、`UpdateModelKind`、`UpdateModelImgProtocol`、`ResolveModelAlias`(156-168)、`GetModelByAliasOrID`(173-185) | `AddModel` 去重 + 别名冲突检查（27-36）；`UpdateModelQuotaType` 改模型 `QuotaType`；`UpdateModelAlias` 别名唯一性校验；`UpdateModelKind`/`UpdateModelImgProtocol` 改模型 `Kind`/`ImgProtocol`；`ResolveModelAlias` / `GetModelByAliasOrID` 按别名或 ID 查找 |
 | `combos.go` | `ListCombos`(7-13)、`GetComboByName`(15-25)、`HasCombo`(28-37)、`AddCombo`(39-43)、`UpdateCombo`(45-59)、`DeleteCombo`(61-71) | 全在 `cfgMu` 下；`UpdateCombo` 改 `Name/Strategy/Models/Disabled/DisabledModels`（combo 运行时状态由 combo 包自管，不经此处） |
 | `quickslots.go` | `ListQuickSlots`(7-13)、`GetQuickSlotByName`(16-26)、`GetQuickSlot`(29-39)、`HasQuickSlot`(42-51)、`AddQuickSlot`(53-57)、`UpdateQuickSlot`(59-74)、`DeleteQuickSlot`(76-86) | `UpdateQuickSlot` 改 `Name/Models/Disabled/DisabledModels/Order/SelectedIndex` |
 
@@ -367,7 +367,7 @@ flowchart LR
 |---|---|---|
 | `RotationConfig` | config/types.go:11-19 | 轮询全局设置 |
 | `Key` | config/types.go:22-29 | 单 API key |
-| `ModelDef` | config/types.go:32-38 | 模型定义（scalar/mapping 双解）：`ID`、`QuotaType`、`Alias`、`Note`、`NIMOver` |
+| `ModelDef` | config/types.go:32-38 | 模型定义（scalar/mapping 双解）：`ID`、`QuotaType`、`Alias`、`Note`、`NIMOver`、`Kind`、`ImgProtocol` |
 | `Provider` | config/types.go:74-96 | 上游端点 + `IsNIM`/`IsGeminiOpenAICompat` |
 | `NIMSettings` | config/types.go:121-126 | NIM 参数 |
 | `Combo` / `QuickSlot` | config/types.go:129-147 | 组合路由 / 快捷槽 |
@@ -489,7 +489,7 @@ go build -o tinyrouter .
 - `registry.go`：Registry(11-16)、New(19-26)、reloadStatesLocked(28-54)、stateKey(56-58)、Config(61-65)、Reload(68-73)。
 - `providers.go`：ListProviders/HasProvider/GetProvider/GetProviderByPrefix(11-54)、AddProvider(56-70)、UpdateProvider(72-94)、DeleteProvider(96-113)、UpdateProviderStrategy(116-127)。
 - `keys.go`：HasKey(12-26)、AddKey(28-48)、DeleteKey(50-71)、UpdateKey(73-93)。
-- `models.go`：ListModels(6-17)、AddModel(20-36)、DeleteModel(39-56)、UpdateModelQuotaType(59-75)。
+- `models.go`：ListModels(6-17)、AddModel(20-36)、DeleteModel(39-56)、UpdateModelQuotaType(59-75)、UpdateModelKind、UpdateModelImgProtocol。
 - `combos.go`：ListCombos/GetComboByName/HasCombo(7-37)、AddCombo(39-43)、UpdateCombo(45-59)、DeleteCombo(61-71)。
 - `quickslots.go`：ListQuickSlots/GetQuickSlotByName/GetQuickSlot/HasQuickSlot(7-51)、AddQuickSlot(53-57)、UpdateQuickSlot(59-74)、DeleteQuickSlot(76-86)。
 - `state.go`：QuotaInfo(12-18)、KeyRuntimeState(21-45)、Inc/Dec/GetInFlight(48-60)、Lock/Unlock(63-66)、GetKeyState(69-73)、SnapshotKeyStates(77-88)、snapshotKeyState(90-116)、convertKey(118-126)、RestoreKeyState(130-163)、UpdateQuota/GetQuota(166-186)、ResetAllCooldowns(191-204)。
@@ -503,7 +503,7 @@ go build -o tinyrouter .
 
 | 变更类型 | 必查位置 |
 |---|---|
-| 新增配置字段 | `types.go`（结构+tag）+ `defaults.go`：`DefaultConfig` + `finalizeConfig` 回填 + `persistence.go` 严格解析（KnownFields）。当前新增 `ModelDef.Alias`/`Note`/`NIMOver` 三个字段 |
+| 新增配置字段 | `types.go`（结构+tag）+ `defaults.go`：`DefaultConfig` + `finalizeConfig` 回填 + `persistence.go` 严格解析（KnownFields）。当前新增 `ModelDef.Alias`/`Note`/`NIMOver` 三个字段，`Kind`/`ImgProtocol` 两个字段 |
 | 修改默认值 | `defaults.go`：`DefaultConfig`(39-64) 与 `finalizeConfig`(69-146) 两处需一致 |
 | 修改持久化原子性 | `persistence.go` Save(79-107) + `state.go` Save(79-96)（注意两者错误语义不同，见第 20 节 #4） |
 | 修改加密 | `crypto.go`（GenerateKey/Encrypt/Decrypt/encryptKeysCopy）+ `defaults.go` 解密分支(130-144) + `types.go` SecurityConfig(150-154) |

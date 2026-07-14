@@ -14,9 +14,11 @@ func (rt *Router) listModels(w http.ResponseWriter, r *http.Request) {
 	combos := rt.reg.ListCombos()
 
 	type modelInfo struct {
-		ID       string `json:"id"`
-		Provider string `json:"provider"`
-		Type     string `json:"type"` // "provider" | "combo"
+		ID          string `json:"id"`
+		Provider    string `json:"provider"`
+		Type        string `json:"type"`          // "provider" | "combo"
+		Kind        string `json:"kind,omitempty"`      // "text" (default/empty) | "image" — only for provider type
+		ImgProtocol string `json:"imgProtocol,omitempty"` // "gpt" | "xai" | "modelscope" — only for provider type
 	}
 
 	var models []modelInfo
@@ -30,11 +32,13 @@ func (rt *Router) listModels(w http.ResponseWriter, r *http.Request) {
 				if m.Alias != "" {
 					displayID = m.Alias
 				}
-				models = append(models, modelInfo{
-					ID:       p.Prefix + "/" + displayID,
-					Provider: p.Name,
-					Type:     "provider",
-				})
+			models = append(models, modelInfo{
+				ID:          p.Prefix + "/" + displayID,
+				Provider:    p.Name,
+				Type:        "provider",
+				Kind:        m.Kind,
+				ImgProtocol: m.ImgProtocol,
+			})
 			}
 		} else {
 			models = append(models, modelInfo{

@@ -194,6 +194,8 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	r.Post("/v1/chat/completions", proxyHandler.ChatCompletions)
 	r.Post("/v1/completions", proxyHandler.Completions)
 	r.Get("/v1/models", proxyHandler.ListModels)
+	r.Post("/v1/images/generations", proxyHandler.ImagesGenerations)
+	r.Post("/v1/tasks/{taskId}", proxyHandler.PollTask)
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
@@ -239,6 +241,8 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Patch("/providers/{id}/models/alias", rt.updateModelAlias)
 			r.Patch("/providers/{id}/models/note", rt.updateModelNote)
 			r.Patch("/providers/{id}/models/nim", rt.updateModelNIM)
+		r.Patch("/providers/{id}/models/kind", rt.updateModelKind)
+		r.Patch("/providers/{id}/models/imgProtocol", rt.updateModelImgProtocol)
 			r.Delete("/providers/{id}/models", rt.deleteProviderModel)
 
 			// Keys

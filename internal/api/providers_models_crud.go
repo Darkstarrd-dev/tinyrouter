@@ -139,6 +139,76 @@ func (rt *Router) updateModelNote(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// updateModelKind updates the kind (text/image) of a single model on a provider.
+// Request: {"model": "model-id", "kind": "text|image"}
+func (rt *Router) updateModelKind(w http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "id")
+	var req struct {
+		Model string `json:"model"`
+		Kind  string `json:"kind"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.Model == "" {
+		writeAPIError(w, http.StatusBadRequest, "model required")
+		return
+	}
+	switch req.Kind {
+	case "text", "image":
+	default:
+		writeAPIError(w, http.StatusBadRequest, "invalid kind, must be text | image")
+		return
+	}
+	if rt.reg.UpdateModelKind(providerID, req.Model, req.Kind) {
+		cfg := rt.reg.Config()
+		if err := rt.saveConfig(&cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	} else {
+		writeAPIError(w, http.StatusNotFound, "model not found on provider")
+	}
+}
+
+// updateModelImgProtocol updates the image protocol of a single model on a provider.
+// Request: {"model": "model-id", "imgProtocol": "gpt|xai|modelscope"}
+func (rt *Router) updateModelImgProtocol(w http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "id")
+	var req struct {
+		Model       string `json:"model"`
+		ImgProtocol string `json:"imgProtocol"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.Model == "" {
+		writeAPIError(w, http.StatusBadRequest, "model required")
+		return
+	}
+	switch req.ImgProtocol {
+	case "gpt", "xai", "modelscope":
+	default:
+		writeAPIError(w, http.StatusBadRequest, "invalid imgProtocol, must be gpt | xai | modelscope")
+		return
+	}
+	if rt.reg.UpdateModelImgProtocol(providerID, req.Model, req.ImgProtocol) {
+		cfg := rt.reg.Config()
+		if err := rt.saveConfig(&cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	} else {
+		writeAPIError(w, http.StatusNotFound, "model not found on provider")
+	}
+}
+
 // updateModelNIM updates the NIM override of a single model on a provider.
 // Request: {"model": "model-id", "nim": {"enabled": true, "request_count_per_key": 30, "min_interval_ms": 2000}}
 func (rt *Router) updateModelNIM(w http.ResponseWriter, r *http.Request) {

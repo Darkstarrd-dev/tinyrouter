@@ -30,11 +30,13 @@ type Key struct {
 
 // ModelDef represents one upstream model with its quota type tag.
 type ModelDef struct {
-	ID        string             `yaml:"id" json:"id"`
-	QuotaType string             `yaml:"quotaType,omitempty" json:"quotaType,omitempty"` // "unlimited" | "limited" | "paid"
-	Alias     string             `yaml:"alias,omitempty" json:"alias,omitempty"`
-	Note      string             `yaml:"note,omitempty" json:"note,omitempty"`
-	NIMOver   *ModelNIMOverride  `yaml:"nim,omitempty" json:"nim,omitempty"`
+	ID          string             `yaml:"id" json:"id"`
+	QuotaType   string             `yaml:"quotaType,omitempty" json:"quotaType,omitempty"`
+	Alias       string             `yaml:"alias,omitempty" json:"alias,omitempty"`
+	Note        string             `yaml:"note,omitempty" json:"note,omitempty"`
+	Kind        string             `yaml:"kind,omitempty" json:"kind,omitempty"`            // "text" (default/empty) | "image"
+	ImgProtocol string             `yaml:"imgProtocol,omitempty" json:"imgProtocol,omitempty"` // "gpt" | "xai" | "modelscope" (only when kind=image)
+	NIMOver     *ModelNIMOverride  `yaml:"nim,omitempty" json:"nim,omitempty"`
 }
 
 // ModelNIMOverride enables per-model NIM-style rate limiting (per-key request

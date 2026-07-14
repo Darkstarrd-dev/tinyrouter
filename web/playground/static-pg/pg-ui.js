@@ -128,6 +128,40 @@ function pgUserSend() {
     return;
   }
 
+  // Image mode
+  if (pgState.mode === 'image') {
+    if (pgIsGenerating()) return;
+    if (!pgAnyWindowHasModel()) {
+      pgToast(pgT('pgSelectModel'), 'warning'); return;
+    }
+    var imgSkipped = [];
+    var imgNow = Date.now();
+    for (var imgI = 0; imgI < pgState.splitCount; imgI++) {
+      var imgW = pgWinAt(imgI);
+      if (!imgW.config.model) {
+        imgSkipped.push(imgI);
+        pgToast(pgT('pgNoModelWin', [imgI + 1]), 'warning');
+        continue;
+      }
+      imgW.messages.push({ role: 'user', content: text, createdAt: imgNow });
+      imgW.messages.push({ role: 'assistant', content: '', status: 'loading', startedAt: imgNow });
+    }
+    ta.value = '';
+    for (var imgI2 = 0; imgI2 < pgState.splitCount; imgI2++) {
+      if (imgSkipped.indexOf(imgI2) >= 0) continue;
+      pgRenderMessages(imgI2);
+      var imgW2 = pgWinAt(imgI2);
+      var imgBody = pgBuildImageBody(imgI2);
+      if (!imgBody) {
+        pgFail(imgI2, imgW2.messages.length - 1, 'Failed to build image request');
+        continue;
+      }
+      pgSendImage(imgI2, imgBody, imgW2.messages.length - 1);
+    }
+    pgSave();
+    return;
+  }
+
   if (pgIsGenerating()) return;
   if (!pgAnyWindowHasModel()) {
     pgToast(pgT('pgSelectModel'), 'warning'); return;
@@ -259,9 +293,17 @@ function pgRenderPanes() {
   }
 }
 
-function pgSetMode(autoChat) {
-  if (autoChat === pgState.autoChat.enabled) return;
-  pgAutoChatToggle(autoChat);
+function pgSetMode(mode) {
+  if (mode === pgState.mode) return;
+  if (mode === 'autochat') {
+    pgAutoChatToggle(true);
+  } else {
+    if (pgState.mode === 'autochat') pgAutoChatToggle(false);
+    pgState.mode = mode;
+    pgRenderSidebar();
+    pgRenderPanes();
+    pgRenderInputBar();
+  }
 }
 
 function pgSetSplitCount(n) {
@@ -317,8 +359,9 @@ function pgRenderSidebar() {
     '<div class="pg-panel pg-winbar">' +
       '<div class="pg-panel-title">' + pgEscapeHtml(pgT('pgWinBarTitle')) +
         '<div class="pg-mode-toggle">' +
-          '<button class="pg-mode-btn' + (!pgState.autoChat.enabled ? ' active' : '') + '" onclick="pgSetMode(false)">' + pgEscapeHtml(pgT('pgModeNormal')) + '</button>' +
-          '<button class="pg-mode-btn' + (pgState.autoChat.enabled ? ' active' : '') + '" onclick="pgSetMode(true)">' + pgEscapeHtml(pgT('pgModeAutoChat')) + '</button>' +
+          '<button class="pg-mode-btn' + (pgState.mode === 'normal' ? ' active' : '') + '" onclick="pgSetMode(\'normal\')">' + pgEscapeHtml(pgT('pgModeNormal')) + '</button>' +
+          '<button class="pg-mode-btn' + (pgState.mode === 'autochat' ? ' active' : '') + '" onclick="pgSetMode(\'autochat\')">' + pgEscapeHtml(pgT('pgModeAutoChat')) + '</button>' +
+          '<button class="pg-mode-btn' + (pgState.mode === 'image' ? ' active' : '') + '" onclick="pgSetMode(\'image\')">' + pgEscapeHtml(pgT('pgModeImage')) + '</button>' +
         '</div>' +
       '</div>' +
       '<div class="pg-winbar-row">' +
@@ -331,7 +374,8 @@ function pgRenderSidebar() {
 
   // --- Model select ---
   var modelLabel = pgWin().config.model || pgT('pgSelectModel');
-  var modelSel = '<button class="pg-btn pg-model-btn"' + (customMode ? ' disabled' : '') + ' onclick="pgOpenModelPicker(pgWin().config.model, function(v){ pgOnModelChange(v); pgRenderSidebar(); })" style="width:100%;text-align:left;justify-content:flex-start">' + pgEscapeHtml(modelLabel) + ' <span style="float:right;opacity:0.5">▼</span></button>';
+  var modelPickerOpts = pgState.mode === 'image' ? { kindFilter: 'image' } : { kindFilter: 'text' };
+  var modelSel = '<button class="pg-btn pg-model-btn"' + (customMode ? ' disabled' : '') + ' onclick="pgOpenModelPicker(pgWin().config.model, function(v){ pgOnModelChange(v); pgRenderSidebar(); }, ' + JSON.stringify(modelPickerOpts).replace(/"/g, '&quot;') + ')" style="width:100%;text-align:left;justify-content:flex-start">' + pgEscapeHtml(modelLabel) + ' <span style="float:right;opacity:0.5">▼</span></button>';
 
   // --- Parameters ---
   function paramRow(key, label, min, max, step, isNum) {
@@ -479,18 +523,121 @@ function pgRenderSidebar() {
     '</div>'
   ) : '';
 
-  side.innerHTML =
-    winbar +
-    autoChatPanels +
-    '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
-    '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgParams')) + '</div>' + params + '</div>' +
-    '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSystemPrompt')) + '</div>' + sysPrompt + '</div>' +
-    '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgImage')) + '</div>' + imgBlock + '</div>' +
-    '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgCustomEndpoint')) + '</div>' + customEp + '</div>' +
-    '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgCustomBody')) + '</div>' + custom + '</div>' +
-    '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
+  if (pgState.mode === 'image') {
+    var imgParams = pgRenderImageParams(cfg);
+    side.innerHTML =
+      winbar +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
+      imgParams +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
+  } else {
+    side.innerHTML =
+      winbar +
+      autoChatPanels +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
+      '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgParams')) + '</div>' + params + '</div>' +
+      '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSystemPrompt')) + '</div>' + sysPrompt + '</div>' +
+      '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgImage')) + '</div>' + imgBlock + '</div>' +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgCustomEndpoint')) + '</div>' + customEp + '</div>' +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgCustomBody')) + '</div>' + custom + '</div>' +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
+  }
   pgSchedulePreview();
   pgRenderDebugContent();
+}
+
+function pgGetModelInfo(modelId) {
+  var models = pgState.models || [];
+  for (var i = 0; i < models.length; i++) {
+    if (models[i].id === modelId) return models[i];
+  }
+  return null;
+}
+
+function pgGetImgProtocol(modelId) {
+  var info = pgGetModelInfo(modelId);
+  return (info && info.kind === 'image' && info.imgProtocol) ? info.imgProtocol : 'gpt';
+}
+
+function pgImgParamSelect(key, labelKey, val, options) {
+  var opts = options.map(function(o) {
+    return '<option value="' + pgEscapeAttr(o.value) + '"' + (val === o.value ? ' selected' : '') + '>' + pgEscapeHtml(o.label) + '</option>';
+  }).join('');
+  return '<div class="pg-param-row">' +
+    '<label>' + pgEscapeHtml(pgT(labelKey)) + '</label>' +
+    '<select onchange="pgOnParam(\'' + key + '\', this.value)" style="flex:0 0 auto">' + opts + '</select>' +
+  '</div>';
+}
+
+function pgImgParamNumber(key, labelKey, val, min, max, step) {
+  return '<div class="pg-param-row">' +
+    '<label>' + pgEscapeHtml(pgT(labelKey)) + '</label>' +
+    '<input type="number" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" onchange="pgOnParam(\'' + key + '\', parseInt(this.value,10)||1)" style="flex:0 0 80px">' +
+  '</div>';
+}
+
+function pgRenderImageParams(cfg) {
+  var proto = pgGetImgProtocol(cfg.model);
+  var html = '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgImageParams')) + '</div>';
+  if (proto === 'gpt') {
+    html += pgImgParamSelect('imgSize', 'pgImgSize', cfg.imgSize || '', [
+      {value: '', label: pgT('pgImgSizeDefault')},
+      {value: '1024x1024', label: '1024x1024 (1:1)'},
+      {value: '2560x3840', label: '2560x3840 (2:3)'},
+      {value: '3840x2560', label: '3840x2560 (3:2)'},
+      {value: '3840x2880', label: '3840x2880 (4:3)'},
+      {value: '2880x3840', label: '2880x3840 (3:4)'},
+      {value: '3840x2160', label: '3840x2160 (16:9)'},
+      {value: '2160x3840', label: '2160x3840 (9:16)'},
+    ]);
+    html += pgImgParamSelect('imgQuality', 'pgImgQuality', cfg.imgQuality || '', [
+      {value: '', label: pgT('pgImgQualityStandard')},
+      {value: 'high', label: pgT('pgImgQualityHigh')},
+    ]);
+    html += pgImgParamSelect('imgBackground', 'pgImgBackground', cfg.imgBackground || '', [
+      {value: '', label: pgT('pgImgBackgroundOpaque')},
+      {value: 'transparent', label: pgT('pgImgBackgroundTransparent')},
+    ]);
+    html += pgImgParamSelect('imgModeration', 'pgImgModeration', cfg.imgModeration || '', [
+      {value: '', label: pgT('pgImgModerationAuto')},
+      {value: 'low', label: pgT('pgImgModerationLow')},
+    ]);
+  } else if (proto === 'xai') {
+    html += pgImgParamSelect('imgAspectRatio', 'pgImgAspectRatio', cfg.imgAspectRatio || '1:1', [
+      {value: '1:1', label: '1:1'},
+      {value: '3:2', label: '3:2'},
+      {value: '4:3', label: '4:3'},
+      {value: '16:9', label: '16:9'},
+      {value: '21:9', label: '21:9'},
+      {value: '9:16', label: '9:16'},
+      {value: '2:3', label: '2:3'},
+      {value: '3:4', label: '3:4'},
+      {value: '2:1', label: '2:1'},
+      {value: '1:2', label: '1:2'},
+    ]);
+    html += pgImgParamSelect('imgResolution', 'pgImgResolution', cfg.imgResolution || '2k', [
+      {value: '1k', label: '1k'},
+      {value: '2k', label: '2k'},
+      {value: '4k', label: '4k'},
+      {value: '8k', label: '8k'},
+    ]);
+    html += pgImgParamNumber('imgN', 'pgImgN', cfg.imgN || 1, 1, 10, 1);
+  } else if (proto === 'modelscope') {
+    html += pgImgParamSelect('imgSize', 'pgImgSize', cfg.imgSize || '', [
+      {value: '', label: pgT('pgImgSizeDefault')},
+      {value: '1024x1024', label: '1024x1024'},
+      {value: '1280x720', label: '1280x720'},
+      {value: '720x1280', label: '720x1280'},
+      {value: '1024x768', label: '1024x768'},
+      {value: '768x1024', label: '768x1024'},
+    ]);
+    html += '<div class="pg-param-row"><label>' + pgEscapeHtml(pgT('pgImgNegativePrompt')) + '</label><input type="text" value="' + pgEscapeAttr(cfg.imgNegativePrompt || '') + '" oninput="pgOnParam(\'imgNegativePrompt\', this.value)" style="flex:1"></div>';
+    html += '<div class="pg-param-row"><label>' + pgEscapeHtml(pgT('pgImgSteps')) + '</label><input type="number" min="0" max="100" step="1" value="' + (cfg.imgSteps || 0) + '" onchange="pgOnParam(\'imgSteps\', parseInt(this.value,10)||0)" style="flex:0 0 80px"></div>';
+    html += '<div class="pg-param-row"><label>' + pgEscapeHtml(pgT('pgImgGuidance')) + '</label><input type="number" min="0" max="20" step="0.5" value="' + (cfg.imgGuidance || 0) + '" oninput="pgOnParam(\'imgGuidance\', parseFloat(this.value)||0)" style="flex:0 0 80px"></div>';
+    html += '<div class="pg-param-row"><label>' + pgEscapeHtml(pgT('pgImgSeed')) + '</label><input type="number" min="0" max="999999" step="1" value="' + (cfg.imgSeed || 0) + '" onchange="pgOnParam(\'imgSeed\', parseInt(this.value,10)||0)" style="flex:0 0 80px"></div>';
+  }
+  html += '</div>';
+  return html;
 }
 
 function pgRenderImageBlock(customMode) {
@@ -813,13 +960,14 @@ function pgRenderInputBar() {
   if (pgIsGenerating() && !(pgState.autoChat.enabled && pgState.autoChat.isRunning)) {
     sendBtn = '<button class="pg-send stop" onclick="pgStop()">' + pgEscapeHtml(pgT('pgStop')) + '</button>';
   } else {
-    sendBtn = '<button class="pg-send" onclick="pgUserSend()" ' + (!pgAnyWindowHasModel() ? 'disabled' : '') + '>' + pgEscapeHtml(pgT('pgSendMessage')) + '</button>';
+    var sendLabel = pgState.mode === 'image' ? pgT('pgGenerate') : pgT('pgSendMessage');
+    sendBtn = '<button class="pg-send" onclick="pgUserSend()" ' + (!pgAnyWindowHasModel() ? 'disabled' : '') + '>' + pgEscapeHtml(sendLabel) + '</button>';
   }
    bar.innerHTML =
     '<div class="pg-input-card">' +
       '<div class="pg-input-thumbs" id="pg-input-thumbs"></div>' +
       '<div class="pg-input-right">' +
-        '<textarea class="pg-input" id="pg-input" placeholder="' + pgEscapeHtml(pgT('pgEnterMessage')) + '" onkeydown="pgOnInputKey(event)"></textarea>' +
+        '<textarea class="pg-input" id="pg-input" placeholder="' + pgEscapeHtml(pgState.mode === 'image' ? pgT('pgImagePromptPlaceholder') : pgT('pgEnterMessage')) + '" onkeydown="pgOnInputKey(event)"></textarea>' +
         '<div class="pg-input-bar-toolbar"></div>' +
       '</div>' +
     '</div>' +

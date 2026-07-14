@@ -457,6 +457,9 @@ function buildModelRowMainInner(p, m) {
   } else {
     allBadge = '<span class="model-alltest-badge"></span>';
   }
+  var kindVal = m.kind || 'text';
+  var protoVal = m.imgProtocol || 'gpt';
+  var protoDisplay = (kindVal === 'image') ? '' : 'none';
   var chevronDown = '<svg class="quota-bar-chevron model-row-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
   var rowOnclick = batchManageMode
     ? 'batchToggleModel(\'' + midJs + '\')'
@@ -472,6 +475,15 @@ function buildModelRowMainInner(p, m) {
       '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
       '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
       '<option value="paid"' + (m.quotaType === 'paid' ? ' selected' : '') + '>' + t('paid') + '</option>' +
+    '</select>' +
+    '<select class="model-quota-select model-kind-select" onclick="event.stopPropagation()" onchange="updateModelKind(\'' + pidEsc + '\', this)" data-model="' + midEsc + '" title="' + t('modelKind') + '">' +
+      '<option value="text"' + (kindVal !== 'image' ? ' selected' : '') + '>' + t('textModel') + '</option>' +
+      '<option value="image"' + (kindVal === 'image' ? ' selected' : '') + '>' + t('imageModel') + '</option>' +
+    '</select>' +
+    '<select class="model-quota-select model-protocol-select" style="display:' + protoDisplay + '" onclick="event.stopPropagation()" onchange="updateModelImgProtocol(\'' + pidEsc + '\', this)" data-model="' + midEsc + '" title="' + t('imgProtocol') + '">' +
+      '<option value="gpt"' + (protoVal === 'gpt' ? ' selected' : '') + '>GPT</option>' +
+      '<option value="xai"' + (protoVal === 'xai' ? ' selected' : '') + '>xAI</option>' +
+      '<option value="modelscope"' + (protoVal === 'modelscope' ? ' selected' : '') + '>ModelScope</option>' +
     '</select>' +
     allBadge +
     '<span class="model-quota-numbers"></span>' +
@@ -1094,6 +1106,40 @@ async function updateModelQuotaType(pid, selectEl) {
   try {
     await apiPatch('/providers/' + pid + '/models/quota', { model: modelId, quotaType: quotaType });
     toast(t('quotaType') + ' \u2192 ' + t(quotaType), 'success');
+  } catch (e) {
+    toast(e.message || t('failed'), 'error');
+  }
+}
+
+async function updateModelKind(pid, selectEl) {
+  var modelId = selectEl.getAttribute('data-model');
+  var kind = selectEl.value;
+  try {
+    await apiPatch('/providers/' + pid + '/models/kind', { model: modelId, kind: kind });
+    toast(t('modelKind') + ' \u2192 ' + t(kind === 'text' ? 'textModel' : 'imageModel'), 'success');
+    var row = selectEl.closest('.model-row-main');
+    var protoSelect = row ? row.querySelector('.model-protocol-select') : null;
+    if (protoSelect) {
+      if (kind === 'image') {
+        protoSelect.style.display = '';
+        if (!protoSelect.value) {
+          protoSelect.value = 'gpt';
+        }
+      } else {
+        protoSelect.style.display = 'none';
+      }
+    }
+  } catch (e) {
+    toast(e.message || t('failed'), 'error');
+  }
+}
+
+async function updateModelImgProtocol(pid, selectEl) {
+  var modelId = selectEl.getAttribute('data-model');
+  var imgProtocol = selectEl.value;
+  try {
+    await apiPatch('/providers/' + pid + '/models/imgProtocol', { model: modelId, imgProtocol: imgProtocol });
+    toast(t('imgProtocol') + ' \u2192 ' + imgProtocol, 'success');
   } catch (e) {
     toast(e.message || t('failed'), 'error');
   }

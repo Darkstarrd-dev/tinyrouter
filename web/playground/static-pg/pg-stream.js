@@ -268,6 +268,140 @@ function pgSendNonStream(i, body, assistantIdx) {
   });
 }
 
+function pgSendImage(i, body, assistantIdx) {
+  var w = pgWinAt(i);
+  w.streaming = true;
+  w.abortCtrl = new AbortController();
+  w.sseEvents = [];
+  w.lastProvider = '';
+  w.lastKey = '';
+  w.pendingContent = '';
+  w.debugRequest = JSON.stringify(body, null, 2);
+  w.debugResponse = '';
+  w.debugTimestamp = new Date().toISOString();
+  pgUpdateInputBar();
+
+  var msg = w.messages[assistantIdx];
+  msg.startedAt = msg.startedAt || Date.now();
+  var proto = (typeof pgGetImgProtocol === 'function') ? pgGetImgProtocol(w.config.model) : 'gpt';
+
+  var headers = { 'Content-Type': 'application/json', 'X-TinyRouter-Source': 'playground' };
+  if (proto === 'modelscope') {
+    headers['X-Modelscope-Async-Mode'] = 'true';
+  }
+
+  fetch('/v1/images/generations', {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify(body),
+    signal: w.abortCtrl.signal,
+  }).then(function(resp) {
+    w.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
+    w.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
+    return resp.json().then(function(j) {
+      if (!resp.ok) {
+        var details = pgParseErrorDetails(JSON.stringify(j));
+        var err = new Error(details.errorMessage || ('HTTP ' + resp.status));
+        if (details.errorCode) {
+          if (msg) msg.errorCode = details.errorCode;
+        }
+        throw err;
+      }
+      // ModelScope async: check for task ID
+      if (proto === 'modelscope') {
+        var taskId = j.request_id || j.task_id || (j.data && j.data[0] && j.data[0].request_id) || '';
+        if (taskId && (!j.data || !j.data[0] || (!j.data[0].url && !j.data[0].b64_json))) {
+          pgPollModelScopeTask(i, taskId, body.model, assistantIdx, msg);
+          return;
+        }
+      }
+      msg.completedAt = Date.now();
+      msg.durationMs = msg.completedAt - msg.startedAt;
+      msg.status = 'complete';
+      var data = j.data && j.data[0];
+      if (data) {
+        var imgUrl = data.url || (data.b64_json ? 'data:image/png;base64,' + data.b64_json : '');
+        var revisedPrompt = data.revised_prompt || '';
+        var contentParts = [];
+        if (revisedPrompt) contentParts.push({ type: 'text', text: revisedPrompt });
+        if (imgUrl) contentParts.push({ type: 'image_url', image_url: { url: imgUrl } });
+        msg.content = contentParts.length > 0 ? contentParts : '';
+      } else {
+        msg.content = JSON.stringify(j);
+      }
+      w.sseEvents.push(JSON.stringify(j, null, 2));
+      w.debugResponse = JSON.stringify(j, null, 2);
+      pgRenderBubble(i, assistantIdx);
+      pgRenderDebug();
+      pgSave();
+      pgUpdateInputBar();
+    });
+  }).catch(function(err) {
+    if (err && err.name === 'AbortError') {
+      pgFinish(i, assistantIdx);
+    } else {
+      var ec = (w.messages[assistantIdx] && w.messages[assistantIdx].errorCode) || null;
+      pgFail(i, assistantIdx, err && err.message ? err.message : String(err), ec);
+    }
+  });
+}
+
+function pgPollModelScopeTask(i, taskId, model, assistantIdx, msg) {
+  var w = pgWinAt(i);
+  var pollUrl = '/v1/tasks/' + encodeURIComponent(taskId);
+  var pollBody = JSON.stringify({ model: model });
+  function poll() {
+    if (!w.streaming) return;
+    fetch(pollUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-TinyRouter-Source': 'playground' },
+      body: pollBody,
+      signal: w.abortCtrl.signal,
+    }).then(function(resp) {
+      return resp.json().then(function(j) {
+        w.sseEvents.push(JSON.stringify(j, null, 2));
+        w.debugResponse = JSON.stringify(j, null, 2);
+        pgRenderDebug();
+        var status = (j.status || j.task_status || '').toUpperCase();
+        if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
+          var imageUrl = '';
+          if (j.output && j.output.images && j.output.images[0]) {
+            imageUrl = j.output.images[0].url || '';
+          } else if (j.data && j.data[0]) {
+            imageUrl = j.data[0].url || (j.data[0].b64_json ? 'data:image/png;base64,' + j.data[0].b64_json : '');
+          } else if (j.image_url) {
+            imageUrl = j.image_url;
+          } else if (j.output && j.output.image_url) {
+            imageUrl = j.output.image_url;
+          }
+          msg.completedAt = Date.now();
+          msg.durationMs = msg.completedAt - msg.startedAt;
+          msg.status = 'complete';
+          if (imageUrl) {
+            msg.content = [{ type: 'image_url', image_url: { url: imageUrl } }];
+          } else {
+            msg.content = JSON.stringify(j);
+          }
+          pgRenderBubble(i, assistantIdx);
+          pgSave();
+          pgUpdateInputBar();
+        } else if (status === 'FAILED' || status === 'ERROR') {
+          pgFail(i, assistantIdx, 'Image generation task failed: ' + (j.message || status));
+        } else {
+          setTimeout(poll, 2000);
+        }
+      });
+    }).catch(function(err) {
+      if (err && err.name === 'AbortError') {
+        pgFinish(i, assistantIdx);
+      } else {
+        setTimeout(poll, 3000);
+      }
+    });
+  }
+  setTimeout(poll, 2000);
+}
+
 function pgFinish(i, assistantIdx) {
   var w = pgWinAt(i);
   if (!w.streaming) return;

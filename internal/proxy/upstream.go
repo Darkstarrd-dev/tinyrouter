@@ -15,7 +15,7 @@ import (
 //	"https://api.example.com/v1/models"            → "https://api.example.com/v1"
 func normalizeBaseURL(baseURL string) string {
 	baseURL = strings.TrimSuffix(baseURL, "/")
-	for _, suffix := range []string{"/chat/completions", "/completions", "/models"} {
+	for _, suffix := range []string{"/chat/completions", "/completions", "/models", "/images/generations"} {
 		if strings.HasSuffix(baseURL, suffix) {
 			baseURL = baseURL[:len(baseURL)-len(suffix)]
 			break
@@ -76,6 +76,9 @@ func (h *Handler) forwardUpstream(ctx context.Context, sel *rotation.SelectedKey
 
 	if ua := headers.Get("User-Agent"); ua != "" {
 		req.Header.Set("User-Agent", ua)
+	}
+	if am := headers.Get("X-Modelscope-Async-Mode"); am != "" {
+		req.Header.Set("X-Modelscope-Async-Mode", am)
 	}
 	if isStream {
 		req.Header.Set("Accept", "text/event-stream")
