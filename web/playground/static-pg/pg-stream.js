@@ -309,7 +309,7 @@ function pgSendImage(i, body, assistantIdx) {
       }
       // ModelScope async: check for task ID
       if (proto === 'modelscope') {
-        var taskId = j.request_id || j.task_id || (j.data && j.data[0] && j.data[0].request_id) || '';
+        var taskId = j.task_id || j.request_id || (j.data && j.data[0] && j.data[0].task_id) || '';
         if (taskId && (!j.data || !j.data[0] || (!j.data[0].url && !j.data[0].b64_json))) {
           pgPollModelScopeTask(i, taskId, body.model, assistantIdx, msg);
           return;
