@@ -96,20 +96,44 @@ function pgShowImageModal(url) {
     '<span class="pg-modal-header-actions">' +
       '<button class="pg-img-btn" onclick="pgCopyImage(\'' + pgEscapeAttr(url) + '\', this)" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + pgEscapeHtml(pgT('pgCopy')) + '</button>' +
       '<button class="pg-img-btn" onclick="pgSaveImage(\'' + pgEscapeAttr(url) + '\', this)" title="' + pgEscapeHtml(pgT('pgSave')) + '">' + pgEscapeHtml(pgT('pgSave')) + '</button>' +
+      '<button class="pg-img-btn" id="pg-img-reset-btn" onclick="pgResetImageZoom()" title="' + pgEscapeHtml(pgT('pgReset')) + '" style="display:none">' + pgEscapeHtml(pgT('pgReset')) + '</button>' +
       '<button class="pg-modal-close" onclick="pgCloseModal()">✕</button>' +
     '</span>' +
   '</div>' +
-  '<div class="pg-modal-body" id="pg-img-modal-body" style="text-align:center;overflow:hidden;position:relative;padding:0;cursor:grab">' +
-    '<img src="' + pgEscapeHtml(url) + '" alt="image" id="pg-img-modal-img" style="max-width:100%;max-height:70vh;object-fit:contain;border-radius:4px;transition:transform .1s ease-out;transform-origin:center center">' +
+  '<div class="pg-modal-body" id="pg-img-modal-body" style="display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:0;cursor:default">' +
+    '<img src="' + pgEscapeHtml(url) + '" alt="image" id="pg-img-modal-img" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;transform-origin:center center">' +
   '</div>';
   pgShowModal(html);
-  pgInitImageZoom();
+  requestAnimationFrame(function() {
+    var modal = document.querySelector('#pg-modal-overlay .pg-modal');
+    if (modal) {
+      modal.style.width = '90vw';
+      modal.style.height = '90vh';
+      modal.style.maxWidth = '95vw';
+      modal.style.maxHeight = '95vh';
+    }
+    pgInitImageZoom();
+  });
 }
 
 function pgInitImageZoom() {
   var img = document.getElementById('pg-img-modal-img');
   var body = document.getElementById('pg-img-modal-body');
+  var resetBtn = document.getElementById('pg-img-reset-btn');
   if (!img || !body) return;
+
+  // Calculate the auto-fit scale: the scale at which the image fits the container
+  function calcFitScale() {
+    if (!img.naturalWidth || !img.naturalHeight) return 1;
+    var bw = body.clientWidth;
+    var bh = body.clientHeight;
+    if (!bw || !bh) return 1;
+    var scaleW = bw / img.naturalWidth;
+    var scaleH = bh / img.naturalHeight;
+    return Math.min(scaleW, scaleH, 1);
+  }
+
+  var fitScale = 1;
   var scale = 1;
   var translateX = 0;
   var translateY = 0;
@@ -121,26 +145,58 @@ function pgInitImageZoom() {
 
   function applyTransform() {
     img.style.transform = 'scale(' + scale + ') translate(' + translateX + 'px, ' + translateY + 'px)';
-    body.style.cursor = scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default';
+    body.style.cursor = scale > fitScale ? (isDragging ? 'grabbing' : 'grab') : 'default';
+    if (resetBtn) resetBtn.style.display = scale > fitScale ? '' : 'none';
   }
+
+  function reset() {
+    scale = fitScale;
+    translateX = 0;
+    translateY = 0;
+    applyTransform();
+  }
+
+  // Wait for image to load to get natural dimensions
+  function init() {
+    if (img.naturalWidth && img.naturalHeight) {
+      fitScale = calcFitScale();
+      scale = fitScale;
+      applyTransform();
+    } else {
+      img.addEventListener('load', function() {
+        fitScale = calcFitScale();
+        scale = fitScale;
+        applyTransform();
+      }, { once: true });
+    }
+  }
+
+  // Recalculate fit scale on window resize
+  var resizeTimer;
+  window.addEventListener('resize', function() {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+      var prevFit = fitScale;
+      fitScale = calcFitScale();
+      if (scale <= prevFit) { scale = fitScale; translateX = 0; translateY = 0; }
+      applyTransform();
+    }, 150);
+  });
 
   body.addEventListener('wheel', function(e) {
     e.preventDefault();
-    var delta = e.deltaY > 0 ? -0.1 : 0.1;
-    var newScale = Math.max(0.1, Math.min(10, scale + delta));
-    // Zoom toward cursor position
-    var rect = img.getBoundingClientRect();
-    var cx = e.clientX - rect.left - rect.width / 2;
-    var cy = e.clientY - rect.top - rect.height / 2;
+    var delta = e.deltaY > 0 ? -0.08 : 0.08;
+    var newScale = Math.max(fitScale, Math.min(10, scale + delta));
+    // Zoom centered on image center
     var ratio = newScale / scale;
-    translateX = translateX * ratio - cx * (ratio - 1) / scale;
-    translateY = translateY * ratio - cy * (ratio - 1) / scale;
+    translateX *= ratio;
+    translateY *= ratio;
     scale = newScale;
     applyTransform();
   });
 
   body.addEventListener('mousedown', function(e) {
-    if (scale <= 1 || e.button !== 0) return;
+    if (scale <= fitScale || e.button !== 0) return;
     isDragging = true;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
@@ -160,9 +216,14 @@ function pgInitImageZoom() {
   window.addEventListener('mouseup', function() {
     if (isDragging) {
       isDragging = false;
-      body.style.cursor = scale > 1 ? 'grab' : 'default';
+      body.style.cursor = scale > fitScale ? 'grab' : 'default';
     }
   });
+
+  // Expose reset for the button onclick
+  window.pgResetImageZoom = reset;
+
+  init();
 }
 
 function pgCopyImage(url, btn) {
