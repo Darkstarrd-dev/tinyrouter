@@ -135,6 +135,7 @@ function pgUserSend() {
 
   var skipped = [];
   var now = Date.now();
+  var hadImages = false;
   for (var i = 0; i < pgState.splitCount; i++) {
     var w = pgWinAt(i);
     if (!w.config.model) {
@@ -142,10 +143,29 @@ function pgUserSend() {
       pgToast(pgT('pgNoModelWin', [i + 1]), 'warning');
       continue;
     }
-    w.messages.push({ role: 'user', content: text, createdAt: now });
+    var content = text;
+    if (w.config.imageEnabled && w.config.imageUrls && w.config.imageUrls.length > 0) {
+      var urls = w.config.imageUrls.filter(function(u) { return u && u.trim(); });
+      if (urls.length > 0) {
+        var parts = [];
+        if (text) parts.push({ type: 'text', text: text });
+        urls.forEach(function(u) {
+          parts.push({ type: 'image_url', image_url: { url: u } });
+        });
+        content = parts;
+      }
+      w.config.imageUrls = [];
+      w.config.imageEnabled = false;
+      hadImages = true;
+    }
+    w.messages.push({ role: 'user', content: content, createdAt: now });
     w.messages.push({ role: 'assistant', content: '', reasoning: '', status: 'loading', startedAt: now });
   }
   ta.value = '';
+  if (hadImages) {
+    pgRenderInputThumbs();
+    pgRenderSidebar();
+  }
   for (var i2 = 0; i2 < pgState.splitCount; i2++) {
     if (skipped.indexOf(i2) >= 0) continue;
     pgRenderMessages(i2);
@@ -153,11 +173,6 @@ function pgUserSend() {
     pgSend(i2, w2.messages.length - 1);
   }
   pgSave();
-  // After send, auto-disable image attach (mirrors new-api behavior).
-  var activeW = pgWin();
-  if (activeW && activeW.config.imageEnabled) {
-    setTimeout(function() { activeW.config.imageEnabled = false; pgSave(); pgRenderSidebar(); }, 100);
-  }
 }
 
 function pgUserSendText(text) {
