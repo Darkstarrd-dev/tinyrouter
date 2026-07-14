@@ -279,8 +279,9 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Delete("/usage", rt.clearUsage)
 			r.Post("/usage/reset-quota", rt.resetQuota)
 
-			// Image save
+			// Image save + same-origin proxy (avoids CORS for browser-side reads)
 			r.Post("/save-image", rt.saveImage)
+			r.Get("/image-proxy", rt.imageProxy)
 
 			// Console logs
 			r.Get("/console-logs", rt.getConsoleLogs)

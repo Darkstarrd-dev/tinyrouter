@@ -141,7 +141,9 @@ function pgRenderHtmlPreview(pre, html) {
 
 function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
   if (msg.status === 'loading') {
-    return '<div class="pg-bubble"><span class="pg-toast-inline">⏳ ' + pgEscapeHtml(pgT('pgWaiting')) + '</span></div>';
+    var sec = msg.startedAt ? Math.max(0, Math.floor((Date.now() - msg.startedAt) / 1000)) : 0;
+    pgEnsureWaitingTicker();
+    return '<div class="pg-bubble"><span class="pg-toast-inline">⏳ ' + pgEscapeHtml(pgT('pgWaiting')) + ' <span class="pg-wait-sec" id="pg-wait-' + i + '-' + idx + '">' + sec + 's</span></span></div>';
   }
   var inner = '';
   var isUser = msg.role === 'user';
@@ -202,8 +204,47 @@ function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
   } else {
     bodyMd = pgRenderMarkdown(pgTextContent(msg.content), isUser);
   }
-  inner += '<div class="' + cls + '">' + bodyMd + '</div>';
+  // In image mode, show the edit-input image(s) above the prompt bubble,
+  // sourced from the message's captured images (cleared from the input bar
+  // after sending).
+  if (isUser && pgState.mode === 'image' && msg.images && msg.images.length) {
+    var eurls = msg.images.filter(function(u) { return u && u.trim(); });
+    if (eurls.length) {
+      inner += '<div class="pg-image-row">' + eurls.map(function(u) {
+        return '<img class="pg-image-thumb" src="' + pgEscapeHtml(u) + '" alt="image" onclick="pgShowImageModal(\'' + pgEscapeAttr(u) + '\')">';
+      }).join('') + '</div>';
+    }
+  }
+  // Skip the text bubble when there is no text (e.g. image-only results),
+  // otherwise an empty bubble is rendered below the image.
+  if (bodyMd) {
+    inner += '<div class="' + cls + '">' + bodyMd + '</div>';
+  }
   return inner;
+}
+
+// Waiting counter for image generation/edit: while an assistant message is in
+// the "loading" state (POST accepted, no error returned yet), tick every
+// second and show elapsed seconds since the request started.
+var pgWaitingTimer = null;
+function pgTickWaiting() {
+  var any = false;
+  for (var i = 0; i < pgState.splitCount; i++) {
+    var w = pgWinAt(i);
+    if (!w) continue;
+    for (var idx = 0; idx < w.messages.length; idx++) {
+      var m = w.messages[idx];
+      if (m.status !== 'loading') continue;
+      any = true;
+      // Re-render the loading bubble so the elapsed seconds are always
+      // correct even if the bubble was re-rendered for another reason.
+      pgRenderBubble(i, idx);
+    }
+  }
+  if (!any && pgWaitingTimer) { clearInterval(pgWaitingTimer); pgWaitingTimer = null; }
+}
+function pgEnsureWaitingTicker() {
+  if (!pgWaitingTimer) pgWaitingTimer = setInterval(pgTickWaiting, 1000);
 }
 
 function pgMsgMetaInnerHTML(i, idx, msg) {

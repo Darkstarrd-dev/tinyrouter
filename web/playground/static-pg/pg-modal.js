@@ -101,7 +101,14 @@ function pgShowImageModal(url) {
     '</span>' +
   '</div>' +
   '<div class="pg-modal-body" id="pg-img-modal-body" style="display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;padding:0;cursor:default">' +
-    '<img src="' + pgEscapeHtml(url) + '" alt="image" id="pg-img-modal-img" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;transform-origin:center center">' +
+    '<img src="' + pgEscapeHtml(url) + '" alt="image" id="pg-img-modal-img" data-url="' + pgEscapeAttr(url) + '" style="border-radius:4px;transform-origin:center center;display:block">' +
+  '</div>' +
+  '<div class="pg-img-modal-footer" id="pg-img-footer">' +
+    '<span id="pg-img-meta-res">—</span>' +
+    '<span class="pg-img-meta-sep">·</span>' +
+    '<span id="pg-img-meta-size">—</span>' +
+    '<span class="pg-img-meta-sep">·</span>' +
+    '<span id="pg-img-meta-fmt">—</span>' +
   '</div>';
   pgShowModal(html);
   requestAnimationFrame(function() {
@@ -158,15 +165,22 @@ function pgInitImageZoom() {
 
   // Wait for image to load to get natural dimensions
   function init() {
+    function loadMeta() {
+      var resEl = document.getElementById('pg-img-meta-res');
+      if (resEl) resEl.textContent = img.naturalWidth + ' × ' + img.naturalHeight;
+      pgLoadImageMeta(img.getAttribute('data-url'));
+    }
     if (img.naturalWidth && img.naturalHeight) {
       fitScale = calcFitScale();
       scale = fitScale;
       applyTransform();
+      loadMeta();
     } else {
       img.addEventListener('load', function() {
         fitScale = calcFitScale();
         scale = fitScale;
         applyTransform();
+        loadMeta();
       }, { once: true });
     }
   }
@@ -247,8 +261,12 @@ function pgCopyImage(url, btn) {
       pgCopyImageFallback(url, btn);
     }
   } else {
-    // For external URLs, fetch then copy
-    fetch(url).then(function(r) { return r.blob(); }).then(function(blob) {
+    // For external URLs, fetch through the same-origin backend proxy (avoids
+    // CORS failures when reading remote image bytes for the clipboard).
+    fetch(pgImageProxyURL(url)).then(function(r) {
+      if (!r.ok) throw new Error('fetch failed');
+      return r.blob();
+    }).then(function(blob) {
       var mime = blob.type || 'image/png';
       navigator.clipboard.write([new ClipboardItem({ [mime]: blob })]).then(function() {
         pgToast(pgT('pgCopied'), 'success');
@@ -259,6 +277,54 @@ function pgCopyImage(url, btn) {
       pgCopyImageFallback(url, btn);
     });
   }
+}
+
+function pgImageProxyURL(url) {
+  return '/api/image-proxy?url=' + encodeURIComponent(url);
+}
+
+function pgFormatBytes(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+function pgExtFromUrl(url) {
+  var m = url.match(/\.([a-z0-9]+)(?:[?#]|$)/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
+// pgLoadImageMeta fills the preview footer with resolution (set by caller), file
+// size and format. For data: URLs it is computed client-side; for remote URLs
+// the bytes are fetched via the same-origin proxy to read size + mime type.
+function pgLoadImageMeta(url) {
+  if (!url) return;
+  var sizeEl = document.getElementById('pg-img-meta-size');
+  var fmtEl = document.getElementById('pg-img-meta-fmt');
+  if (url.indexOf('data:') === 0) {
+    var mm = url.match(/^data:([^;]+)/);
+    var mime = mm ? mm[1] : 'image';
+    if (fmtEl) fmtEl.textContent = mime.split('/').pop().toUpperCase();
+    var comma = url.indexOf(',');
+    var b64 = comma >= 0 ? url.slice(comma + 1) : '';
+    var pad = (b64.match(/=+$/) || [''])[0].length;
+    var bytes = Math.max(0, Math.floor(b64.length * 3 / 4) - pad);
+    if (sizeEl) sizeEl.textContent = pgFormatBytes(bytes);
+    return;
+  }
+  fetch(pgImageProxyURL(url)).then(function(r) {
+    if (!r.ok) throw new Error('fetch failed');
+    return r.blob();
+  }).then(function(blob) {
+    if (sizeEl) sizeEl.textContent = pgFormatBytes(blob.size);
+    if (fmtEl) {
+      var mt = blob.type || '';
+      fmtEl.textContent = mt ? mt.split('/').pop().toUpperCase() : (pgExtFromUrl(url).toUpperCase() || '—');
+    }
+  }).catch(function() {
+    if (fmtEl) fmtEl.textContent = (pgExtFromUrl(url).toUpperCase() || '—');
+  });
 }
 
 function pgCopyImageFallback(url, btn) {

@@ -143,7 +143,9 @@ function pgUserSend() {
         pgToast(pgT('pgNoModelWin', [imgI + 1]), 'warning');
         continue;
       }
-      imgW.messages.push({ role: 'user', content: text, createdAt: imgNow });
+      var sentImgs = (imgW.config.imageEnabled && imgW.config.imageUrls)
+        ? imgW.config.imageUrls.filter(function(u) { return u && u.trim(); }) : [];
+      imgW.messages.push({ role: 'user', content: text, createdAt: imgNow, images: sentImgs });
       imgW.messages.push({ role: 'assistant', content: '', status: 'loading', startedAt: imgNow });
     }
     ta.value = '';
@@ -157,7 +159,11 @@ function pgUserSend() {
         continue;
       }
       pgSendImage(imgI2, imgBody, imgW2.messages.length - 1);
+      imgW2.config.imageUrls = [];
+      imgW2.config.imageEnabled = false;
     }
+    pgRenderInputThumbs();
+    pgRenderSidebar();
     pgSave();
     return;
   }
@@ -529,6 +535,7 @@ function pgRenderSidebar() {
       winbar +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
       imgParams +
+      '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgImage')) + '</div>' + imgBlock + '</div>' +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
   } else {
     side.innerHTML =

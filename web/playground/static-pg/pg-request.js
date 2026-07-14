@@ -141,5 +141,14 @@ function pgBuildImageBody(i) {
     if (cfg.imgGuidance > 0) body.guidance = cfg.imgGuidance;
     if (cfg.imgSeed > 0) body.seed = cfg.imgSeed;
   }
+  // Input image(s) for image-edit / image-to-image models (e.g. ModelScope
+  // FireRed-Image-Edit). Single image -> string; multiple -> array, matching
+  // the ModelScope /v1/images/generations `image_url` field.
+  if (cfg.imageEnabled && cfg.imageUrls) {
+    var imgUrls = cfg.imageUrls.filter(function(u) { return u && u.trim(); });
+    if (imgUrls.length > 0) {
+      body.image_url = imgUrls.length === 1 ? imgUrls[0] : imgUrls;
+    }
+  }
   return body;
 }

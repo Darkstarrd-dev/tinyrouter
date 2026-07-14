@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -113,6 +114,39 @@ func (rt *Router) saveImage(w http.ResponseWriter, r *http.Request) {
 		"path":     filePath,
 		"filename": filename,
 	})
+}
+
+// imageProxy streams a remote image through the server so the browser can fetch
+// it from a same-origin URL. This avoids cross-origin (CORS) failures when the
+// frontend reads image bytes (e.g. for clipboard copy or size/format metadata).
+func (rt *Router) imageProxy(w http.ResponseWriter, r *http.Request) {
+	u := r.URL.Query().Get("url")
+	if u == "" {
+		writeAPIError(w, http.StatusBadRequest, "url required")
+		return
+	}
+	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		writeAPIError(w, http.StatusBadRequest, "only http(s) urls supported")
+		return
+	}
+	resp, err := rt.testClient.Get(u)
+	if err != nil {
+		writeAPIError(w, http.StatusBadGateway, "failed to fetch image: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		writeAPIError(w, http.StatusBadGateway, fmt.Sprintf("upstream returned %d", resp.StatusCode))
+		return
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	if resp.ContentLength > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func extensionFromContentType(ct string) string {
