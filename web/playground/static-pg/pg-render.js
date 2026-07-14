@@ -55,9 +55,7 @@ function pgRenderBubble(i, idx) {
       }
     }
   } catch (e) { /* meta 更新失败不影响气泡内容 */ }
-  if (isSourceVisible) {
-    pgHighlight(wrap);
-  }
+  pgHighlight(wrap);
   pgPostProcessCode(wrap);
   wrap.querySelectorAll('.pg-code-copy').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -173,7 +171,7 @@ function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
     inner += '<div class="' + thinkCls + '" onclick="this.classList.toggle(\'collapsed\')">' +
       '<div class="pg-thinking-head"><span class="pg-think-label">' + lbl + '</span>' +
       '<span class="pg-think-chev">▾</span></div>' +
-      '<div class="pg-thinking-body">' + pgEscapeHtml(msg.reasoning) + '</div>' +
+      '<div class="pg-thinking-body">' + pgRenderMarkdown(msg.reasoning, false) + '</div>' +
     '</div>';
   }
   if (msg.role === 'system') {

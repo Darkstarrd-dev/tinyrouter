@@ -20,13 +20,17 @@ var PG_DEFAULT_CFG = {
   model: '',
   temperature: 0.8,
   topP: 1,
-  maxTokens: 0,          // 0 = inherit/unset
+  maxTokens: 0,
   frequencyPenalty: 0,
   presencePenalty: 0,
-  seed: '',              // empty string = null (not sent)
+  seed: '',
   stream: true,
   useCustomBody: false,
   customBody: '',
+  // Custom endpoint (bypass TinyRouter proxy, direct fetch to arbitrary URL)
+  useCustomEndpoint: false,
+  customEndpoint: '',
+  customEndpointKey: '',
   // Multimodal
   imageEnabled: false,
   imageUrls: [],

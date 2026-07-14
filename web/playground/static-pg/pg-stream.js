@@ -36,14 +36,21 @@ function pgStream(i, body, assistantIdx) {
   w.abortCtrl = new AbortController();
   pgUpdateInputBar();
 
-  fetch('/v1/chat/completions', {
+  var url = '/v1/chat/completions';
+  var headers = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'X-TinyRouter-Source': 'playground' };
+  if (w.config.useCustomEndpoint && w.config.customEndpoint && w.config.customEndpoint.trim()) {
+    url = w.config.customEndpoint.trim();
+    headers = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' };
+    if (w.config.customEndpointKey) headers['Authorization'] = 'Bearer ' + w.config.customEndpointKey;
+  }
+  fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'X-TinyRouter-Source': 'playground' },
+    headers: headers,
     body: JSON.stringify(body),
     signal: w.abortCtrl.signal,
   }).then(function(resp) {
-    w.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
-    w.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
+    w.lastProvider = w.config.useCustomEndpoint ? 'custom' : (resp.headers.get('X-TinyRouter-Provider') || '');
+    w.lastKey = w.config.useCustomEndpoint ? 'custom' : (resp.headers.get('X-TinyRouter-Key') || '');
     if (!resp.ok || !resp.body) {
       resp.text().then(function(text) {
         var details = pgParseErrorDetails(text);
@@ -199,14 +206,21 @@ function pgSendNonStream(i, body, assistantIdx) {
   w.streaming = true;
   w.abortCtrl = new AbortController();
   pgUpdateInputBar();
-  fetch('/v1/chat/completions', {
+  var url = '/v1/chat/completions';
+  var headers = { 'Content-Type': 'application/json', 'X-TinyRouter-Source': 'playground' };
+  if (w.config.useCustomEndpoint && w.config.customEndpoint && w.config.customEndpoint.trim()) {
+    url = w.config.customEndpoint.trim();
+    headers = { 'Content-Type': 'application/json' };
+    if (w.config.customEndpointKey) headers['Authorization'] = 'Bearer ' + w.config.customEndpointKey;
+  }
+  fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-TinyRouter-Source': 'playground' },
+    headers: headers,
     body: JSON.stringify(body),
     signal: w.abortCtrl.signal,
   }).then(function(resp) {
-    w.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
-    w.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
+    w.lastProvider = w.config.useCustomEndpoint ? 'custom' : (resp.headers.get('X-TinyRouter-Provider') || '');
+    w.lastKey = w.config.useCustomEndpoint ? 'custom' : (resp.headers.get('X-TinyRouter-Key') || '');
     return resp.json().then(function(j) {
       if (!resp.ok) {
         var details = pgParseErrorDetails(JSON.stringify(j));

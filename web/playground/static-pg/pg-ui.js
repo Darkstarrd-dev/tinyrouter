@@ -396,6 +396,17 @@ function pgRenderSidebar() {
     '</div>' +
     customErrLine;
 
+  // --- Custom Endpoint ---
+  var customEp =
+    '<div class="pg-custom-toolbar">' +
+      '<div class="pg-switch" style="margin-bottom:0"><input type="checkbox" id="pg-customep-toggle" ' + (cfg.useCustomEndpoint ? 'checked' : '') + ' onchange="pgOnParam(\'useCustomEndpoint\', this.checked); pgRenderSidebar()"><label for="pg-customep-toggle">' + pgEscapeHtml(pgT('pgUseCustomEndpoint')) + '</label></div>' +
+    '</div>' +
+    (cfg.useCustomEndpoint ? '<div class="pg-custom-ep-hint">' + pgEscapeHtml(pgT('pgCustomEndpointHint')) + '</div>' : '') +
+    '<div class="pg-custom-ep-fields"' + (cfg.useCustomEndpoint ? '' : ' style="display:none"') + '>' +
+      '<input type="text" class="pg-custom-ep-url" id="pg-customep-url" value="' + pgEscapeAttr(cfg.customEndpoint || '') + '" oninput="pgOnParam(\'customEndpoint\', this.value)" placeholder="' + pgEscapeAttr(pgT('pgCustomEndpointUrlPlaceholder')) + '">' +
+      '<input type="password" class="pg-custom-ep-key" id="pg-customep-key" value="' + pgEscapeAttr(cfg.customEndpointKey || '') + '" oninput="pgOnParam(\'customEndpointKey\', this.value)" placeholder="' + pgEscapeAttr(pgT('pgCustomEndpointKey')) + '">' +
+    '</div>';
+
   // --- Debug ---
   var sseCount = w.sseEvents.length;
   var customBadge = cfg.useCustomBody ? ' <span class="pg-tab-badge custom">' + pgEscapeHtml(pgT('pgDebugCustomBadge')) + '</span>' : '';
@@ -475,6 +486,7 @@ function pgRenderSidebar() {
     '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgParams')) + '</div>' + params + '</div>' +
     '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSystemPrompt')) + '</div>' + sysPrompt + '</div>' +
     '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgImage')) + '</div>' + imgBlock + '</div>' +
+    '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgCustomEndpoint')) + '</div>' + customEp + '</div>' +
     '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgCustomBody')) + '</div>' + custom + '</div>' +
     '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
   pgSchedulePreview();
@@ -561,6 +573,9 @@ function pgRenderDebug() {
 
 // ----- Recent requests left panel (normal mode, single window) --------
 var pgReqLeftTimer = null;
+var pgReqLeftSSE = null;
+var pgReqLeftProcTimer = null;
+var pgReqLeftInflight = {};  // id → entry, for processing entries from SSE
 
 function pgRenderReqLeft(showReqLeft) {
   var container = document.getElementById('pg-req-left');
@@ -581,7 +596,35 @@ function pgRenderReqLeft(showReqLeft) {
 function pgStartReqLeftPolling() {
   pgStopReqLeftPolling();
   pgFetchReqLeft();
-  pgReqLeftTimer = setInterval(pgFetchReqLeft, 3000);
+  pgReqLeftTimer = setInterval(pgFetchReqLeft, 10000);
+  // SSE for real-time request-start/done events
+  try {
+    pgReqLeftSSE = new EventSource('/api/usage/events');
+    pgReqLeftSSE.onmessage = function(ev) {
+      try {
+        var data = JSON.parse(ev.data);
+        if (data.type === 'request-start' && data.entry) {
+          var e = data.entry;
+          if (e.source === 'playground') {
+            pgReqLeftInflight[e.id] = e;
+            pgReqLeftMergeEntry(e);
+            pgReqLeftRender();
+            pgReqLeftEnsureProcTimer();
+          }
+        } else if (data.type === 'request-done' && data.id) {
+          var inflight = pgReqLeftInflight[data.id];
+          if (inflight) {
+            delete pgReqLeftInflight[data.id];
+          }
+          if (data.entry) {
+            pgReqLeftMergeEntry(data.entry);
+          }
+          pgReqLeftRender();
+          if (!pgReqLeftHasProcessing()) pgReqLeftStopProcTimer();
+        }
+      } catch (ex) {}
+    };
+  } catch (e) {}
 }
 
 function pgStopReqLeftPolling() {
@@ -589,24 +632,68 @@ function pgStopReqLeftPolling() {
     clearInterval(pgReqLeftTimer);
     pgReqLeftTimer = null;
   }
+  if (pgReqLeftSSE) {
+    try { pgReqLeftSSE.close(); } catch (e) {}
+    pgReqLeftSSE = null;
+  }
+  pgReqLeftStopProcTimer();
+  pgReqLeftInflight = {};
 }
 
-function pgFetchReqLeft() {
-  pgApiGet('/usage?limit=50').then(function(res) {
-    pgRenderReqLeftContent(res);
-  }).catch(function() {});
+function pgReqLeftHasProcessing() {
+  return Object.keys(pgReqLeftInflight).length > 0;
 }
 
-function pgRenderReqLeftContent(data) {
+function pgReqLeftEnsureProcTimer() {
+  if (pgReqLeftProcTimer) return;
+  pgReqLeftProcTimer = setInterval(function() {
+    if (pgReqLeftHasProcessing()) {
+      pgReqLeftRender();
+    } else {
+      pgReqLeftStopProcTimer();
+    }
+  }, 500);
+}
+
+function pgReqLeftStopProcTimer() {
+  if (pgReqLeftProcTimer) {
+    clearInterval(pgReqLeftProcTimer);
+    pgReqLeftProcTimer = null;
+  }
+}
+
+// Merge an entry into pgReqLeftEntries (replace if same id, else prepend)
+function pgReqLeftMergeEntry(e) {
+  if (!e || !e.id) return;
+  var found = -1;
+  for (var j = 0; j < pgReqLeftEntries.length; j++) {
+    if (pgReqLeftEntries[j].id === e.id) { found = j; break; }
+  }
+  if (found >= 0) {
+    pgReqLeftEntries[found] = e;
+  } else {
+    pgReqLeftEntries.unshift(e);
+  }
+  // Keep list bounded
+  if (pgReqLeftEntries.length > 50) pgReqLeftEntries = pgReqLeftEntries.slice(0, 50);
+}
+
+// Render the table from pgReqLeftEntries (no data fetch)
+function pgReqLeftRender() {
   var container = document.getElementById('pg-req-left-content');
   if (!container) return;
-  var entries = (data && data.entries) || [];
-  entries = entries.filter(function(e) { return e.source === 'playground'; });
-  pgReqLeftEntries = entries;
+  var entries = pgReqLeftEntries;
   if (!entries.length) {
     container.innerHTML = '<div class="pg-req-empty">' + pgEscapeHtml(pgT('pgReqEmpty')) + '</div>';
     return;
   }
+  // Sort by timestamp descending
+  entries = entries.slice().sort(function(a, b) {
+    var ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    var tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return tb - ta;
+  });
+  pgReqLeftEntries = entries;
   var html = '<table class="pg-req-table"><thead><tr>' +
     '<th class="pg-req-status-col"></th>' +
     '<th>' + pgEscapeHtml(pgT('pgReqColTime')) + '</th>' +
@@ -637,6 +724,31 @@ function pgRenderReqLeftContent(data) {
   }
   html += '</tbody></table>';
   container.innerHTML = html;
+}
+
+function pgFetchReqLeft() {
+  pgApiGet('/usage?limit=50').then(function(res) {
+    var entries = (res && res.entries) || [];
+    entries = entries.filter(function(e) { return e.source === 'playground'; });
+    // Merge with inflight entries from SSE that might not be in REST yet
+    var seenIds = {};
+    entries.forEach(function(e) { seenIds[e.id] = true; });
+    Object.keys(pgReqLeftInflight).forEach(function(id) {
+      if (!seenIds[id]) {
+        entries.unshift(pgReqLeftInflight[id]);
+      }
+    });
+    pgReqLeftEntries = entries;
+    pgReqLeftRender();
+    if (pgReqLeftHasProcessing()) pgReqLeftEnsureProcTimer();
+  }).catch(function() {});
+}
+
+function pgRenderReqLeftContent(data) {
+  var entries = (data && data.entries) || [];
+  entries = entries.filter(function(e) { return e.source === 'playground'; });
+  pgReqLeftEntries = entries;
+  pgReqLeftRender();
 }
 
 var pgReqLeftEntries = [];
