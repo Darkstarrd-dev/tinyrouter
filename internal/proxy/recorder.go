@@ -28,6 +28,9 @@ func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.S
 		OutputTokens: outputTokens,
 		Error:        errMsg,
 	}
+	if reqHeaders != nil {
+		entry.Source = reqHeaders.Get("X-TinyRouter-Source")
+	}
 	if h.debugMode() {
 		if len(reqBody) > 0 {
 			entry.ReqPayload = append([]byte(nil), reqBody...)

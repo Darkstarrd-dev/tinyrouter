@@ -233,9 +233,20 @@ function pgRenderPanes() {
   if (inner) {
     inner.classList.toggle('pg-split', n > 1);
   }
+  var showReqLeft = !pgState.autoChat.enabled && n === 1;
+  var layout = document.querySelector('.pg-layout');
+  if (layout) {
+    layout.classList.toggle('pg-req-left-mode', showReqLeft);
+  }
+  pgRenderReqLeft(showReqLeft);
   for (var i2 = 0; i2 < n; i2++) {
     pgRenderMessages(i2);
   }
+}
+
+function pgSetMode(autoChat) {
+  if (autoChat === pgState.autoChat.enabled) return;
+  pgAutoChatToggle(autoChat);
 }
 
 function pgSetSplitCount(n) {
@@ -289,7 +300,12 @@ function pgRenderSidebar() {
   }
   var winbar =
     '<div class="pg-panel pg-winbar">' +
-      '<div class="pg-panel-title">' + pgEscapeHtml(pgT('pgWinBarTitle')) + '</div>' +
+      '<div class="pg-panel-title">' + pgEscapeHtml(pgT('pgWinBarTitle')) +
+        '<div class="pg-mode-toggle">' +
+          '<button class="pg-mode-btn' + (!pgState.autoChat.enabled ? ' active' : '') + '" onclick="pgSetMode(false)">' + pgEscapeHtml(pgT('pgModeNormal')) + '</button>' +
+          '<button class="pg-mode-btn' + (pgState.autoChat.enabled ? ' active' : '') + '" onclick="pgSetMode(true)">' + pgEscapeHtml(pgT('pgModeAutoChat')) + '</button>' +
+        '</div>' +
+      '</div>' +
       '<div class="pg-winbar-row">' +
         '<div class="pg-winbar-btns">' + winBtns + '</div>' +
         '<select onchange="pgSetSplitCount(parseInt(this.value,10))"' + (generating ? ' disabled' : '') + '>' + splitOpts + '</select>' +
@@ -380,15 +396,10 @@ function pgRenderSidebar() {
     '<span>' + (w.streaming ? '🔴 ' + pgT('pgStreaming') : '🟢 ' + pgT('pgIdle')) + '</span></div>';
   var debug = debugMeta + debugTabs + '<div class="pg-tab-content" id="pg-debug-content"></div><div class="pg-debug-footer" id="pg-debug-footer"></div>';
 
-  side.innerHTML =
-    winbar +
+  var autoChatPanels = pgState.autoChat.enabled ? (
     // --- Auto chat panel ---
     '<div class="pg-panel pg-autochat-panel">' +
       '<div class="pg-panel-title">' + pgEscapeHtml(pgT('pgAutoChat')) + '</div>' +
-      '<div class="pg-switch">' +
-        '<input type="checkbox" id="pg-autochat-enable"' + (pgState.autoChat.enabled ? ' checked' : '') + ' onchange="pgAutoChatToggle(this.checked)">' +
-        '<label for="pg-autochat-enable">' + pgEscapeHtml(pgT('pgAutoChatEnable')) + '</label>' +
-      '</div>' +
       '<div class="pg-autochat-config">' +
         '<div class="pg-param-row">' +
           '<label>' + pgEscapeHtml(pgT('pgAutoChatIterations')) + '</label>' +
@@ -439,7 +450,12 @@ function pgRenderSidebar() {
     '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgAutoChatAgentName')) + '</div>' +
       '<input type="text" class="pg-agent-name" placeholder="' + pgEscapeHtml(pgT('pgAutoChatAgentNamePlaceholder')) + '" value="' + pgEscapeHtml(cfg.agentName || '') + '" oninput="pgOnAgentName(this.value)">' +
       '<div class="pg-param-row" style="margin-top:8px"><label>' + pgEscapeHtml(pgT('pgContextLimit')) + '</label><input type="number" min="1000" step="1000" value="' + (cfg.contextLimit || 8000) + '" onchange="pgOnContextLimit(this.value)"></div>' +
-    '</div>' +
+    '</div>'
+  ) : '';
+
+  side.innerHTML =
+    winbar +
+    autoChatPanels +
     '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
     '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgParams')) + '</div>' + params + '</div>' +
     '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSystemPrompt')) + '</div>' + sysPrompt + '</div>' +
@@ -528,6 +544,138 @@ function pgRenderDebug() {
   }
 }
 
+// ----- Recent requests left panel (normal mode, single window) --------
+var pgReqLeftTimer = null;
+
+function pgRenderReqLeft(showReqLeft) {
+  var container = document.getElementById('pg-req-left');
+  if (!container) return;
+  if (!showReqLeft) {
+    container.innerHTML = '';
+    pgStopReqLeftPolling();
+    return;
+  }
+  container.innerHTML =
+    '<div class="pg-req-left-inner">' +
+      '<div class="pg-req-left-header">' + pgEscapeHtml(pgT('pgReqLeftTitle')) + '</div>' +
+      '<div class="pg-req-table-wrap" id="pg-req-left-content"></div>' +
+    '</div>';
+  pgStartReqLeftPolling();
+}
+
+function pgStartReqLeftPolling() {
+  pgStopReqLeftPolling();
+  pgFetchReqLeft();
+  pgReqLeftTimer = setInterval(pgFetchReqLeft, 3000);
+}
+
+function pgStopReqLeftPolling() {
+  if (pgReqLeftTimer) {
+    clearInterval(pgReqLeftTimer);
+    pgReqLeftTimer = null;
+  }
+}
+
+function pgFetchReqLeft() {
+  pgApiGet('/usage?limit=50').then(function(res) {
+    pgRenderReqLeftContent(res);
+  }).catch(function() {});
+}
+
+function pgRenderReqLeftContent(data) {
+  var container = document.getElementById('pg-req-left-content');
+  if (!container) return;
+  var entries = (data && data.entries) || [];
+  entries = entries.filter(function(e) { return e.source === 'playground'; });
+  pgReqLeftEntries = entries;
+  if (!entries.length) {
+    container.innerHTML = '<div class="pg-req-empty">' + pgEscapeHtml(pgT('pgReqEmpty')) + '</div>';
+    return;
+  }
+  var html = '<table class="pg-req-table"><thead><tr>' +
+    '<th class="pg-req-status-col"></th>' +
+    '<th>' + pgEscapeHtml(pgT('pgReqColTime')) + '</th>' +
+    '<th>' + pgEscapeHtml(pgT('pgReqColLatency')) + '</th>' +
+    '<th>' + pgEscapeHtml(pgT('pgReqColTokens')) + '</th>' +
+    '</tr></thead><tbody>';
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    var dotCls = 'pg-req-dot';
+    if (e.status === 'success') dotCls += ' pg-req-dot-success';
+    else if (e.status === 'error') dotCls += ' pg-req-dot-error';
+    else if (e.status === 'retry') dotCls += ' pg-req-dot-retry';
+    else dotCls += ' pg-req-dot-processing';
+    var timeStr = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—';
+    var latStr;
+    if (e.status === 'processing') {
+      latStr = e.timestamp ? ((Date.now() - new Date(e.timestamp).getTime()) / 1000).toFixed(1) + 's' : '—';
+    } else {
+      latStr = e.latencyMs ? (e.latencyMs / 1000).toFixed(1) + 's' : '—';
+    }
+    var tokStr = (e.status === 'processing') ? '—' : ((e.inputTokens || 0) + '/' + (e.outputTokens || 0));
+    html += '<tr style="cursor:pointer" onclick="pgShowReqDetail(' + i + ')">' +
+      '<td class="pg-req-status-col"><span class="' + dotCls + '"></span></td>' +
+      '<td>' + pgEscapeHtml(timeStr) + '</td>' +
+      '<td>' + pgEscapeHtml(latStr) + '</td>' +
+      '<td>' + pgEscapeHtml(tokStr) + '</td>' +
+    '</tr>';
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+var pgReqLeftEntries = [];
+
+function pgShowReqDetail(idx) {
+  var e = pgReqLeftEntries[idx];
+  if (!e) return;
+  function kv(label, value) {
+    if (value === undefined || value === null || value === '') return '';
+    return '<div class="pg-req-detail-row"><span class="pg-req-detail-k">' + pgEscapeHtml(label) + '</span><span class="pg-req-detail-v">' + pgEscapeHtml(String(value)) + '</span></div>';
+  }
+  function pre(label, value) {
+    if (!value) return '';
+    var pretty = value;
+    try { pretty = JSON.stringify(typeof value === 'string' ? JSON.parse(value) : value, null, 2); } catch (ex) {}
+    return '<div class="pg-req-detail-pre-label">' + pgEscapeHtml(label) + '</div><pre class="pg-req-detail-pre">' + pgEscapeHtml(pretty) + '</pre>';
+  }
+  function hdr(label, value) {
+    if (!value) return '';
+    var obj = (typeof value === 'object') ? value : {};
+    var lines = [];
+    Object.keys(obj).forEach(function(k) { lines.push(k + ': ' + obj[k]); });
+    if (!lines.length) return '';
+    return '<div class="pg-req-detail-pre-label">' + pgEscapeHtml(label) + '</div><pre class="pg-req-detail-pre">' + pgEscapeHtml(lines.join('\n')) + '</pre>';
+  }
+  var timeStr = e.timestamp ? new Date(e.timestamp).toLocaleString() : '—';
+  var latStr = e.latencyMs ? (e.latencyMs / 1000).toFixed(2) + 's' : '—';
+  var ttftStr = e.ttftMs ? (e.ttftMs) + 'ms' : '—';
+  var tokStr = (e.inputTokens || 0) + ' / ' + (e.outputTokens || 0);
+  var html =
+    '<div class="pg-modal-header">' +
+      '<span class="pg-modal-title">' + pgEscapeHtml(pgT('pgReqDetail')) + '</span>' +
+      '<button class="pg-modal-close" onclick="pgCloseModal()">✕</button>' +
+    '</div>' +
+    '<div class="pg-modal-body">' +
+      kv(pgT('pgReqColTime'), timeStr) +
+      kv(pgT('pgReqFieldProvider'), e.provider) +
+      kv(pgT('pgReqFieldModel'), e.model) +
+      kv(pgT('pgReqFieldKey'), e.keyName) +
+      kv(pgT('pgReqFieldStatus'), e.status) +
+      kv(pgT('pgReqColLatency'), latStr) +
+      kv(pgT('pgReqFieldTTFT'), ttftStr) +
+      kv(pgT('pgReqColTokens'), tokStr) +
+      kv(pgT('pgReqFieldRespStatus'), e.respStatus) +
+      kv(pgT('pgReqFieldUpstream'), e.upstreamUrl) +
+      kv(pgT('pgReqFieldError'), e.error) +
+      hdr(pgT('pgReqFieldReqHeaders'), e.reqHeaders) +
+      hdr(pgT('pgReqFieldRespHeaders'), e.respHeaders) +
+      pre(pgT('pgReqFieldReqPayload'), e.reqPayload) +
+      pre(pgT('pgReqFieldRespPayload'), e.respPayload) +
+    '</div>';
+  pgShowModal(html);
+}
+
 // ----- Input bar (send/stop + clear) --------------------------------
 function pgRenderInputBar() {
   var bar = document.getElementById('pg-inputbar');
@@ -593,7 +741,7 @@ function pgRemoveInputImage(idx) {
 }
 
 // ----- Event handlers ----------------------------------------------
-function pgOnModelChange(v) { var w = pgWin(); if (w) { w.config.model = v; pgSave(); pgRenderPanes(); } }
+function pgOnModelChange(v) { var w = pgWin(); if (w) { w.config.model = v; pgSave(); pgRenderPanes(); pgUpdateInputBar(); } }
 function pgOnParam(name, v) {
   var w = pgWin();
   if (!w) return;

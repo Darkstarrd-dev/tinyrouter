@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-13，仓库提交 `c2f89c6`（`main`）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-14，仓库提交 `c2f89c6`（`main`）+ playground 模式拆分与 Recent Requests 左侧面板。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -255,11 +255,45 @@ t(key, args?)
 离开 Playground 时 `cleanupPlayground()`：
 
 - 停止自动群聊；
+- 停止 Recent Requests 左侧面板的轮询（`pgStopReqLeftPolling`）；
 - abort 每个窗口的在途 fetch；
 - 清除 streaming 标记；
 - reset Director/Narrator。
 
 CSS 在 Playground 页面禁用主容器滚动，只允许消息区和侧栏内部滚动；宽度不超过 900px 时切为单列。
+
+### 6.1 模式切换
+
+Playground 侧栏顶部的"窗口设置"面板标题右侧有两个模式按钮：**普通** 和 **自动对话**。模式状态由 `pgState.autoChat.enabled` 驱动，不额外持久化（与原 `enabled` 语义一致，重载后默认普通模式）。
+
+- **普通模式**（`enabled = false`）：侧栏不显示 Auto Chat、Director 和 Agent Identity 面板；输入栏不显示 auto chat 停止按钮。
+- **Auto Chat 模式**（`enabled = true`）：显示全部面板，行为同原实现。切换到 Auto Chat 时若窗口数 < 2 会 toast 警告并回退。
+
+切换入口为 `pgSetMode(autoChat)`，内部调用 `pgAutoChatToggle`。`pgAutoChatToggle` 在修改状态后同时调用 `pgRenderSidebar()` 和 `pgRenderPanes()`，后者负责布局切换和左侧面板的启停。
+
+### 6.2 Recent Requests 左侧面板
+
+在**普通模式 + 单窗口**（`splitCount === 1`）时，布局自动切换为三列：
+
+```text
+grid-template-columns: 1fr 1fr 320px
+  列1: .pg-req-left    — Recent Requests 面板（占满全部高度）
+  列2: .pg-main         — 聊天窗口（右对齐，max-width 取消，填满列宽）
+  列3: .pg-side         — 右侧栏（不变）
+```
+
+左侧面板通过 `pgRenderReqLeft(showReqLeft)` 构建，包含标题和可滚动表格。数据来自 `GET /api/usage?limit=50`（经 `pgApiGet` 适配器），每 3 秒轮询一次（`pgReqLeftTimer`）。
+
+表格仅显示 4 列，**不依赖 debug mode**，始终可见：
+
+| 列 | 数据字段 | 显示格式 |
+|---|---|---|
+| 状态指示 | `status` | 彩色圆点：success=绿、error=红、retry=黄、processing=蓝(脉冲) |
+| 时间 | `timestamp` | `toLocaleTimeString()` |
+| Latency | `latencyMs` | `(latencyMs/1000).toFixed(1) + 's'`；processing 时实时计算 |
+| Tokens | `inputTokens` / `outputTokens` | `in/out`；processing 时显示 `—` |
+
+离开普通模式或切换到多窗口时，`pgStopReqLeftPolling()` 清除定时器并清空面板内容。`cleanupPlayground()` 也会调用此函数。
 
 ## 7. 状态模型与持久化
 
@@ -541,7 +575,9 @@ go build -tags playground -o tinyrouter-pg.exe .
 - `web/playground/static-pg/pg-setup.js`：ScenarioProfile；
 - `web/playground/static-pg/pg-director.js`：剧情推进；
 - `web/playground/static-pg/pg-markdown.js`、`pg-render.js`：内容安全与渲染；
-- `web/playground/static-pg/pg-ui.js`、`pg-modal.js`、`pg-lifecycle.js`：交互和页面生命周期。
+- `web/playground/static-pg/pg-ui.js`、`pg-modal.js`、`pg-lifecycle.js`：交互和页面生命周期；
+- `web/playground/static-pg/pg-ui.js` 中的 `pgRenderReqLeft`/`pgStartReqLeftPolling`/`pgRenderReqLeftContent`：普通模式左侧 Recent Requests 面板；
+- `web/playground/static-pg/playground.css` 中的 `.pg-mode-toggle`、`.pg-req-left`、`.pg-req-table`：模式切换按钮和左侧面板布局。
 
 ## 15. 变更维护清单
 
@@ -554,5 +590,6 @@ go build -tags playground -o tinyrouter-pg.exe .
 | 修改场景档案 | schema/version、导入迁移、localStorage、应用映射 |
 | 修改持久化 | localStorage key/version、容量限制、多窗口语义 |
 | 修改渲染 | DOMPurify、URL 协议、iframe sandbox、Mermaid security |
+| 修改模式切换或左侧面板 | `pgSetMode`、`pgAutoChatToggle`、`pgRenderPanes` 布局类、`pgRenderReqLeft*`、`.pg-req-left-mode` CSS |
 | 发布 Playground 变体 | 无 tag/tag 测试、资源 200、完整首页手测 |
 

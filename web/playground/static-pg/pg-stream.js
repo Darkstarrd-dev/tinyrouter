@@ -38,7 +38,7 @@ function pgStream(i, body, assistantIdx) {
 
   fetch('/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'X-TinyRouter-Source': 'playground' },
     body: JSON.stringify(body),
     signal: w.abortCtrl.signal,
   }).then(function(resp) {
@@ -201,7 +201,7 @@ function pgSendNonStream(i, body, assistantIdx) {
   pgUpdateInputBar();
   fetch('/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-TinyRouter-Source': 'playground' },
     body: JSON.stringify(body),
     signal: w.abortCtrl.signal,
   }).then(function(resp) {

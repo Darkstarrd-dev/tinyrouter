@@ -27,6 +27,7 @@ type Entry struct {
 	RespStatus   int             `json:"respStatus,omitempty"`
 	ReqHeaders   http.Header     `json:"reqHeaders,omitempty"`
 	UpstreamURL  string          `json:"upstreamUrl,omitempty"`
+	Source       string          `json:"source,omitempty"` // origin tag, e.g. "playground"
 }
 
 // UsageStore provides write access to usage entries.

@@ -8,6 +8,7 @@ function renderPlayground(container) {
   container.style.overflow = 'hidden';
   container.innerHTML =
     '<div class="pg-layout">' +
+      '<div class="pg-req-left" id="pg-req-left"></div>' +
       '<div class="pg-main">' +
         '<div class="pg-main-inner" id="pg-main-inner">' +
           '<div class="pg-panes" id="pg-panes"></div>' +
@@ -19,7 +20,7 @@ function renderPlayground(container) {
   pgRenderSidebar();
   pgRenderPanes();
   pgRenderInputBar();
-  pgLoadModels().then(function() { pgRenderSidebar(); pgRenderPanes(); });
+  pgLoadModels().then(function() { pgRenderSidebar(); pgRenderPanes(); pgUpdateInputBar(); });
 }
 
 function cleanupPlayground() {
@@ -27,6 +28,7 @@ function cleanupPlayground() {
   if (typeof pgAutoChatStop === 'function' && pgState.autoChat && pgState.autoChat.isRunning) {
     pgAutoChatStop();
   }
+  if (typeof pgStopReqLeftPolling === 'function') pgStopReqLeftPolling();
   for (var i = 0; i < pgState.windows.length; i++) {
     var w = pgWinAt(i);
     if (w.streaming) {
