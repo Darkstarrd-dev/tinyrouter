@@ -92,13 +92,133 @@ function pgSetDebugModalTab(winIdx, tab) {
 
 function pgShowImageModal(url) {
   var html = '<div class="pg-modal-header">' +
-    '<span class="pg-modal-title">🖼 ' + pgEscapeHtml(pgT('pgImagePreview')) + '</span>' +
-    '<button class="pg-modal-close" onclick="pgCloseModal()">✕</button>' +
+    '<span class="pg-modal-title">&#x1F5BC; ' + pgEscapeHtml(pgT('pgImagePreview')) + '</span>' +
+    '<span class="pg-modal-header-actions">' +
+      '<button class="pg-img-btn" onclick="pgCopyImage(\'' + pgEscapeAttr(url) + '\', this)" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + pgEscapeHtml(pgT('pgCopy')) + '</button>' +
+      '<button class="pg-img-btn" onclick="pgSaveImage(\'' + pgEscapeAttr(url) + '\', this)" title="' + pgEscapeHtml(pgT('pgSave')) + '">' + pgEscapeHtml(pgT('pgSave')) + '</button>' +
+      '<button class="pg-modal-close" onclick="pgCloseModal()">✕</button>' +
+    '</span>' +
   '</div>' +
-  '<div class="pg-modal-body" style="text-align:center;display:flex;align-items:center;justify-content:center;">' +
-    '<img src="' + pgEscapeHtml(url) + '" alt="image" style="max-width:100%;max-height:70vh;object-fit:contain;border-radius:4px;">' +
+  '<div class="pg-modal-body" id="pg-img-modal-body" style="text-align:center;overflow:hidden;position:relative;padding:0;cursor:grab">' +
+    '<img src="' + pgEscapeHtml(url) + '" alt="image" id="pg-img-modal-img" style="max-width:100%;max-height:70vh;object-fit:contain;border-radius:4px;transition:transform .1s ease-out;transform-origin:center center">' +
   '</div>';
   pgShowModal(html);
+  pgInitImageZoom();
+}
+
+function pgInitImageZoom() {
+  var img = document.getElementById('pg-img-modal-img');
+  var body = document.getElementById('pg-img-modal-body');
+  if (!img || !body) return;
+  var scale = 1;
+  var translateX = 0;
+  var translateY = 0;
+  var isDragging = false;
+  var dragStartX = 0;
+  var dragStartY = 0;
+  var dragTranslateX = 0;
+  var dragTranslateY = 0;
+
+  function applyTransform() {
+    img.style.transform = 'scale(' + scale + ') translate(' + translateX + 'px, ' + translateY + 'px)';
+    body.style.cursor = scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default';
+  }
+
+  body.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var delta = e.deltaY > 0 ? -0.1 : 0.1;
+    var newScale = Math.max(0.1, Math.min(10, scale + delta));
+    // Zoom toward cursor position
+    var rect = img.getBoundingClientRect();
+    var cx = e.clientX - rect.left - rect.width / 2;
+    var cy = e.clientY - rect.top - rect.height / 2;
+    var ratio = newScale / scale;
+    translateX = translateX * ratio - cx * (ratio - 1) / scale;
+    translateY = translateY * ratio - cy * (ratio - 1) / scale;
+    scale = newScale;
+    applyTransform();
+  });
+
+  body.addEventListener('mousedown', function(e) {
+    if (scale <= 1 || e.button !== 0) return;
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragTranslateX = translateX;
+    dragTranslateY = translateY;
+    body.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', function(e) {
+    if (!isDragging) return;
+    translateX = dragTranslateX + (e.clientX - dragStartX) / scale;
+    translateY = dragTranslateY + (e.clientY - dragStartY) / scale;
+    applyTransform();
+  });
+
+  window.addEventListener('mouseup', function() {
+    if (isDragging) {
+      isDragging = false;
+      body.style.cursor = scale > 1 ? 'grab' : 'default';
+    }
+  });
+}
+
+function pgCopyImage(url, btn) {
+  if (url.indexOf('data:') === 0) {
+    // Convert data URL to blob and copy to clipboard
+    var parts = url.split(',');
+    if (parts.length < 2) return;
+    var mimeMatch = parts[0].match(/data:([^;]+)/);
+    var mime = mimeMatch ? mimeMatch[1] : 'image/png';
+    var byteStr = atob(parts[1]);
+    var arr = new Uint8Array(byteStr.length);
+    for (var i = 0; i < byteStr.length; i++) arr[i] = byteStr.charCodeAt(i);
+    var blob = new Blob([arr], { type: mime });
+    try {
+      navigator.clipboard.write([new ClipboardItem({ [mime]: blob })]).then(function() {
+        pgToast(pgT('pgCopied'), 'success');
+      }).catch(function() {
+        pgCopyImageFallback(url, btn);
+      });
+    } catch (e) {
+      pgCopyImageFallback(url, btn);
+    }
+  } else {
+    // For external URLs, fetch then copy
+    fetch(url).then(function(r) { return r.blob(); }).then(function(blob) {
+      var mime = blob.type || 'image/png';
+      navigator.clipboard.write([new ClipboardItem({ [mime]: blob })]).then(function() {
+        pgToast(pgT('pgCopied'), 'success');
+      }).catch(function() {
+        pgCopyImageFallback(url, btn);
+      });
+    }).catch(function() {
+      pgCopyImageFallback(url, btn);
+    });
+  }
+}
+
+function pgCopyImageFallback(url, btn) {
+  // Fallback: copy URL as text
+  var orig = btn.textContent;
+  navigator.clipboard.writeText(url).then(function() {
+    btn.textContent = pgT('pgCopied');
+    setTimeout(function() { btn.textContent = orig; }, 1500);
+  }).catch(function() {});
+}
+
+function pgSaveImage(url, btn) {
+  var orig = btn.textContent;
+  btn.textContent = '...';
+  pgApiPost('/save-image', { url: url }).then(function(res) {
+    btn.textContent = orig;
+    pgToast(pgT('pgImageSaved', [res.filename || res.path]), 'success');
+  }).catch(function(err) {
+    btn.textContent = orig;
+    pgToast(pgT('pgImageSaveFailed'), 'error');
+  });
 }
 
 // ----- Model picker modal (separate overlay, stacks on top) -----

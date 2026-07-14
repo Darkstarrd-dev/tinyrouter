@@ -407,6 +407,9 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 .pg-modal-close{width:28px;height:28px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;border-radius:6px}
 .pg-modal-close:hover{background:var(--glass-hover);color:var(--text)}
 .pg-modal-body{flex:1;overflow:auto;min-height:0;padding:16px}
+.pg-modal-header-actions{display:flex;align-items:center;gap:6px}
+.pg-img-btn{padding:4px 10px;border:1px solid var(--glass-border);border-radius:6px;background:var(--glass-bg);color:var(--text-secondary);cursor:pointer;font-size:var(--font-badge);transition:all .15s}
+.pg-img-btn:hover{background:var(--glass-hover);border-color:var(--accent);color:var(--text)}
 
 /* Input thumbnails (pasted images) */
 .pg-input-thumb-wrap{position:relative;width:48px;height:48px;flex-shrink:0}

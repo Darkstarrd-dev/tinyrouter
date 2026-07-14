@@ -270,6 +270,9 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Delete("/usage", rt.clearUsage)
 			r.Post("/usage/reset-quota", rt.resetQuota)
 
+			// Image save
+			r.Post("/save-image", rt.saveImage)
+
 			// Console logs
 			r.Get("/console-logs", rt.getConsoleLogs)
 			r.Get("/console-logs/stream", rt.streamConsoleLogs)

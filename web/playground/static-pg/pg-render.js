@@ -184,7 +184,7 @@ function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
   var imgs = pgImageParts(msg.content);
   if (imgs.length) {
     inner += '<div class="pg-image-row">' + imgs.map(function(p) {
-      return '<img class="pg-image-thumb" src="' + pgEscapeHtml(p.image_url.url) + '" alt="image">';
+      return '<img class="pg-image-thumb" src="' + pgEscapeHtml(p.image_url.url) + '" alt="image" onclick="pgShowImageModal(\'' + pgEscapeAttr(p.image_url.url) + '\')">';
     }).join('') + '</div>';
   }
   var bodyMd;
