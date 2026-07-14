@@ -196,6 +196,11 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	r.Get("/v1/models", proxyHandler.ListModels)
 	r.Post("/v1/images/generations", proxyHandler.ImagesGenerations)
 	r.Post("/v1/tasks/{taskId}", proxyHandler.PollTask)
+	r.Get("/v1/tasks/{taskId}", func(w http.ResponseWriter, r *http.Request) {
+		taskID := chi.URLParam(r, "taskId")
+		modelStr := r.URL.Query().Get("model")
+		proxyHandler.TaskGet(w, r, taskID, modelStr)
+	})
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {

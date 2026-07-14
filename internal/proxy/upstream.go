@@ -80,6 +80,9 @@ func (h *Handler) forwardUpstream(ctx context.Context, sel *rotation.SelectedKey
 	if am := headers.Get("X-Modelscope-Async-Mode"); am != "" {
 		req.Header.Set("X-Modelscope-Async-Mode", am)
 	}
+	if tt := headers.Get("X-Modelscope-Task-Type"); tt != "" {
+		req.Header.Set("X-Modelscope-Task-Type", tt)
+	}
 	if isStream {
 		req.Header.Set("Accept", "text/event-stream")
 	}
@@ -101,4 +104,20 @@ func (h *Handler) forwardUpstream(ctx context.Context, sel *rotation.SelectedKey
 		return h.streamClient.Do(req)
 	}
 	return httpClient.Do(req)
+}
+
+func (h *Handler) forwardGetUpstream(ctx context.Context, sel *rotation.SelectedKey, path string, headers http.Header) (*http.Response, error) {
+	upstreamURL := BuildUpstreamURL(sel.Provider.BaseURL, path)
+	req, err := http.NewRequestWithContext(ctx, "GET", upstreamURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+sel.Key.Key)
+	if ua := headers.Get("User-Agent"); ua != "" {
+		req.Header.Set("User-Agent", ua)
+	}
+	if tt := headers.Get("X-Modelscope-Task-Type"); tt != "" {
+		req.Header.Set("X-Modelscope-Task-Type", tt)
+	}
+	return h.client.Do(req)
 }

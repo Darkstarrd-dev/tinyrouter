@@ -348,31 +348,29 @@ function pgSendImage(i, body, assistantIdx) {
 
 function pgPollModelScopeTask(i, taskId, model, assistantIdx, msg) {
   var w = pgWinAt(i);
-  var pollUrl = '/v1/tasks/' + encodeURIComponent(taskId);
-  var pollBody = JSON.stringify({ model: model });
+  var pollUrl = '/v1/tasks/' + encodeURIComponent(taskId) + '?model=' + encodeURIComponent(model);
   function poll() {
     if (!w.streaming) return;
     fetch(pollUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-TinyRouter-Source': 'playground' },
-      body: pollBody,
+      method: 'GET',
+      headers: { 'X-ModelScope-Task-Type': 'image_generation', 'X-TinyRouter-Source': 'playground' },
       signal: w.abortCtrl.signal,
     }).then(function(resp) {
       return resp.json().then(function(j) {
         w.sseEvents.push(JSON.stringify(j, null, 2));
         w.debugResponse = JSON.stringify(j, null, 2);
         pgRenderDebug();
-        var status = (j.status || j.task_status || '').toUpperCase();
-        if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
+        var status = (j.task_status || '').toUpperCase();
+        if (status === 'SUCCEED' || status === 'SUCCESS' || status === 'COMPLETED') {
           var imageUrl = '';
-          if (j.output && j.output.images && j.output.images[0]) {
-            imageUrl = j.output.images[0].url || '';
+          if (j.output_images && j.output_images[0]) {
+            imageUrl = j.output_images[0];
           } else if (j.data && j.data[0]) {
             imageUrl = j.data[0].url || (j.data[0].b64_json ? 'data:image/png;base64,' + j.data[0].b64_json : '');
+          } else if (j.output && j.output.images && j.output.images[0]) {
+            imageUrl = j.output.images[0].url || '';
           } else if (j.image_url) {
             imageUrl = j.image_url;
-          } else if (j.output && j.output.image_url) {
-            imageUrl = j.output.image_url;
           }
           msg.completedAt = Date.now();
           msg.durationMs = msg.completedAt - msg.startedAt;

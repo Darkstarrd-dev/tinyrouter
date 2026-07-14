@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
+	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
 type Handler struct {
@@ -167,6 +169,38 @@ func (h *Handler) ImagesGenerations(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PollTask(w http.ResponseWriter, r *http.Request) {
 	h.handleProxy(w, r, r.URL.Path)
+}
+
+func (h *Handler) TaskGet(w http.ResponseWriter, r *http.Request, taskID, modelStr string) {
+	providerID, upstreamModel := util.SplitModel(modelStr)
+	if providerID == "" {
+		writeError(w, http.StatusBadRequest, "invalid model format: "+modelStr)
+		return
+	}
+	provider, ok := h.reg.GetProviderByPrefix(providerID)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unknown provider prefix: "+providerID)
+		return
+	}
+	sel, err := h.selector.SelectKey(provider.ID, upstreamModel, nil)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "no available keys")
+		return
+	}
+	path := "/v1/tasks/" + taskID
+	resp, err := h.forwardGetUpstream(r.Context(), sel, path, r.Header)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "upstream request failed")
+		return
+	}
+	defer resp.Body.Close()
+	for key, vals := range resp.Header {
+		for _, v := range vals {
+			w.Header().Add(key, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func (h *Handler) SetDebugModeProvider(fn func() bool) {
