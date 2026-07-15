@@ -619,12 +619,11 @@ function pgImgParamSelectWithEdit(key, proto, modelId, cfg, builtinOpts) {
   var opts = arr.map(function(o) {
     return '<option value="' + pgEscapeAttr(o.value) + '"' + (cfg[key] === o.value ? ' selected' : '') + '>' + pgEscapeHtml(o.label) + '</option>';
   }).join('');
-  var editBtn = '<button type="button" class="pg-btn pg-img-edit-btn" onclick="pgOpenImgSizesModal()" title="' + pgEscapeAttr(pgT('pgImgEditSizes')) + '">' + pgEscapeHtml(pgT('pgImgEditSizes')) + '</button>';
+  var editRow = '<div class="pg-param-row"><label></label><button type="button" class="pg-btn pg-img-edit-btn" onclick="pgOpenImgSizesModal()" title="' + pgEscapeAttr(pgT('pgImgEditSizes')) + '">' + pgEscapeHtml(pgT('pgImgEditSizes')) + '</button></div>';
   var html = '<div class="pg-param-row">' +
     '<label>' + sel + '</label>' +
     '<select onchange="pgOnImgSizeSelect(this.value)" style="flex:0 0 auto">' + opts + '</select>' +
-    editBtn +
-  '</div>';
+  '</div>' + editRow;
   var isCustom = cfg[key] && cfg[key] !== '__custom' && !pgImgListContains(sizeOpts, cfg[key]);
   var showCustom = (cfg[key] === '__custom') || isCustom;
   html += '<div class="pg-param-row pg-img-custom-row"' + (showCustom ? '' : ' style="display:none"') + '>' +
@@ -686,6 +685,7 @@ function pgRenderImageParams(cfg) {
       {value: '8k', label: '8k'},
     ]);
     html += pgImgParamNumber('imgN', 'pgImgN', cfg.imgN || 1, 1, 10, 1);
+    html += '<div class="pg-param-row"><label></label><button type="button" class="pg-btn pg-img-edit-btn" onclick="pgOpenImgSizesModal()" title="' + pgEscapeAttr(pgT('pgImgEditSizes')) + '">' + pgEscapeHtml(pgT('pgImgEditSizes')) + '</button></div>';
   } else if (proto === 'modelscope') {
     html += pgImgParamSelectWithEdit('imgSize', 'modelscope', cfg.model, cfg, [
       {value: '1024x1024', label: '1024x1024'},

@@ -53,6 +53,7 @@
   --z-sticky:20;
   --z-modal:50;
   --z-toast:60;
+  --z-tooltip:10005;
 }
 
 [data-font-size="m"]{
@@ -757,6 +758,7 @@ tbody tr:last-child td{border-bottom:none}
 .settings-panel-half.collapsed .settings-panel-body{display:none}
 .settings-panel-section.collapsed{flex:0 0 auto}
 .settings-panel-half.collapsed{flex:0 0 auto}
+.settings-panel-split.collapsed{flex:0 0 auto}
 
 /* Card grid: 2 cards per row */
 .settings-card-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}

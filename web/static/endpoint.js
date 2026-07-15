@@ -100,6 +100,14 @@ function applySettingsSectionCollapseState() {
       if (chevron) chevron.style.transform = '';
     }
   });
+  var splitEl = document.getElementById('settings-section-combos-quickslots');
+  if (splitEl) {
+    if (collapsedSettingsSections.has('settings-combos') && collapsedSettingsSections.has('settings-quickslots')) {
+      splitEl.classList.add('collapsed');
+    } else {
+      splitEl.classList.remove('collapsed');
+    }
+  }
 }
 
 function toggleSettingsSectionCollapse(key) {
@@ -107,6 +115,14 @@ function toggleSettingsSectionCollapse(key) {
     collapsedSettingsSections.delete(key);
   } else {
     collapsedSettingsSections.add(key);
+  }
+  if (key === 'settings-combos' || key === 'settings-quickslots') {
+    var other = (key === 'settings-combos') ? 'settings-quickslots' : 'settings-combos';
+    if (collapsedSettingsSections.has(key)) {
+      collapsedSettingsSections.add(other);
+    } else {
+      collapsedSettingsSections.delete(other);
+    }
   }
   applySettingsSectionCollapseState();
 }
