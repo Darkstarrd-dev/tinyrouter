@@ -372,7 +372,12 @@ function pgOpenModelPicker(currentValue, onSelect, opts) {
   models.forEach(function(m) {
     var id = m.id;
     var label = m.id + (m.provider ? ' (' + m.provider + ')' : '');
-    itemsHtml += '<div class="pg-model-picker-item' + (currentValue === id ? ' selected' : '') + '" data-value="' + pgEscapeHtml(id) + '" tabindex="-1" onclick="pgModelPickerSelect(this)">' + pgEscapeHtml(label) + '</div>';
+    var note = m.note || '';
+    var cls = 'pg-model-picker-item';
+    if (currentValue === id) cls += ' selected';
+    if (note) { cls += ' has-model-note'; }
+    var noteAttr = note ? ' data-model-note="' + pgEscapeHtml(note) + '"' : '';
+    itemsHtml += '<div class="' + cls + '"' + noteAttr + ' data-value="' + pgEscapeHtml(id) + '" tabindex="-1" onclick="pgModelPickerSelect(this)">' + pgEscapeHtml(label) + '</div>';
   });
   var html = '<div class="pg-modal" style="width:400px;max-width:90vw">' +
     '<div class="pg-modal-header">' +

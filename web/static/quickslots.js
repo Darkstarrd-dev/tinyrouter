@@ -183,7 +183,10 @@ async function importModelsForQuickSlot() {
       for (var j = 0; j < models.length; j++) {
         var displayId = models[j].alias || models[j].id;
         var fullId = p.prefix + '/' + displayId;
-        html += '<div class="import-model-item" data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
+        var note = models[j].note || '';
+        var itemCls = 'import-model-item' + (note ? ' has-model-note' : '');
+        var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
+        html += '<div class="' + itemCls + '"' + noteAttr + ' data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
       }
     }
     html += '</div>';
@@ -281,15 +284,18 @@ function renderQuickSlotModelsList() {
     var modelIdEsc = escapeHtml(modelId);
     var pidEsc = escapeHtml(pid);
     var isDisabled = qsEditingDisabledModels.indexOf(fullId) >= 0;
+    var note = provider ? findModelNote(provider, modelId) : '';
+    var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
+    var hasNoteCls = note ? ' has-model-note' : '';
     var disabledRowStyle = isDisabled ? ' style="opacity:0.5"' : '';
     var isFirst = i === 0;
     var isLast = i === qsEditingModels.length - 1;
-    html += '<div class="model-row" data-index="' + i + '" draggable="true"' + disabledRowStyle + '>' +
-      '<div class="model-row-main">' +
+    html += '<div class="model-row' + hasNoteCls + '" data-index="' + i + '" draggable="true"' + disabledRowStyle + '>' +
+      '<div class="model-row-main"' + noteAttr + '>' +
         '<span class="drag-handle" title="' + t('dragToReorder') + '" draggable="false">⠿</span>' +
         '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="withLoading(this, () => testQuickSlotModel(' + i + '))">' + t('test') + '</button>' +
-        '<button type="button" class="btn btn-sm" ' + (isFirst ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
-        '<button type="button" class="btn btn-sm" ' + (isLast ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
+        '<button type="button" class="btn btn-sm ' + (isFirst ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
+        '<button type="button" class="btn btn-sm ' + (isLast ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeQuickSlotModel(' + i + ')">' + t('delete') + '</button>' +
         '<span class="model-id copyable" onclick="copyToClipboard(\'' + escapeForJsString(fullIdEsc) + '\')" title="' + t('clickToCopy') + '">' + fullIdEsc + '</span>' +
       '</div>' +
@@ -437,7 +443,13 @@ function showQuickSlotDropdown(id) {
   removeQuickSlotDropdown();
   var btn = document.querySelector('.quickslot-btn[data-qs-id="' + id + '"]');
   if (!btn) return;
-  apiGet('/quickslots').then(function(data) {
+  Promise.all([apiGet('/quickslots'), apiGet('/models')]).then(function(res) {
+    var data = res[0];
+    var modelsData = res[1] || {};
+    var noteMap = {};
+    (modelsData.models || []).forEach(function(m) {
+      if (m.note) noteMap[m.id] = m.note;
+    });
     var qs = (data.quickslots || []).find(function(x) { return x.id === id; });
     if (!qs) return;
     var models = qs.models || [];
@@ -447,7 +459,9 @@ function showQuickSlotDropdown(id) {
       html += '<div class="quickslot-dropdown-item" style="opacity:0.6">' + escapeHtml('—') + '</div>';
     } else {
       for (var i = 0; i < models.length; i++) {
-        html += '<div class="quickslot-dropdown-item' + (i === sel ? ' selected' : '') + '" onclick="selectQuickSlotModel(\'' + id + '\',' + i + ')">' + escapeHtml(models[i]) + '</div>';
+        var note = noteMap[models[i]] || '';
+        var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '" class="quickslot-dropdown-item has-model-note' + (i === sel ? ' selected' : '') + '"' : ' class="quickslot-dropdown-item' + (i === sel ? ' selected' : '') + '"';
+        html += '<div' + noteAttr + ' onclick="selectQuickSlotModel(\'' + id + '\',' + i + ')">' + escapeHtml(models[i]) + '</div>';
       }
     }
     html += '</div>';

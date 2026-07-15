@@ -205,7 +205,10 @@ async function importModelsFromProvider(target) {
       for (var j = 0; j < models.length; j++) {
         var displayId = models[j].alias || models[j].id;
         var fullId = p.prefix + '/' + displayId;
-        html += '<div class="import-model-item" data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
+        var note = models[j].note || '';
+        var itemCls = 'import-model-item' + (note ? ' has-model-note' : '');
+        var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
+        html += '<div class="' + itemCls + '"' + noteAttr + ' data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
       }
     }
     html += '</div>';
@@ -307,19 +310,22 @@ function renderComboModelsList() {
     var modelIdEsc = escapeHtml(modelId);
     var pidEsc = escapeHtml(pid);
     var isDisabled = comboEditingDisabledModels.indexOf(fullId) >= 0;
+    var note = provider ? findModelNote(provider, modelId) : '';
+    var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
+    var hasNoteCls = note ? ' has-model-note' : '';
     var disabledRowStyle = isDisabled ? ' style="opacity:0.5"' : '';
     var isFirst = i === 0;
     var isLast = i === comboEditingModels.length - 1;
-    html += '<div class="model-row" data-index="' + i + '" draggable="true"' + disabledRowStyle + '>' +
-      '<div class="model-row-main">' +
+    html += '<div class="model-row' + hasNoteCls + '" data-index="' + i + '" draggable="true"' + disabledRowStyle + '>' +
+      '<div class="model-row-main"' + noteAttr + '>' +
         '<span class="drag-handle" title="' + t('dragToReorder') + '" draggable="false">⠿</span>' +
         (isDisabled
           ? '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('enable') + '</button>'
           : '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('disable') + '</button>') +
         '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '"' + (isDisabled ? ' disabled' : '') + ' onclick="withLoading(this, () => testComboModel(' + i + '))">' + t('test') + '</button>' +
         '<button type="button" class="btn btn-sm btn-info"' + (ts ? '' : ' disabled') + ' onclick="showModelInfo(\'' + escapeForJsString(modelIdEsc) + '\')">' + t('info') + '</button>' +
-        '<button type="button" class="btn btn-sm" ' + (isFirst ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
-        '<button type="button" class="btn btn-sm" ' + (isLast ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
+        '<button type="button" class="btn btn-sm ' + (isFirst ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
+        '<button type="button" class="btn btn-sm ' + (isLast ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeComboModel(' + i + ')">' + t('delete') + '</button>' +
         '<span class="model-id copyable" onclick="copyToClipboard(\'' + fullIdEsc + '\')" title="' + t('clickToCopy') + '">' + fullIdEsc + '</span>' +
       '</div>' +

@@ -42,28 +42,28 @@ async function renderEndpoint(c) {
         </div>\
       </div>\
       <div class="settings-panel-right">\
-        <div class="settings-panel-section">\
+        <div class="settings-panel-section" id="settings-section-providers" data-collapse-key="settings-providers">\
           <div class="settings-panel-header">\
-            <span class="settings-panel-title">' + t('providers') + '</span>\
+            <span class="settings-panel-title settings-panel-title-clickable" onclick="toggleSettingsSectionCollapse(\'settings-providers\')">' + settingsSectionChevron() + t('providers') + '</span>\
             <button type="button" class="btn btn-primary btn-sm" onclick="showAddProvider()">' + t('addProvider') + '</button>\
           </div>\
           <div class="settings-panel-body">\
             <div id="provider-list" class="settings-card-grid"></div>\
           </div>\
         </div>\
-        <div class="settings-panel-section settings-panel-split">\
-          <div class="settings-panel-half">\
+        <div class="settings-panel-section settings-panel-split" id="settings-section-combos-quickslots">\
+          <div class="settings-panel-half" id="settings-section-combos" data-collapse-key="settings-combos">\
             <div class="settings-panel-header">\
-              <span class="settings-panel-title">' + t('combos') + '</span>\
+              <span class="settings-panel-title settings-panel-title-clickable" onclick="toggleSettingsSectionCollapse(\'settings-combos\')">' + settingsSectionChevron() + t('combos') + '</span>\
               <button type="button" class="btn btn-primary btn-sm" onclick="showAddCombo()">' + t('addCombo') + '</button>\
             </div>\
             <div class="settings-panel-body">\
               <div id="combo-list" class="settings-card-grid"></div>\
             </div>\
           </div>\
-          <div class="settings-panel-half">\
+          <div class="settings-panel-half" id="settings-section-quickslots" data-collapse-key="settings-quickslots">\
             <div class="settings-panel-header">\
-              <span class="settings-panel-title">' + t('quickSlots') + '</span>\
+              <span class="settings-panel-title settings-panel-title-clickable" onclick="toggleSettingsSectionCollapse(\'settings-quickslots\')">' + settingsSectionChevron() + t('quickSlots') + '</span>\
               <button type="button" class="btn btn-primary btn-sm" onclick="showAddQuickSlot()">' + t('addQuickSlot') + '</button>\
             </div>\
             <div class="settings-panel-body">\
@@ -77,6 +77,38 @@ async function renderEndpoint(c) {
   renderComboListInline(combos);
   if (typeof renderQuickSlotListInline === 'function') renderQuickSlotListInline(quickslots);
   if (typeof renderHeaderQuickSlots === 'function') renderHeaderQuickSlots();
+  applySettingsSectionCollapseState();
+}
+
+// Collapsed Settings sections persist across re-renders (renderEndpoint re-runs
+// on every combo/quickslot/provider toggle).
+var collapsedSettingsSections = new Set();
+
+function settingsSectionChevron() {
+  return '<svg class="settings-panel-title-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+}
+
+function applySettingsSectionCollapseState() {
+  document.querySelectorAll('[data-collapse-key]').forEach(function(el) {
+    var key = el.getAttribute('data-collapse-key');
+    var chevron = el.querySelector('.settings-panel-title-chevron');
+    if (collapsedSettingsSections.has(key)) {
+      el.classList.add('collapsed');
+      if (chevron) chevron.style.transform = 'rotate(-90deg)';
+    } else {
+      el.classList.remove('collapsed');
+      if (chevron) chevron.style.transform = '';
+    }
+  });
+}
+
+function toggleSettingsSectionCollapse(key) {
+  if (collapsedSettingsSections.has(key)) {
+    collapsedSettingsSections.delete(key);
+  } else {
+    collapsedSettingsSections.add(key);
+  }
+  applySettingsSectionCollapseState();
 }
 
 function renderComboListInline(combos) {

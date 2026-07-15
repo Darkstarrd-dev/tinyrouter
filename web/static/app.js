@@ -80,6 +80,67 @@ function escapeForJsString(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
 }
 
+// Lookup a model note by `displayId` (alias OR model id) within a provider.
+function findModelNote(provider, displayId) {
+  if (!provider || !provider.models) return '';
+  for (var i = 0; i < provider.models.length; i++) {
+    var m = provider.models[i];
+    if ((m.alias && m.alias === displayId) || m.id === displayId) return m.note || '';
+  }
+  return '';
+}
+
+// ===================== Model Note Popover =====================
+// Shows a custom hover popover with the model note text. Listens at the
+// document level for mouseenter/mouseleave on any element carrying a
+// `data-model-note` attribute (decoded from the HTML-escaped value set at
+// render time). Supports dynamically-inserted dropdowns without per-item
+// re-binding.
+document.addEventListener('mouseover', function(e) {
+  var el = e.target.closest && e.target.closest('[data-model-note]');
+  if (!el || el === document.documentElement) return;
+  if (el.dataset.modelNote === '') return;
+  showModelNotePopover(el, el.dataset.modelNote);
+});
+document.addEventListener('mouseout', function(e) {
+  var el = e.target.closest && e.target.closest('[data-model-note]');
+  if (!el || el === document.documentElement) return;
+  if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+  hideModelNotePopover();
+});
+
+function showModelNotePopover(target, note) {
+  if (!note) { hideModelNotePopover(); return; }
+  hideModelNotePopover();
+  var tip = document.createElement('div');
+  tip.className = 'model-note-tip';
+  tip.id = 'model-note-tip';
+  tip.textContent = note;
+  document.body.appendChild(tip);
+  positionModelNotePopover(tip, target);
+  target._modelNoteTip = tip;
+}
+function positionModelNotePopover(tip, target) {
+  var rect = target.getBoundingClientRect();
+  var margin = 6;
+  var left = rect.left;
+  if (left + tip.offsetWidth > window.innerWidth - 4) {
+    left = window.innerWidth - tip.offsetWidth - 4;
+  }
+  if (left < 4) left = 4;
+  var top = rect.top - tip.offsetHeight - margin;
+  if (top < 4) top = rect.bottom + margin;
+  if (top + tip.offsetHeight > window.innerHeight - 4) {
+    top = window.innerHeight - tip.offsetHeight - 4;
+  }
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+function hideModelNotePopover() {
+  var existing = document.getElementById('model-note-tip');
+  if (existing) existing.remove();
+}
+
 function maskKey(key) {
   if (!key || key.length < 8) return '***';
   return key.slice(0, 8) + '...';

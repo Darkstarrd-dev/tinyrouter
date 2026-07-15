@@ -505,6 +505,21 @@ tbody tr:last-child td{border-bottom:none}
 .quota-tip-perkey{margin-top:4px;padding-top:4px;border-top:1px solid var(--glass-border);color:var(--text-muted)!important;font-weight:400!important}
 
 /* ---------------------------------------------------------------------
+   Model Note Popover (reusable hover tooltip)
+   --------------------------------------------------------------------- */
+.model-note-tip{position:fixed;z-index:var(--z-tooltip,900);background:var(--modal-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:8px;padding:8px 12px;font-size:var(--font-badge);pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.25);max-width:280px;white-space:pre-wrap;word-break:break-word;line-height:1.5;color:var(--text)}
+
+/* ---------------------------------------------------------------------
+   Model Picker item — has-note indicator (placed on items with a note)
+   --------------------------------------------------------------------- */
+.has-model-note::after{content:"❶";margin-left:2px;font-size:0.7em;opacity:0.55;color:var(--accent);font-weight:700}
+.quickslot-dropdown-item.has-model-note::after{content:"❶";font-size:0.8em}
+.import-model-item.has-model-note::after{content:"❶";font-size:0.8em;opacity:0.65}
+.model-row.has-model-note .model-id::after{content:"❶";margin-left:2px;font-size:0.7em;opacity:0.55;color:var(--accent);font-weight:700}
+.pg-model-picker-item.has-model-note::after{content:"❶";margin-left:4px;font-size:0.8em;opacity:0.7}
+.pg-model-picker-item.selected.has-model-note::after{color:#fff}
+
+/* ---------------------------------------------------------------------
    Current Key Tag (A)
    --------------------------------------------------------------------- */
 .current-key-tag{display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:var(--font-badge);padding:2px 7px;border-radius:4px;background:rgba(79,195,247,0.10);color:var(--accent);font-weight:600;white-space:nowrap;vertical-align:middle}
@@ -720,6 +735,11 @@ tbody tr:last-child td{border-bottom:none}
   border-bottom:1px solid var(--glass-border)
 }
 .settings-panel-title{font-weight:600;font-size:var(--font-card-title);color:var(--text)}
+/* Title is clickable to toggle collapse, with inline chevron indicating state */
+.settings-panel-title-clickable{cursor:pointer;display:inline-flex;align-items:center;gap:6px;user-select:none}
+.settings-panel-title-chevron{display:inline-block;transition:transform .25s cubic-bezier(0.4,0,0.2,1);flex-shrink:0;color:var(--text-muted)}
+.settings-panel-section.collapsed .settings-panel-title-chevron,
+.settings-panel-half.collapsed .settings-panel-title-chevron{transform:rotate(-90deg)}
 
 /* Section body: scrollable */
 .settings-panel-body{
@@ -731,6 +751,12 @@ tbody tr:last-child td{border-bottom:none}
   min-height:0
 }
 .settings-panel-body::-webkit-scrollbar{display:none}
+
+/* Collapsed section: hide body, sub-section becomes minimal height */
+.settings-panel-section.collapsed .settings-panel-body,
+.settings-panel-half.collapsed .settings-panel-body{display:none}
+.settings-panel-section.collapsed{flex:0 0 auto}
+.settings-panel-half.collapsed{flex:0 0 auto}
 
 /* Card grid: 2 cards per row */
 .settings-card-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}

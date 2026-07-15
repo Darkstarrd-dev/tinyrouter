@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-15，仓库工作区（`main`）。本次：(1) Reasoning 气泡 `.pg-thinking-body` 增高至 `60vh` 并在流式更新时自动滚至底部；(2) Mermaid 渲染串行化 + 唯一 ID + SVG 缓存，修复多图随机只显一图与完成后变空；(3) 删除 `web/static/style.css` 中整套历史遗留 `.pg-` 段，playground 样式来源单一化为 `playground.css`。基线同 `2026-07-14 提交 69df6de`（v1.6.5）：Recent Requests 面板改为仅显示 Playground 发起请求、可点击查看详情；发送按钮在选模型后即时启用。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-15，仓库工作区（`main`）。本次新增/核对：模型 note 现支持 hover 显示于全 app 模型选择下拉项（`web/static/app.js` 通用 `data-model-note` 委托 `showModelNotePopover`；`pg-modal.js` 模型选择 modal 项附 `data-model-note`+`has-model-note` 标记；`quickslots.js` 顶部 quickslot 下拉与 `combos.js`/`quickslots.js` 导入模态/编辑列表项附 note；`internal/api/models.go` 的 `modelInfo` 新增 `note` 字段，`pgLoadModels()` 即可读到）。上次核对基线仍为：(1) Reasoning 气泡 `.pg-thinking-body` 增高至 `60vh` 并在流式更新时自动滚至底部；(2) Mermaid 渲染串行化 + 唯一 ID + SVG 缓存，修复多图随机只显一图与完成后变空；(3) 删除 `web/static/style.css` 中整套历史遗留 `.pg-` 段，playground 样式来源单一化为 `playground.css`。基线同 `2026-07-14 提交 69df6de`（v1.6.5）：Recent Requests 面板改为仅显示 Playground 发起请求、可点击查看详情；发送按钮在选模型后即时启用。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 > **2026-07-14 更新：** Playground 请求详情弹窗改为复用 Usage 页面的 `info-modal-overlay` + `renderInfoSection` 基础设施，具备 pretty/raw 切换和 copy 按钮；服务端 `recorder.go`、`forward.go`、`stream.go` 不再依赖 debug mode 门控，始终捕获请求/响应 payload 与 headers，使弹窗在 debug mode 关闭时也能显示完整信息。`app.js` 的 `topOpenModal()`/`dismissTopModal()` 扩展支持 `pg-modal-overlay`，修复 Playground 弹窗 ESC 穿透触发关闭应用的问题。图片发送改为在 `pgUserSend` 阶段将用户消息构建为多模态 content parts 并清空 `imageUrls`/`imageEnabled`，使发送后输入区缩略图消失、图片随用户气泡渲染。Reasoning 气泡改为 markdown 渲染、移除滚动条约束、随内容自然增长，reasoning 结束后自动折叠。Recent Requests 面板新增 SSE 订阅（`/api/usage/events`），请求发送即实时出现、完成后实时更新，轮询降为 10 秒后备。新增 Custom Endpoint 面板（普通模式），启用后直接 fetch 自定义 URL + Key，绕过 TinyRouter 代理栈。Image Preview 弹窗新增 Copy/Save/Reset 按钮、鼠标滚轮缩放（以图片中心为轴心，最小不低于 auto-fit）、鼠标拖拽平移、图片 auto-fit 容器；聊天气泡图片缩略图可点击打开预览；新增 `POST /api/save-image` 后端端点保存图片到 `imgs/` 目录。
 
@@ -583,7 +583,7 @@ go build -tags playground -o tinyrouter-pg.exe .
 - `web/embed_playground.go`：Playground 资产嵌入；
 - `web/embed_playground_stub.go`：无 tag 空 FS；
 - `internal/api/router.go`：路由、鉴权边界、静态挂载和入口矩阵；
-- `internal/api/models.go`：Playground 模型目录（响应 `modelInfo` 含 `kind`/`imgProtocol` 字段，按 `ModelDef.Kind`/`ImgProtocol`）；
+- `internal/api/models.go`：Playground 模型目录（响应 `modelInfo` 含 `kind`/`imgProtocol`/`note` 字段，按 `ModelDef.Kind`/`ImgProtocol`/`Note`；`note` 供前端 `pg-modal.js` 模型选择项 hover 显示）；
 - `internal/api/settings.go`：运行时开关 API；
 - `internal/config/types.go`、`internal/config/defaults.go`：配置结构和默认值；
 - `internal/proxy/forward.go`、`internal/proxy/upstream.go`、`internal/proxy/stream.go`：代理契约；
