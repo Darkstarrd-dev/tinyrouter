@@ -101,13 +101,13 @@ func (cw *compressWriter) Write(b []byte) (int, error) {
 }
 
 // Flush propagates to the upstream flusher so streaming handlers keep working
-// when bypassing compression (e.g. SSE).
+// when bypassing compression (e.g. SSE). For compressible responses, also
+// flushes the brotli/gzip encoder so buffered bytes reach the client.
 func (cw *compressWriter) Flush() {
-	if cw.encoder != nil {
-		// brotli/gzip writers don't expose a reliable partial flush that
-		// preserves framing; for compressible streams we invalidate the
-		// encoder and fall back to bypass so subsequent writes pass through.
-		// In practice only SSE bypasses, which already has no encoder.
+	if cw.encoder != nil && !cw.bypass {
+		if fl, ok := cw.encoder.(interface{ Flush() error }); ok {
+			_ = fl.Flush()
+		}
 	}
 	if fl, ok := cw.ResponseWriter.(http.Flusher); ok {
 		fl.Flush()
@@ -146,9 +146,17 @@ func (cw *compressWriter) closeEncoder() {
 // when the client supports it and the content-type is compressible.
 func Compress(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Bypass compression for long-running non-streaming endpoints
+		// (e.g. image generation). These endpoints use an early flush to
+		// keep the browser alive during ~50s upstream generation; brotli/
+		// gzip would buffer that flush so the browser never sees
+		// decompressed body bytes and aborts on its body first-byte timer.
+		if r.URL.Path == "/v1/images/generations" || r.URL.Path == "/v1/images/edits" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		enc := pickEncoding(r)
 		if enc == "" {
-			// Even without compression we still expose custom headers.
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -273,8 +273,19 @@ function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
 // Waiting counter for image generation/edit: while an assistant message is in
 // the "loading" state (POST accepted, no error returned yet), tick every
 // second and show elapsed seconds since the request started.
+//
+// SAFETY NET: when the playground tab/page loses focus (e.g. user switches to
+// the Console page or the WebView2 window is backgrounded), Chromium throttles
+// or aborts pending fetch() calls. The fetch promise often never settles in
+// that case, so pgFail is never invoked and the UI would otherwise wait
+// forever showing a ticking timer with the Stop button stuck. The safety net
+// forces a failure after pgSafetyNetMs so the user can re-send. The threshold
+// covers all real image-generation latencies (2k ~60s, 4k ~4min) with margin,
+// so it only fires for genuinely stuck (aborted) requests.
+var pgSafetyNetMs = 300000; // 5 minutes — covers 4k (~4min) with buffer, fails only really-stuck fetches
 var pgWaitingTimer = null;
 function pgTickWaiting() {
+  var now = Date.now();
   var any = false;
   for (var i = 0; i < pgState.splitCount; i++) {
     var w = pgWinAt(i);
@@ -282,6 +293,14 @@ function pgTickWaiting() {
     for (var idx = 0; idx < w.messages.length; idx++) {
       var m = w.messages[idx];
       if (m.status !== 'loading') continue;
+      // Safety net: auto-fail if loading for too long. Handles the case where
+      // fetch() never settles (e.g. tab backgrounded → Chromium aborts fetch
+      // without rejecting the promise) and pgFail is never called. After the
+      // safety net the Send button becomes usable again.
+      if (m.startedAt && (now - m.startedAt) > pgSafetyNetMs) {
+        pgFail(i, idx, 'Request timed out (' + (pgSafetyNetMs/1000) + 's safety net)', null);
+        continue;
+      }
       any = true;
       // Re-render the loading bubble so the elapsed seconds are always
       // correct even if the bubble was re-rendered for another reason.

@@ -10,9 +10,13 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 	combos := h.reg.ListCombos()
 
 	type modelObj struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		OwnedBy string `json:"owned_by"`
+		ID          string `json:"id"`
+		Object      string `json:"object"`
+		OwnedBy     string `json:"owned_by"`
+		Kind        string `json:"kind,omitempty"`
+		ImgProtocol string `json:"imgProtocol,omitempty"`
+		Note        string `json:"note,omitempty"`
+		Provider    string `json:"provider,omitempty"`
 	}
 
 	var models []modelObj = []modelObj{}
@@ -27,16 +31,21 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 					displayID = m.Alias
 				}
 				models = append(models, modelObj{
-					ID:      p.Prefix + "/" + displayID,
-					Object:  "model",
-					OwnedBy: p.Name,
+					ID:          p.Prefix + "/" + displayID,
+					Object:      "model",
+					OwnedBy:     p.Name,
+					Kind:        m.Kind,
+					ImgProtocol: m.ImgProtocol,
+					Note:        m.Note,
+					Provider:    p.Name,
 				})
 			}
 		} else {
 			models = append(models, modelObj{
-				ID:      p.Prefix + "/*",
-				Object:  "model",
-				OwnedBy: p.Name,
+				ID:       p.Prefix + "/*",
+				Object:   "model",
+				OwnedBy:  p.Name,
+				Provider: p.Name,
 			})
 		}
 	}

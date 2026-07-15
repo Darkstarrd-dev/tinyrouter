@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/terminal/`（交互式 PTY over WebSocket）、`internal/monitor/`（白名单 shell 命令、SSE 输出）、对应 API `internal/api/terminal.go` / `internal/api/monitor.go` 与前端 `web/static/terminal.js` / `web/static/monitor.js` 的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-13，仓库提交 `c2f89c6`（`main`）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-15，仓库工作区（`main`）。**外延修复**（不改变本文覆盖的 terminal/monitor 架构本身，仅触及承载页面）：`web/static/console.js` 的 `startConsoleStream` 删除冗余的 `apiGet('/console-logs')` 历史拉取——`/api/console-logs/stream` 的 SSE 流在握手后已先回放全部历史行（见 `internal/api/console_logs.go` 的 `streamConsoleLogs` L33-38 "Send existing lines first"），此前同时做 REST 拉取 + SSE 回放导致已存在的日志行被渲染两次。Terminal/Monitor 主流程未变。基线仍为 `2026-07-13 提交 c2f89c6`。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 

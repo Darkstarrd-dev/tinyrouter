@@ -165,9 +165,11 @@ function startConsoleStream() {
   var container = document.getElementById('log-container');
   var status = document.getElementById('console-status');
 
-  apiGet('/console-logs').then(function(data) {
-    (data.lines || []).forEach(function(line) { appendLogLine(container, line); });
-  });
+  // Don't fetch existing lines via REST here: the SSE stream below already
+  // sends the backlog before live updates (see console_logs.go streamConsoleLogs
+  // L33-38 "Send existing lines first"). Fetching both caused every existing
+  // line (including startup messages already in the buffer) to be rendered
+  // twice. Removing the REST call eliminates the duplication.
 
   consoleEventSource = new EventSource('/api/console-logs/stream');
   consoleEventSource.onopen = function() { status.textContent = t('connected'); };

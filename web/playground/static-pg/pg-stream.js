@@ -290,16 +290,31 @@ function pgSendImage(i, body, assistantIdx) {
     headers['X-Modelscope-Async-Mode'] = 'true';
   }
 
+  // Fallback timeout: if the fetch promise never settles (e.g. the playground
+  // tab was backgrounded and Chromium aborted the fetch without rejecting),
+  // force-fail after imgTimeoutMs so the UI doesn't tick forever. Aligned with
+  // pgTickWaiting's pgSafetyNetMs (300s), which covers all real image-gen
+  // latencies (2k ~60s, 4k ~4min) with margin, so it only fires for genuinely
+  // stuck fetches; the user recovers within 5 minutes if they switch away.
+  var imgTimeoutMs = 300000;
+  var imgTimer = setTimeout(function() {
+    if (w.streaming) {
+      try { w.abortCtrl.abort(); } catch(e) {}
+      pgFail(i, assistantIdx, 'Request timed out (' + (imgTimeoutMs/1000) + 's)', null);
+    }
+  }, imgTimeoutMs);
+
   fetch('/v1/images/generations', {
     method: 'POST',
     headers: headers,
     body: JSON.stringify(body),
     signal: w.abortCtrl.signal,
   }).then(function(resp) {
+    clearTimeout(imgTimer);
     w.lastProvider = resp.headers.get('X-TinyRouter-Provider') || '';
     w.lastKey = resp.headers.get('X-TinyRouter-Key') || '';
     return resp.json().then(function(j) {
-      if (!resp.ok) {
+      if (!resp.ok || (j && j.error)) {
         var details = pgParseErrorDetails(JSON.stringify(j));
         var err = new Error(details.errorMessage || ('HTTP ' + resp.status));
         if (details.errorCode) {
@@ -337,6 +352,7 @@ function pgSendImage(i, body, assistantIdx) {
       pgUpdateInputBar();
     });
   }).catch(function(err) {
+    clearTimeout(imgTimer);
     if (err && err.name === 'AbortError') {
       pgFinish(i, assistantIdx);
     } else {

@@ -205,11 +205,65 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		h.EntryTracker.Register(processingEntry)
 		h.broadcastRequestStart(reqID, processingEntry)
 
+		// Send keep-alive whitespace bytes and flush so the client receives body
+		// data periodically while the upstream is still generating. This prevents
+		// browsers (e.g. Chromium HTTP/1.1 / WebView2) from timing out on
+		// long-running non-streaming responses (image generation ~50s).
+		//
+		// Strategy: write a leading "\n" now, then start a background ticker that
+		// writes " " (valid JSON whitespace) every keepAliveInterval until the
+		// upstream response arrives. The ticker is stopped before passThroughResponse
+		// writes the actual response body so the framing stays clean.
+		if !isStream && !state.headersFlushed {
+			state.headersFlushed = true
+			w.Header().Set("Content-Type", "application/json")
+			if sel != nil {
+				w.Header().Set("X-TinyRouter-Provider", sel.Provider.Name)
+				w.Header().Set("X-TinyRouter-Key", sel.KeyName)
+			}
+			w.Write([]byte("\n"))
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+
+		// Background keep-alive: write a space every keepAliveInterval so the
+		// browser sees periodic body data and doesn't abort on a body idle timer.
+		keepAliveInterval := 5 * time.Second
+		keepAliveDone := make(chan struct{})
+		if !isStream {
+			go func() {
+				ticker := time.NewTicker(keepAliveInterval)
+				defer ticker.Stop()
+				flusher, _ := w.(http.Flusher)
+				for {
+					select {
+					case <-keepAliveDone:
+						return
+					case <-r.Context().Done():
+						return
+					case <-ticker.C:
+						if _, err := w.Write([]byte(" ")); err != nil {
+							return
+						}
+						if flusher != nil {
+							flusher.Flush()
+						}
+					}
+				}
+			}()
+		}
+
 		startTime := time.Now()
 		resp, err := h.forwardUpstream(r.Context(), sel, upstreamBody, r.Header, isStream, path)
 
+		// Stop the keep-alive ticker before writing the real body.
+		if !isStream {
+			close(keepAliveDone)
+		}
+
 		if err != nil {
-			h.handleNetworkError(sel, providerID, upstreamModel, err, state, reqID, r.Header, upstreamURL)
+			h.handleNetworkError(sel, providerID, upstreamModel, err, state, reqID, upstreamBody, r.Header, upstreamURL)
 			h.EntryTracker.Remove(reqID)
 			// DecInFlight before continue — cannot use defer in for loop (would
 			// accumulate across retry iterations).
@@ -221,7 +275,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode == 429 {
-			h.handle429(resp, sel, providerID, upstreamModel, startTime, state, r, reqID, upstreamURL)
+			h.handle429(resp, sel, providerID, upstreamModel, startTime, state, r, reqID, upstreamBody, upstreamURL)
 			h.EntryTracker.Remove(reqID)
 			if keyState != nil {
 				keyState.DecInFlight()
@@ -231,7 +285,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode >= 400 {
-			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state, r, reqID, upstreamURL, startTime)
+			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state, r, reqID, upstreamBody, upstreamURL, startTime)
 			h.EntryTracker.Remove(reqID)
 			if keyState != nil {
 				keyState.DecInFlight()

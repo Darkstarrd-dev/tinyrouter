@@ -2,11 +2,17 @@
 
 > **文档定位：** `internal/proxy/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-14，仓库提交 `69df6de`（`main`，v1.6.5）。`recordUsage` 新增 `entry.Source` 回填（来自 `X-TinyRouter-Source` 头）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-15，仓库工作区（`main`）。新增非流式 `keep-alive` 刷新循环（`forward.go` `forwardWithRetry` 内）+ `/v1/images/*` 绕过压缩中间件（`compress.go` `Compress`）+ `recorder.go` 大响应 `b64_json` 占位截断；详见下文 §8.7 与 2026-07-15 更新。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 > **2026-07-14 更新：** `recorder.go`、`forward.go`、`stream.go` 不再以 `debugMode()` 门控 payload/headers 捕获——始终捕获 `ReqPayload`、`RespPayload`、`ReqHeaders`、`RespHeaders`、`UpstreamURL`、`RespStatus` 及 SSE 累积体。`debugMode()` 仅保留对 `parseAndBroadcastChunk`（实时 SSE chunk 广播）的门控。
 
 > **2026-07-14 更新（Image 模式）：** 代理核心新增两个 `/v1/*` 端点：`POST /v1/images/generations`（`ImagesGenerations`，透明转发，复用 `handleProxy`）与 `POST /v1/tasks/{taskId}`（`PollTask`，ModelScope 异步任务轮询），路由总数由 3 个升至 5 个。`normalizeBaseURL` 的 suffix 剥离列表新增 `"/images/generations"`；`forwardUpstream` 新增 `X-Modelscope-Async-Mode` 请求头透传。两端点同样位于 `AuthMiddleware` 之外、CORS preflight 覆盖范围内。
+
+> **2026-07-15 更新（非流式 keep-alive 刷新）：** `forwardWithRetry`（`forward.go`）对**非流式**请求新增 keep-alive 刷新机制：在上游请求发出前先 `Write("\n")` 并 `Flush` 一个 valid JSON 空白字符，随后启动一个后台 ticker goroutine 每 5s `Write(" ") + Flush` 一次，直到上游响应到达（`close(keepAliveDone)`）或请求上下文取消（`r.Context().Done()`）才停止。这解决了 Chromium HTTP/1.1/WebView2 在长耗时非流式响应（图片生成 ~50s+）上因 body idle timer 超时主动断连的问题——浏览器周期性收到解压后的真实 body 字节从而重置定时器。详见 §8.7。
+>
+> **2026-07-15 更新（压缩中间件绕过）：** `internal/api/compress.go` 的 `Compress` 中间件对 `POST /v1/images/generations` 与 `POST /v1/images/edits` 直接放行（不包装 `compressWriter`），使上述 keep-alive 字节以原始明文送达浏览器，避免 brotli/gzip 编码后浏览器解压器无法从碎片化小包还原输出字节。该两端点不再返回 `Content-Encoding: br/gzip`，仅返回 `Transfer-Encoding: chunked` + `Content-Type: application/json`。
+>
+> **2026-07-15 更新（`recorder.go` 大响应截断）：** `recordUsage` 在写入 `RespPayload` 前，若响应体大于 512 KiB 且解析为合法 JSON，会把 `data[].b64_json` 大于 200 字节的内容替换为 `[truncated: N bytes]` 占位符，再行截断。避免图片响应（~2-5 MB base64 PNG）无意义占满 512 KiB 调试面板缓冲且无可读性。
 
 ## 1. 范围与结论
 
@@ -253,6 +259,24 @@ flowchart TD
 
 非流式成功响应：设置 `Content-Type: application/json` 与 `X-TinyRouter-*` 头，用 `w.WriteHeader(resp.StatusCode)` **原样透传上游状态码**（stream.go:312-317），整段读取上限 64 MiB（`io.LimitReader(resp.Body, 64<<20)`，stream.go:319），写出后 `util.ExtractTokens` 提取用量并 `recordUsage`（stream.go:324-340）。客户端断开时 `status="client_disconnected"`（stream.go:333-337）。
 
+### 8.7 非流式 keep-alive 刷新循环（forward.go `forwardWithRetry`）
+
+> 2026-07-15 新增。解决 WebView2 / Chromium HTTP/1.1 在长耗时非流式响应（图片生成 ~50s+，4k 可达 ~4min）上提前断连的问题。
+
+**触发条件：** `forwardWithRetry` 内每次迭代（`!isStream && !state.headersFlushed`）首次写出响应头时启动；只对非流式请求生效，流式请求走 `streamResponse` 自身已逐块 flush。
+
+**两阶段刷新：**
+1. **首字节：** `state.headersFlushed = true` 后写入 `Content-Type: application/json` + `X-TinyRouter-Provider/Key` 头，`w.Write([]byte("\n"))`（合法 JSON 空白），随后 `http.Flusher.Flush()` 立即下送。
+2. **心跳 ticker：** 启动后台 goroutine，每 `keepAliveInterval = 5s` 执行 `w.Write([]byte(" ")) + flusher.Flush()`，向浏览器周期性注入合法 JSON 空白字符。退出条件二选一：
+   - `keepAliveDone` 在 `forwardUpstream` 返回后 `close(keepAliveDone)`（上游响应到达，准备 `passThroughResponse` 写入真正 body）；
+   - `r.Context().Done()`（客户端已断开，无需继续维持）。
+
+**为什么有效：** Chromium HTTP/1.1 对非流式响应有两个定时器——响应头超时（~30s 无 header）与 body 首字节超时（收到 header 后 ~2s 起算，等待解压后真实 body 字节）。单次首字节 `\n` 只能重置一次；后台 5s 心跳持续注入字节，让 body 定时器在 ~50s+ 生成窗内被反复重置，浏览器不停留在 idle 等待状态。
+
+**为什么必须绕过压缩（见 `Compress` 中间件）：** 若 `compressWriter` 包装该响应，brotli 编码后会向浏览器发送编码后的小帧；brotli 解压器无法从碎片化的小帧还原出输出字节，浏览器视为"无 body 数据"→ body 定时器立即触发→ 2s 断连。`Compress` 对 `/v1/images/generations` 与 `/v1/images/edits` 直接放行后，`\n`/` ` 以原始明文送达浏览器，立即被识为解压后 body 数据。
+
+**最终 body 拼接：** `passThroughResponse` 随后以 `WriteHeader(resp.StatusCode)`（status 与首次隐式 200 同为 200 时无副作用）+ `w.Write(bodyBytes)` 追加上游 JSON。最终响应体 = `\n` + 若干 ` ` + `{"created":...}`，全部为合法 JSON 空白 + JSON 对象，`resp.json()` 可正常解析。
+
 ## 9. 重试与故障转移状态机
 
 ### 9.1 retryState（retry.go:14-21）
@@ -491,6 +515,7 @@ go build -o tinyrouter .
 | 修改重试策略 | retry.go 三个错误处理器（52-305）+ rotation.ClassifyError / Selector + retryState（14-21） |
 | 修改 body 改写 | forward.go:79-83（alias 解析）+ forward.go:130-179（stream_options / model / backfill）+ upstream.go（头与 URL） |
 | 修改 SSE 改写 | stream.go:138-307 + normalizeSSEChunk（73-109）+ SSELineBuffer（15-40）+ passThroughResponse（309-341） |
+| 修改非流式 keep-alive 刷新 | forward.go `forwardWithRetry`（首字节 Write+Flush + 5s ticker goroutine，§8.7）+ compress.go `Compress`（`/v1/images/*` 绕过列表）+ passThroughResponse（最终 body 拼接） |
 | 修改 Gemini 签名 | signature_cache.go（11-104）+ forward.go backfill（314-355）+ stream.go extract（444-490）+ config IsGeminiOpenAICompat（109-117） |
-| 修改用量/在途 | recorder.go（16-90）+ entry_tracker.go（13-82）+ inflight.go（11-88）+ broadcaster.go（9-80）+ api/sse_events.go（16-79）；改 `Entry.Source` 来源标记须同步前端 `X-TinyRouter-Source` 头（pg-stream.js） |
+| 修改用量/在途 | recorder.go（16-90）+ entry_tracker.go（13-82）+ inflight.go（11-88）+ broadcaster.go（9-80）+ api/sse_events.go（16-79）；改 `Entry.Source` 来源标记须同步前端 `X-TinyRouter-Source` 头（pg-stream.js）。改 `RespPayload` 截断策略须同步 §8.7 上方"recorder.go 大响应截断"更新块 |
 | 新增 combo 策略 | combo/resolver + handleCombo 分支（forward.go:93-128） |

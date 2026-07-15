@@ -3,6 +3,7 @@ package proxy
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
@@ -36,6 +37,25 @@ func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.S
 	}
 	if len(respBody) > 0 {
 		const maxRespBody = 512 * 1024
+		// For image responses, replace base64 data with a placeholder to
+		// avoid storing megabytes of useless base64 in the debug panel.
+		if len(respBody) > maxRespBody && json.Valid(respBody) {
+			var obj map[string]any
+			if json.Unmarshal(respBody, &obj) == nil {
+				if data, ok := obj["data"].([]any); ok {
+					for _, d := range data {
+						if dm, ok := d.(map[string]any); ok {
+							if b64, ok := dm["b64_json"].(string); ok && len(b64) > 200 {
+								dm["b64_json"] = "[truncated: " + strconv.Itoa(len(b64)) + " bytes]"
+							}
+						}
+					}
+					if rewritten, err := json.Marshal(obj); err == nil {
+						respBody = rewritten
+					}
+				}
+			}
+		}
 		if len(respBody) > maxRespBody {
 			respBody = respBody[:maxRespBody]
 		}

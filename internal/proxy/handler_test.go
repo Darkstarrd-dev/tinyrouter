@@ -263,8 +263,12 @@ func TestForwardWithRetry_NetworkError(t *testing.T) {
 
 	resp := w.Result()
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("expected 502 Bad Gateway, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (early flush), got %d", resp.StatusCode)
+	}
+	rb, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(rb), "all keys exhausted") {
+		t.Fatalf("expected error body, got: %s", string(rb))
 	}
 }
 
@@ -526,8 +530,12 @@ func TestAfterMaxRetries_WithMock(t *testing.T) {
 
 	resp := w.Result()
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("expected 502 after retries exhausted, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (early flush), got %d", resp.StatusCode)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(bodyBytes), "all keys exhausted") {
+		t.Fatalf("expected error body, got: %s", string(bodyBytes))
 	}
 }
 
