@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-15，仓库工作区（`main`）。本次新增/核对：(a) `pgSendImage` 新增 300s `imgTimer` 兜底（fetch 挂起时 `pgFail` 强制收尾），`pgTickWaiting` 新增 300s 安全网（loading 超时 `pgFail`）——覆盖切页面导致 Chromium 后台 tab fetch 中断但 promise 不 settle 的场景，详见下方"2026-07-15 更新（图片请求超时兜底）"；(b) 上轮内容：模型 note 现支持 hover 显示于全 app 模型选择下拉项（`web/static/app.js` 通用 `data-model-note` 委托 `showModelNotePopover`；`pg-modal.js` 模型选择 modal 项附 `data-model-note`+`has-model-note` 标记；`quickslots.js` 顶部 quickslot 下拉与 `combos.js`/`quickslots.js` 导入模态/编辑列表项附 note；`internal/api/models.go` 的 `modelInfo` 新增 `note` 字段，`pgLoadModels()` 即可读到）。上次核对基线仍为：(1) Reasoning 气泡 `.pg-thinking-body` 增高至 `60vh` 并在流式更新时自动滚至底部；(2) Mermaid 渲染串行化 + 唯一 ID + SVG 缓存，修复多图随机只显一图与完成后变空；(3) 删除 `web/static/style.css` 中整套历史遗留 `.pg-` 段，playground 样式来源单一化为 `playground.css`。基线同 `2026-07-14 提交 69df6de`（v1.6.5）：Recent Requests 面板改为仅显示 Playground 发起请求、可点击查看详情；发送按钮在选模型后即时启用。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-15，仓库工作区（`main`）。本次新增/核对：(a) Image 模式 Size 下拉支持编辑分辨率列表 + 自定义尺寸输入。`pgRenderImageParams` 的 gpt/modelscope 分支改用 `pgImgParamSelectWithEdit`（pg-ui.js），渲染 Size 下拉 + 内联 "Edit" 按钮 + 下方 "Custom Size" 文本输入；选 "__custom" sentinel 展开自定义输入、选具体尺寸写入 `w.config.imgSize` 并隐藏自定义输入。`pgOpenImgSizesModal`（pg-modal.js）打开编辑弹窗，textarea 逐行输入分辨率，保存时 `pgApiPatch('/providers/{id}/models/imgSizes', {model, imgSizes})` 写入 `ModelDef.ImgSizes`（config.yaml 持久化）+ 同步 `pgState.models[].imgSizes`，详见下方 "2026-07-15 更新（图片尺寸编辑）"。(b) 上轮：`pgSendImage` 300s imgTimer + `pgTickWaiting` 安全网；(c) 上上轮：模型 note hover 显示。基线同 `2026-07-14 提交 69df6de`（v1.6.5）：Recent Requests 面板改为仅显示 Playground 发起请求、可点击查看详情；发送按钮在选模型后即时启用。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 > **2026-07-14 更新：** Playground 请求详情弹窗改为复用 Usage 页面的 `info-modal-overlay` + `renderInfoSection` 基础设施，具备 pretty/raw 切换和 copy 按钮；服务端 `recorder.go`、`forward.go`、`stream.go` 不再依赖 debug mode 门控，始终捕获请求/响应 payload 与 headers，使弹窗在 debug mode 关闭时也能显示完整信息。`app.js` 的 `topOpenModal()`/`dismissTopModal()` 扩展支持 `pg-modal-overlay`，修复 Playground 弹窗 ESC 穿透触发关闭应用的问题。图片发送改为在 `pgUserSend` 阶段将用户消息构建为多模态 content parts 并清空 `imageUrls`/`imageEnabled`，使发送后输入区缩略图消失、图片随用户气泡渲染。Reasoning 气泡改为 markdown 渲染、移除滚动条约束、随内容自然增长，reasoning 结束后自动折叠。Recent Requests 面板新增 SSE 订阅（`/api/usage/events`），请求发送即实时出现、完成后实时更新，轮询降为 10 秒后备。新增 Custom Endpoint 面板（普通模式），启用后直接 fetch 自定义 URL + Key，绕过 TinyRouter 代理栈。Image Preview 弹窗新增 Copy/Save/Reset 按钮、鼠标滚轮缩放（以图片中心为轴心，最小不低于 auto-fit）、鼠标拖拽平移、图片 auto-fit 容器；聊天气泡图片缩略图可点击打开预览；新增 `POST /api/save-image` 后端端点保存图片到 `imgs/` 目录。
 
@@ -19,6 +19,11 @@
 > - **`pgTickWaiting` 安全网（`pg-render.js`）：** 常量 `pgSafetyNetMs = 300000`，每秒检查 `status==='loading'` 的消息若 `Date.now() - m.startedAt > pgSafetyNetMs` 则直接 `pgFail`，作为 imgTimer 之外的顶层兜底防 timer 漏走。
 >
 > 两者协同覆盖 fetch 挂起场景；触发后 `msg.status` 变为 `'error'`，`pgTickWaiting` 自动停表、Generate 按钮恢复可用。重要约束：**Generate 后须保持在 Playground 页面**——这是 Chromium 行为，无法通过代码让后台 fetch 在那种调度限制下保活到数十秒级。代理侧已配合实施 keep-alive 刷新（见 `proxy-architecture.md` §8.7），使前台保持时图片正常显示。
+
+> **2026-07-15 更新（图片尺寸编辑 + 自定义尺寸输入）：** Image 模式的 Size 下拉列表新增两个特性：
+> - **编辑按钮**（`pg-modal.js` `pgOpenImgSizesModal`）：Size 下拉右侧的 "Edit" 按钮打开弹窗，弹窗内 textarea 每行一个分辨率；保存时通过 `pgApiPatch('/providers/{id}/models/imgSizes', {model, imgSizes})` 写入 `config.yaml` 的 `ModelDef.ImgSizes` 字段，并同步更新 `pgState.models[].imgSizes`。空列表回退内置默认列表（gpt 8 个 / modelscope 5 个）。后端 `updateModelImgSizes`（`api/providers_models_crud.go`）做去重/裁剪/200 上限清洗，`registry.UpdateModelImgSizes` 写入 provider Models。PATCH 路由挂载于 `api/router.go:251`。
+> - **自定义尺寸输入**（`pg-ui.js` `pgImgParamSelectWithEdit` / `pgOnImgSizeSelect`）：Size 下拉末项 "Custom Size..."，选中后展开下方的 `pg-img-custom-row` 文本输入框；用户输入 `WxH`（如 `1234x5678`）即时写入 `w.config.imgSize` 参与请求。"Edit" 弹窗保存的列表和自定义输入互不干扰——自定义值不写入 `config.yaml`，仅在当前 `w.config.imgSize` 中随 localStorage 持久化。
+> - **数据传递：** `/api/models` 的 `modelInfo`（`internal/api/models.go`）新增 `realModelId`（用于 PATCH 入参，取 `ModelDef.ID`，不受 alias 遮盖）、`providerId`（内部 provider ID，用于 PATCH URL 路径）、`imgSizes`（自定义列表）；前端 `pgState.models[]` 语义同步扩展。`pg-core.js` 新增 `pgApiPatch` 桥接。
 
 ## 1. 范围与结论
 
@@ -589,7 +594,7 @@ go build -tags playground -o tinyrouter-pg.exe .
 - `web/embed_playground.go`：Playground 资产嵌入；
 - `web/embed_playground_stub.go`：无 tag 空 FS；
 - `internal/api/router.go`：路由、鉴权边界、静态挂载和入口矩阵；
-- `internal/api/models.go`：Playground 模型目录（响应 `modelInfo` 含 `kind`/`imgProtocol`/`note` 字段，按 `ModelDef.Kind`/`ImgProtocol`/`Note`；`note` 供前端 `pg-modal.js` 模型选择项 hover 显示）；
+- `internal/api/models.go`：Playground 模型目录（响应 `modelInfo` 含 `kind`/`imgProtocol`/`imgSizes`/`providerId`/`realModelId`/`note` 字段，按 `ModelDef.Kind`/`ImgProtocol`/`ImgSizes`/`Note`；`note` 供前端 `pg-modal.js` 模型选择项 hover 显示；`providerId`/`realModelId` 供图片尺寸编辑发送 PATCH）；
 - `internal/api/settings.go`：运行时开关 API；
 - `internal/config/types.go`、`internal/config/defaults.go`：配置结构和默认值；
 - `internal/proxy/forward.go`、`internal/proxy/upstream.go`、`internal/proxy/stream.go`：代理契约；
@@ -609,7 +614,7 @@ go build -tags playground -o tinyrouter-pg.exe .
 - `web/playground/static-pg/pg-setup.js`：ScenarioProfile；
 - `web/playground/static-pg/pg-director.js`：剧情推进；
 - `web/playground/static-pg/pg-markdown.js`、`pg-render.js`：内容安全与渲染（`pg-render.js` 的 `pgMsgInnerHTML` 负责气泡内缩略图（含 image 模式气泡上方编辑输入图、右侧对齐）、空文本气泡剔除、loading 气泡秒级等待计数（`pgTickWaiting`/`pgEnsureWaitingTicker`））；
-- `web/playground/static-pg/pg-ui.js`、`pg-modal.js`、`pg-lifecycle.js`：交互和页面生命周期（`pg-ui.js` 含 `pgRenderImageParams`/`pgGetImgProtocol` 图片参数面板与协议分支、`pgRenderImageBlock`/`pgRenderInputThumbs` 图片附加 UI 与输入栏缩略图（image 模式发送前后位移）、发送时将输入图捕获到 `msg.images` 并清空 `config.imageUrls`；`pg-modal.js` 模型选择器支持 `kindFilter` 按 kind 过滤、Image Preview 弹窗 `pgShowImageModal`/`pgInitImageZoom`/`pgCopyImage` 含 auto-fit、footer 分辨率/大小/格式、经同源 `/api/image-proxy` 复制）；
+- `web/playground/static-pg/pg-ui.js`、`pg-modal.js`、`pg-lifecycle.js`：交互和页面生命周期（`pg-ui.js` 含 `pgRenderImageParams`/`pgGetImgProtocol`/`pgImgParamSelectWithEdit`/`pgImgSizeOptionsFor`/`pgOnImgSizeSelect` 图片参数面板与协议分支+Size 下拉编辑按钮+自定义尺寸输入、`pgRenderImageBlock`/`pgRenderInputThumbs` 图片附加 UI 与输入栏缩略图（image 模式发送前后位移）、发送时将输入图捕获到 `msg.images` 并清空 `config.imageUrls`；`pg-modal.js` 模型选择器支持 `kindFilter` 按 kind 过滤、Image Preview 弹窗 `pgShowImageModal`/`pgInitImageZoom`/`pgCopyImage` 含 auto-fit、footer 分辨率/大小/格式、经同源 `/api/image-proxy` 复制、图片尺寸编辑弹窗 `pgOpenImgSizesModal`/`pgSaveImgSizesModal` 调用 `pgApiPatch` 持久化 `ModelDef.ImgSizes`）；
 - `web/playground/static-pg/pg-ui.js` 中的 `pgRenderReqLeft`/`pgStartReqLeftPolling`/`pgRenderReqLeftContent`/`pgShowReqDetail`：普通模式左侧 Recent Requests 面板（来源过滤 + 点击详情，复用 `info-modal-overlay`）；
 - `web/playground/static-pg/playground.css` 中的 `.pg-mode-toggle`、`.pg-req-left`、`.pg-req-table`：模式切换按钮和左侧面板布局。
 
@@ -625,7 +630,8 @@ go build -tags playground -o tinyrouter-pg.exe .
 | 修改持久化 | localStorage key/version、容量限制、多窗口语义 |
 | 修改渲染 | DOMPurify、URL 协议、iframe sandbox、Mermaid security；改 reasoning 渲染须同步 `pg-render.js` 的 `pgMsgInnerHTML`/`pgRenderBubble` 与 `playground.css` 的 `.pg-thinking-body` |
 | 修改图片功能 | `pg-modal.js` 的 `pgShowImageModal`/`pgInitImageZoom`/`pgCopyImage`、`pg-render.js` 的 `pgMsgInnerHTML`（气泡缩略图 onclick、空文本气泡剔除、loading 秒级计数）、`playground.css` 的 `.pg-img-btn`/`.pg-image-row`；改保存或同源代理须同步 `internal/api/image.go` 的 `saveImage`/`imageProxy` 端点与 `/api/save-image`/`/api/image-proxy` 路由 |
-| 修改 Image 模式或图片参数 | `pg-ui.js` 的 `pgRenderImageParams`/`pgGetImgProtocol`、`pg-request.js` 的 `pgBuildImageBody`、`pg-stream.js` 的 `pgSendImage`/`pgPollModelScopeTask`、`pg-core.js` 的 `PG_DEFAULT_CFG` 图片参数、`pg-i18n.js` 图片 i18n key、`proxy/handler.go` 的 `ImagesGenerations`/`PollTask`、`proxy/upstream.go` 的 `X-Modelscope-Async-Mode` header 转发、`api/router.go` 的 `/v1/images/generations`、`/v1/tasks/{taskId}` 和 `/api/image-proxy` 路由、`internal/api/image.go` 的 `imageProxy` 端点 |
+| 修改 Image 模式或图片参数 | `pg-ui.js` 的 `pgRenderImageParams`/`pgGetImgProtocol`/`pgImgParamSelectWithEdit`/`pgImgSizeOptionsFor`/`pgOnImgSizeSelect`、`pg-request.js` 的 `pgBuildImageBody`、`pg-stream.js` 的 `pgSendImage`/`pgPollModelScopeTask`、`pg-core.js` 的 `PG_DEFAULT_CFG` 图片参数 + `pgApiPatch` 桥接、`pg-i18n.js` 图片 i18n key + `pgImgEditSizes`/`pgImgCustomSize` 系列、`proxy/handler.go` 的 `ImagesGenerations`/`PollTask`、`proxy/upstream.go` 的 `X-Modelscope-Async-Mode` header 转发、`api/router.go` 的 `/v1/images/generations`、`/v1/tasks/{taskId}`、`/api/image-proxy` 路由 + `PATCH /providers/{id}/models/imgSizes`、`internal/api/image.go` 的 `imageProxy` 端点 |
+| 修改图片尺寸列表 | `pg-modal.js` 的 `pgOpenImgSizesModal`/`pgSaveImgSizesModal`/`pgResetImgSizesTextarea`/`pgImgBuiltinSizesFor`（弹窗编辑+保存）+ `pg-ui.js` 的 `pgImgParamSelectWithEdit`/`pgImgSizeOptionsFor`/`pgOnImgSizeSelect`（下拉渲染+自定义输入）+ `internal/api/providers_models_crud.go` 的 `updateModelImgSizes`（PATCH 端点）+ `internal/registry/models.go` 的 `UpdateModelImgSizes`（写入 `ModelDef.ImgSizes`）+ `internal/config/types.go` 的 `ModelDef.ImgSizes` 字段 + `internal/api/models.go` 的 `modelInfo.ImgSizes`/`providerId`/`realModelId` 回显 + `playground.css` 的 `.pg-img-edit-btn`/`.pg-img-custom-row` 样式 |
 | 修改图片请求超时兜底 | `pg-stream.js` 的 `pgSendImage` 的 `imgTimer`（300s fetch 兜底 `pgFail`）、`pg-render.js` 的 `pgTickWaiting` 的 `pgSafetyNetMs`（300s loading 安全网）；改兜底阈值须同时调两侧并覆盖 4k 实际耗时上限；代理侧 keep-alive 见 `proxy-architecture.md` §8.7 的 `forward.go` keep-alive ticker 与 `compress.go` 绕过列表 |
 | 修改模式切换或左侧面板 | `pgSetMode`、`pgAutoChatToggle`、`pgRenderPanes` 布局类、`pgRenderReqLeft*`、`pgShowReqDetail`、`info-modal-overlay`/`info_common.js`（详情弹窗基础设施）、`.pg-req-left-mode` CSS；改来源过滤须同步 `pg-stream.js` 的 `X-TinyRouter-Source` 头与 `recordUsage` 的 `Entry.Source` 回填；改详情弹窗须同步 `app.js` 的 `topOpenModal`/`dismissTopModal` 对 `pg-modal-overlay` 的 ESC 处理；改 Recent Requests 实时性须同步 SSE 事件处理与 `/api/usage/events` 后端 |
 | 发布 Playground 变体 | 无 tag/tag 测试、资源 200、完整首页手测 |

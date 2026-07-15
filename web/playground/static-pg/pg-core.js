@@ -84,6 +84,7 @@ var PG_ICON_DEBUG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
 var PG_HOST = (typeof window !== 'undefined' && window.PG_HOST) ? window.PG_HOST : null;
 function pgApiGet(p)         { return PG_HOST && PG_HOST.apiGet ? PG_HOST.apiGet(p) : apiGet(p); }
 function pgApiPost(p, b)     { return PG_HOST && PG_HOST.apiPost ? PG_HOST.apiPost(p, b) : apiPost(p, b); }
+function pgApiPatch(p, b)    { return PG_HOST && PG_HOST.apiPatch ? PG_HOST.apiPatch(p, b) : apiPatch(p, b); }
 function pgToast(m, ty)      { return PG_HOST && PG_HOST.toast ? PG_HOST.toast(m, ty) : toast(m, ty); }
 function pgEscapeHtml(s)     { return PG_HOST && PG_HOST.escapeHtml ? PG_HOST.escapeHtml(s) : escapeHtml(s); }
 function pgCopyToClipboard(tx, lb) { return PG_HOST && PG_HOST.copyToClipboard ? PG_HOST.copyToClipboard(tx, lb) : copyToClipboard(tx, lb); }

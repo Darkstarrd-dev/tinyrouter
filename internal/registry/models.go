@@ -189,6 +189,28 @@ func (r *Registry) UpdateModelImgProtocol(providerID, modelID, imgProtocol strin
 	return false
 }
 
+// UpdateModelImgSizes sets the custom size option list for a specific model on
+// a provider. Pass nil or an empty slice to clear (fall back to built-in
+// defaults in the Playground UI). Each entry is a free-form string such as
+// "1024x1024" or "2560x3840".
+func (r *Registry) UpdateModelImgSizes(providerID, modelID string, sizes []string) bool {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		for j := range r.config.Providers[i].Models {
+			if r.config.Providers[i].Models[j].ID == modelID {
+				r.config.Providers[i].Models[j].ImgSizes = sizes
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
 // ResolveModelAlias returns the real model ID for a given alias on a provider.
 // If no model has this alias, it returns the input alias unchanged and false.
 func (r *Registry) ResolveModelAlias(providerPrefix, aliasOrModelID string) (modelID string, found bool) {

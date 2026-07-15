@@ -428,6 +428,12 @@ html,body,.app{overflow:hidden !important;height:100% !important}
 .pg-param-row label{flex:1;user-select:none}
 .pg-param-row input[type=number],.pg-param-row input[type=text]{width:90px;padding:4px 6px;border-radius:6px;border:1px solid var(--glass-border);background:var(--input-bg);color:var(--text);font-size:var(--font-badge)}
 .pg-param-row input:focus{outline:none;border-color:var(--accent)}
+.pg-param-row .pg-img-edit-btn{flex:0 0 auto;padding:3px 8px;border:1px solid var(--glass-border);border-radius:6px;background:var(--glass-bg);color:var(--text-secondary);cursor:pointer;font-size:var(--font-badge);transition:all .15s}
+.pg-param-row .pg-img-edit-btn:hover{background:var(--glass-hover);border-color:var(--accent);color:var(--text)}
+.pg-param-row .pg-img-edit-btn:disabled{opacity:.5;cursor:default}
+.pg-img-custom-row{margin-top:2px}
+.pg-img-custom-row input[type=text]{width:100% !important;flex:1 !important}
+.pg-img-edit-btn-invalid{border-color:#ff6b6b !important}
 .pg-autochat-hint{font-size:11px;color:#ff6b6b;min-height:14px}
 .pg-autochat-actions{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
 .pg-autochat-actions .pg-btn{flex:1;min-width:80px}

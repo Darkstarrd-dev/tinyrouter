@@ -248,6 +248,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Patch("/providers/{id}/models/nim", rt.updateModelNIM)
 		r.Patch("/providers/{id}/models/kind", rt.updateModelKind)
 		r.Patch("/providers/{id}/models/imgProtocol", rt.updateModelImgProtocol)
+		r.Patch("/providers/{id}/models/imgSizes", rt.updateModelImgSizes)
 			r.Delete("/providers/{id}/models", rt.deleteProviderModel)
 
 			// Keys

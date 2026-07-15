@@ -14,12 +14,15 @@ func (rt *Router) listModels(w http.ResponseWriter, r *http.Request) {
 	combos := rt.reg.ListCombos()
 
 	type modelInfo struct {
-		ID          string `json:"id"`
-		Provider    string `json:"provider"`
-		Type        string `json:"type"`                  // "provider" | "combo"
-		Kind        string `json:"kind,omitempty"`        // "text" (default/empty) | "image" — only for provider type
-		ImgProtocol string `json:"imgProtocol,omitempty"` // "gpt" | "xai" | "modelscope" — only for provider type
-		Note        string `json:"note,omitempty"`        // model note, if set — only for provider type
+		ID          string   `json:"id"`
+		RealModelID string   `json:"realModelId,omitempty"` // raw ModelDef.ID (alias-stripped) for PATCH calls — only for provider type
+		Provider    string   `json:"provider"`
+		ProviderID  string   `json:"providerId,omitempty"`  // internal provider ID for PATCH calls (only for provider type)
+		Type        string   `json:"type"`                  // "provider" | "combo"
+		Kind        string   `json:"kind,omitempty"`         // "text" (default/empty) | "image" — only for provider type
+		ImgProtocol string   `json:"imgProtocol,omitempty"` // "gpt" | "xai" | "modelscope" — only for provider type
+		ImgSizes    []string `json:"imgSizes,omitempty"`    // custom size list for image models — only for provider type
+		Note        string   `json:"note,omitempty"`        // model note, if set — only for provider type
 	}
 
 	var models []modelInfo
@@ -35,10 +38,13 @@ func (rt *Router) listModels(w http.ResponseWriter, r *http.Request) {
 				}
 				models = append(models, modelInfo{
 					ID:          p.Prefix + "/" + displayID,
+					RealModelID: m.ID,
 					Provider:    p.Name,
+					ProviderID:  p.ID,
 					Type:        "provider",
 					Kind:        m.Kind,
 					ImgProtocol: m.ImgProtocol,
+					ImgSizes:    m.ImgSizes,
 					Note:        m.Note,
 				})
 			}

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tinyrouter/tinyrouter/internal/config"
@@ -204,6 +205,53 @@ func (rt *Router) updateModelImgProtocol(w http.ResponseWriter, r *http.Request)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	} else {
+		writeAPIError(w, http.StatusNotFound, "model not found on provider")
+	}
+}
+
+// updateModelImgSizes updates the custom size option list for a single model on a provider.
+// Request: {"model": "model-id", "imgSizes": ["1024x1024", "2560x3840", ...]}
+// Pass an empty array to clear the list and fall back to built-in defaults.
+func (rt *Router) updateModelImgSizes(w http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "id")
+	var req struct {
+		Model    string   `json:"model"`
+		ImgSizes []string `json:"imgSizes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.Model == "" {
+		writeAPIError(w, http.StatusBadRequest, "model required")
+		return
+	}
+	// Normalize: trim spaces, drop duplicates, drop empties, enforce a sane upper bound.
+	seen := make(map[string]struct{})
+	cleaned := make([]string, 0, len(req.ImgSizes))
+	for _, s := range req.ImgSizes {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		cleaned = append(cleaned, s)
+		if len(cleaned) >= 200 {
+			break
+		}
+	}
+	if rt.reg.UpdateModelImgSizes(providerID, req.Model, cleaned) {
+		cfg := rt.reg.Config()
+		if err := rt.saveConfig(&cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "imgSizes": cleaned})
 	} else {
 		writeAPIError(w, http.StatusNotFound, "model not found on provider")
 	}

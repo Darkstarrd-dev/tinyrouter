@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/config/`、`internal/registry/`、`internal/state/` 三个包共同构成的 **配置定义 + 内存注册表 + 运行时状态持久化** 基础设施的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-14，仓库提交 `69df6de`（`main`，v1.6.5）。`QuickSlot.SelectedIndex` 去除 `omitempty`（0 值持久化），类型行号随 `ModelDef` 扩展整体下移。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-15，仓库工作区（`main`）。新增 `ModelDef.ImgSizes`（图片模型自定义尺寸列表，`[]string`，omitempty），`PATCH /api/providers/{id}/models/imgSizes` 端点，`UpdateModelImgSizes` registry 方法；`/api/models` 响应 `modelInfo` 新增 `realModelId`/`providerId`/`imgSizes` 字段。行号随 `ModelDef` 扩展整体下移。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -92,7 +92,7 @@ flowchart TD
 |---|---|---|
 | `RotationConfig` | types.go:11-19 | `Strategy` / `StickyLimit` / `MaxRetries` / `RetryDelaySec` / `BackoffMaxSec` / `StatePersist` / `StatePath` |
 | `Key` | types.go:22-29 | `ID` / `Key` / `Name` / `Priority` / `IsActive` / `Account`（omitempty） |
-| `ModelDef` | types.go:32-38 | `ID` / `QuotaType`（"unlimited"|"limited"|"paid"） / `Alias`（可选别名）/ `Note`（可选备注）/ `NIMOver`（per-model NIM 限速覆盖，指针类型）/ `Kind`（"text"|"image"，模型能力类型）/ `ImgProtocol`（"gpt"|"xai"|"modelscope"，图片生成协议分支，仅 Image 模式使用） |
+| `ModelDef` | types.go:32-39 | `ID` / `QuotaType`（"unlimited"|"limited"|"paid"） / `Alias`（可选别名）/ `Note`（可选备注）/ `Kind`（"text"|"image"，模型能力类型） / `ImgProtocol`（"gpt"|"xai"|"modelscope"，图片生成协议分支，仅 Image 模式使用） / `ImgSizes`（`[]string`，图片模型自定义尺寸列表如 `"1024x1024"`，omitempty，空=回退内置默认） / `NIMOver`（per-model NIM 限速覆盖，指针类型） |
 | `Provider` | types.go:74-96 | `ID`/`Name`/`Prefix`/`BaseURL`/`APIType`/`IsActive`/`Keys`/`Models`/`RotationStrategy`/`StickyLimit`/`InjectStreamOpts`/`NormalizeStreamChunks`/`NIMConfig`/`UseProxy` 等 |
 | `ModelNIMOverride` | types.go:44-48 | per-model NIM 限速覆盖（`Enabled`、`RequestCountPerKey`、`MinIntervalMs`），为 nil 时使用标准轮转 |
 | `NIMSettings` | types.go:121-126 | `RequestCountPerKey` / `MinIntervalMs` / `CooldownLadderMin` / `MaxConcurrent` |
@@ -367,7 +367,7 @@ flowchart LR
 |---|---|---|
 | `RotationConfig` | config/types.go:11-19 | 轮询全局设置 |
 | `Key` | config/types.go:22-29 | 单 API key |
-| `ModelDef` | config/types.go:32-38 | 模型定义（scalar/mapping 双解）：`ID`、`QuotaType`、`Alias`、`Note`、`NIMOver`、`Kind`、`ImgProtocol` |
+| `ModelDef` | config/types.go:32-39 | 模型定义（scalar/mapping 双解）：`ID`、`QuotaType`、`Alias`、`Note`、`Kind`、`ImgProtocol`、`ImgSizes`、`NIMOver` |
 | `Provider` | config/types.go:74-96 | 上游端点 + `IsNIM`/`IsGeminiOpenAICompat` |
 | `NIMSettings` | config/types.go:121-126 | NIM 参数 |
 | `Combo` / `QuickSlot` | config/types.go:129-147 | 组合路由 / 快捷槽 |
@@ -503,7 +503,7 @@ go build -o tinyrouter .
 
 | 变更类型 | 必查位置 |
 |---|---|
-| 新增配置字段 | `types.go`（结构+tag）+ `defaults.go`：`DefaultConfig` + `finalizeConfig` 回填 + `persistence.go` 严格解析（KnownFields）。当前新增 `ModelDef.Alias`/`Note`/`NIMOver` 三个字段，`Kind`/`ImgProtocol` 两个字段 |
+| 新增配置字段 | `types.go`（结构+tag）+ `defaults.go`：`DefaultConfig` + `finalizeConfig` 回填 + `persistence.go` 严格解析（KnownFields）。`ModelDef` 现含 `Alias`/`Note`/`NIMOver`/`Kind`/`ImgProtocol`/`ImgSizes` 六个可选字段；新增图片尺寸字段还需同步 `UpdateModelImgSizes`（registry/models.go）+ `updateModelImgSizes`（api/providers_models_crud.go）+ `PATCH /providers/{id}/models/imgSizes` 路由（api/router.go）+ `/api/models` `modelInfo.ImgSizes` 回显（api/models.go） |
 | 修改默认值 | `defaults.go`：`DefaultConfig`(39-64) 与 `finalizeConfig`(69-146) 两处需一致 |
 | 修改持久化原子性 | `persistence.go` Save(79-107) + `state.go` Save(79-96)（注意两者错误语义不同，见第 20 节 #4） |
 | 修改加密 | `crypto.go`（GenerateKey/Encrypt/Decrypt/encryptKeysCopy）+ `defaults.go` 解密分支(130-144) + `types.go` SecurityConfig(150-154) |

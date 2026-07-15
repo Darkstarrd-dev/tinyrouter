@@ -348,7 +348,115 @@ function pgSaveImage(url, btn) {
   });
 }
 
-// ----- Model picker modal (separate overlay, stacks on top) -----
+// ----- Edit Resolutions modal (per-model custom size list) -----
+// Saves the custom list to the model via PATCH /api/providers/{id}/models/imgSizes
+// and updates pgState.models[].imgSizes so pgRenderImageParams picks it up
+// on the next re-render without refetching /api/models.
+function pgOpenImgSizesModal() {
+  var w = pgWin();
+  if (!w || !w.config.model) { pgToast(pgT('pgSelectModel'), 'info'); return; }
+  var info = pgGetModelInfo(w.config.model);
+  if (!info) { pgToast(pgT('pgSelectModel'), 'info'); return; }
+  var proto = (info.kind === 'image' && info.imgProtocol) ? info.imgProtocol : 'gpt';
+  var builtin = pgImgBuiltinSizesFor(proto);
+  var current = (info.imgSizes && info.imgSizes.length) ? info.imgSizes.slice() : builtin.slice();
+  var hint = pgT('pgImgEditSizesHint');
+  var modelLabel = pgEscapeHtml(w.config.model);
+  var html = '<div class="pg-modal" style="width:420px;max-width:90vw">' +
+    '<div class="pg-modal-header">' +
+      '<span class="pg-modal-title">' + pgEscapeHtml(pgT('pgImgEditSizesTitle')) + '</span>' +
+      '<button class="pg-modal-close" onclick="pgCloseModal()">✕</button>' +
+    '</div>' +
+    '<div class="pg-modal-body" style="padding:16px;max-height:60vh;overflow-y:auto">' +
+      '<div style="opacity:0.7;font-size:12px;margin-bottom:6px">' + modelLabel + '</div>' +
+      '<div style="opacity:0.6;font-size:12px;margin-bottom:8px">' + pgEscapeHtml(hint) + '</div>' +
+      '<textarea id="pg-imgsizes-text" style="width:100%;min-height:200px;font-family:var(--font-mono,monospace);font-size:13px;padding:8px;resize:vertical;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);box-sizing:border-box" placeholder="1024x1024&#10;2560x3840&#10;3840x2560">' + pgEscapeHtml(current.join('\n')) + '</textarea>' +
+    '</div>' +
+    '<div class="pg-modal-footer" style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="pg-btn" id="pg-imgsizes-reset" onclick="pgResetImgSizesTextarea()">' + pgEscapeHtml(pgT('Reset')) + '</button>' +
+      '<button class="pg-btn" onclick="pgCloseModal()">' + pgEscapeHtml(pgT('Cancel')) + '</button>' +
+      '<button class="pg-btn" id="pg-imgsizes-ok" style="background:var(--accent);color:#fff" onclick="pgSaveImgSizesModal()">' + pgEscapeHtml(pgT('OK')) + '</button>' +
+    '</div>' +
+  '</div>';
+  pgShowModal(html);
+  // Unset Old sizes info into a global so pgResetImgSizesTextarea can restore defaults.
+  window.__pgImgSizesBuiltin = builtin;
+  // Focus the textarea.
+  var ta = document.getElementById('pg-imgsizes-text');
+  if (ta) setTimeout(function() { ta.focus(); }, 30);
+}
+
+function pgResetImgSizesTextarea() {
+  var builtin = window.__pgImgSizesBuiltin || [];
+  var ta = document.getElementById('pg-imgsizes-text');
+  if (ta) ta.value = builtin.join('\n');
+}
+
+function pgSaveImgSizesModal() {
+  var w = pgWin();
+  if (!w || !w.config.model) return;
+  var info = pgGetModelInfo(w.config.model);
+  if (!info || !info.providerId) { pgToast(pgT('pgImgErrorModelMeta'), 'error'); return; }
+  var ta = document.getElementById('pg-imgsizes-text');
+  var text = ta ? ta.value : '';
+  var parts = text.split('\n').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+  // Basic format check: every entry must match ^\d+x\d+$.
+  var invalid = [];
+  for (var i = 0; i < parts.length; i++) {
+    if (!/^\d+x\d+$/.test(parts[i])) invalid.push(parts[i]);
+  }
+  if (invalid.length) {
+    pgToast(pgT('pgImgCustomSizeFormat') + ' (' + invalid.join(', ') + ')', 'error');
+    return;
+  }
+  var okBtn = document.getElementById('pg-imgsizes-ok');
+  var orig = okBtn ? okBtn.textContent : '';
+  if (okBtn) { okBtn.disabled = true; okBtn.textContent = '...'; }
+  pgApiPatch('/providers/' + encodeURIComponent(info.providerId) + '/models/imgSizes', {
+    model: info.realModelId || pgImgResolveModelID(info.id),
+    imgSizes: parts,
+  }).then(function(res) {
+    if (okBtn) { okBtn.disabled = false; okBtn.textContent = orig; }
+    if (res && res.ok) {
+      info.imgSizes = parts;
+      pgCloseModal();
+      pgRenderSidebar();
+      pgRenderPanes();
+      pgToast(pgT('pgImgSizesSaved'), 'info');
+    } else {
+      pgToast(pgT('pgImgSizesSaveFailed'), 'error');
+    }
+  }).catch(function(err) {
+    if (okBtn) { okBtn.disabled = false; okBtn.textContent = orig; }
+    pgToast(pgT('pgImgSizesSaveFailed') + ': ' + (err && err.message ? err.message : String(err)), 'error');
+  });
+}
+
+// pgImgResolveModelID converts the display id ("ll/gpt-image-2-2k") back to the
+// raw model id the PATCH endpoint expects (the Alias-stripped form, e.g.
+// "gpt-image-2-2k"). The /api/models feed always exposes the alias if set,
+// but the backend matches ModelDef.ID, so we strip the provider prefix and
+// consult Registry.ResolveModelAlias indirectly: the registry lookup is done
+// server-side, so we send the ID as displayed and trust the server to match.
+// Model alias display IDs are sent as-is; the registry resolves via both ID
+// and alias. We send the part after the provider '/' prefix as the model id.
+function pgImgResolveModelID(displayId) {
+  if (!displayId) return '';
+  var slash = displayId.indexOf('/');
+  return slash >= 0 ? displayId.slice(slash + 1) : displayId;
+}
+
+// pgImgBuiltinSizesFor returns the hardcoded default size list for a protocol
+// so the edit modal can prefill when no custom list is set yet.
+function pgImgBuiltinSizesFor(proto) {
+  if (proto === 'modelscope') {
+    return ['1024x1024', '1280x720', '720x1280', '1024x768', '768x1024'];
+  }
+  // gpt (default)
+  return ['1024x1024', '2560x3840', '3840x2560', '3840x2880', '2880x3840', '3840x2160', '2160x3840'];
+}
+
+// ----- Model picker modal (separate overlay, stacks on top) ---
 var pgModelPickerCallback = null;
 
 function pgOpenModelPicker(currentValue, onSelect, opts) {

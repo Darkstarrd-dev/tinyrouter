@@ -34,8 +34,9 @@ type ModelDef struct {
 	QuotaType   string             `yaml:"quotaType,omitempty" json:"quotaType,omitempty"`
 	Alias       string             `yaml:"alias,omitempty" json:"alias,omitempty"`
 	Note        string             `yaml:"note,omitempty" json:"note,omitempty"`
-	Kind        string             `yaml:"kind,omitempty" json:"kind,omitempty"`            // "text" (default/empty) | "image"
+	Kind        string             `yaml:"kind,omitempty" json:"kind,omitempty"`             // "text" (default/empty) | "image"
 	ImgProtocol string             `yaml:"imgProtocol,omitempty" json:"imgProtocol,omitempty"` // "gpt" | "xai" | "modelscope" (only when kind=image)
+	ImgSizes    []string           `yaml:"imgSizes,omitempty" json:"imgSizes,omitempty"`     // custom size option list (e.g. "1024x1024") for Playground image mode; empty = built-in defaults
 	NIMOver     *ModelNIMOverride  `yaml:"nim,omitempty" json:"nim,omitempty"`
 }
 

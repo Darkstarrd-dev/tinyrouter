@@ -583,12 +583,69 @@ function pgImgParamNumber(key, labelKey, val, min, max, step) {
   '</div>';
 }
 
+// pgImgSizeOptionsFor returns the size option list for a model. If the model
+// exposes a custom imgSizes list in pgState, use that; otherwise fall back to
+// the built-in defaults for the given protocol ('gpt' or 'modelscope').
+// The list never includes the ''/Default entry or the '__custom' sentinel —
+// those are appended by pgImgParamSelectWithEdit so they always appear.
+function pgImgSizeOptionsFor(proto, modelId, builtin) {
+  var info = pgGetModelInfo(modelId);
+  if (info && info.imgSizes && info.imgSizes.length) {
+    var opts = [];
+    for (var i = 0; i < info.imgSizes.length; i++) {
+      var s = info.imgSizes[i];
+      if (s) opts.push({ value: s, label: s });
+    }
+    return opts;
+  }
+  return builtin;
+}
+
+// pgImgParamSelectWithEdit renders a size select with:
+//  - the options (Default + sizeOpts + a Custom... sentinel)
+//  - an inline "Edit" button that opens the per-model resolutions editor modal
+//  - a Custom Size text input below the select for ad-hoc WxH that bypasses
+//    the saved list (writes directly to w.config.imgSize)
+// `proto` is the image protocol ('gpt' or 'modelscope'); used to seed the
+// editor modal with the right built-in defaults.
+function pgImgParamSelectWithEdit(key, proto, modelId, cfg, builtinOpts) {
+  var sizeOpts = pgImgSizeOptionsFor(proto, modelId, builtinOpts);
+  var sel = pgEscapeHtml(pgT('pgImgSize'));
+  var arr = [{value: '', label: pgT('pgImgSizeDefault')}];
+  for (var i = 0; i < sizeOpts.length; i++) arr.push(sizeOpts[i]);
+  // Sentinel '__custom' — selecting it reveals the custom input without
+  // disturbing any saved list entry the user may have picked before.
+  arr.push({value: '__custom', label: pgT('pgImgCustomSize') + '...'});
+  var opts = arr.map(function(o) {
+    return '<option value="' + pgEscapeAttr(o.value) + '"' + (cfg[key] === o.value ? ' selected' : '') + '>' + pgEscapeHtml(o.label) + '</option>';
+  }).join('');
+  var editBtn = '<button type="button" class="pg-btn pg-img-edit-btn" onclick="pgOpenImgSizesModal()" title="' + pgEscapeAttr(pgT('pgImgEditSizes')) + '">' + pgEscapeHtml(pgT('pgImgEditSizes')) + '</button>';
+  var html = '<div class="pg-param-row">' +
+    '<label>' + sel + '</label>' +
+    '<select onchange="pgOnImgSizeSelect(this.value)" style="flex:0 0 auto">' + opts + '</select>' +
+    editBtn +
+  '</div>';
+  var isCustom = cfg[key] && cfg[key] !== '__custom' && !pgImgListContains(sizeOpts, cfg[key]);
+  var showCustom = (cfg[key] === '__custom') || isCustom;
+  html += '<div class="pg-param-row pg-img-custom-row"' + (showCustom ? '' : ' style="display:none"') + '>' +
+    '<label>' + pgEscapeHtml(pgT('pgImgCustomSize')) + '</label>' +
+    '<input type="text" value="' + pgEscapeAttr(isCustom ? cfg[key] : '') + '" placeholder="' + pgEscapeAttr(pgT('pgImgCustomSizePlaceholder')) + '" oninput="pgOnParam(\'' + key + '\', this.value)" style="flex:0 0 120px">' +
+  '</div>';
+  return html;
+}
+
+function pgImgListContains(opts, val) {
+  for (var i = 0; i < opts.length; i++) {
+    if (opts[i].value === val) return true;
+  }
+  return false;
+}
+
 function pgRenderImageParams(cfg) {
   var proto = pgGetImgProtocol(cfg.model);
   var html = '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgImageParams')) + '</div>';
   if (proto === 'gpt') {
-    html += pgImgParamSelect('imgSize', 'pgImgSize', cfg.imgSize || '', [
-      {value: '', label: pgT('pgImgSizeDefault')},
+    html += pgImgParamSelectWithEdit('imgSize', 'gpt', cfg.model, cfg, [
       {value: '1024x1024', label: '1024x1024 (1:1)'},
       {value: '2560x3840', label: '2560x3840 (2:3)'},
       {value: '3840x2560', label: '3840x2560 (3:2)'},
@@ -630,8 +687,7 @@ function pgRenderImageParams(cfg) {
     ]);
     html += pgImgParamNumber('imgN', 'pgImgN', cfg.imgN || 1, 1, 10, 1);
   } else if (proto === 'modelscope') {
-    html += pgImgParamSelect('imgSize', 'pgImgSize', cfg.imgSize || '', [
-      {value: '', label: pgT('pgImgSizeDefault')},
+    html += pgImgParamSelectWithEdit('imgSize', 'modelscope', cfg.model, cfg, [
       {value: '1024x1024', label: '1024x1024'},
       {value: '1280x720', label: '1280x720'},
       {value: '720x1280', label: '720x1280'},
@@ -1033,6 +1089,26 @@ function pgOnParam(name, v) {
   var valEl = document.getElementById('pg-val-' + name);
   if (valEl) valEl.textContent = typeof v === 'number' ? v.toFixed(2) : v;
   pgSave();
+}
+// pgOnImgSizeSelect handles the size <select> in image mode. Selecting the
+// '__custom' sentinel reveals the Custom Size text input below (without
+// overwriting any WxH value already typed). Selecting a concrete size writes
+// it into w.config.imgSize and hides the Custom Size input.
+function pgOnImgSizeSelect(v) {
+  var w = pgWin();
+  if (!w) return;
+  var row = document.querySelector('.pg-img-custom-row');
+  if (v === '__custom') {
+    if (row) row.style.display = '';
+    // Don't clobber an existing custom WxH value the user may have typed.
+    // If imgSize is currently a list entry (or ''), clear it so the custom
+    // input is the source of truth once the user types into it.
+    w.config.imgSize = '';
+    pgSave();
+    return;
+  }
+  if (row) row.style.display = 'none';
+  pgOnParam('imgSize', v);
 }
 function pgOnSystemPrompt(v) { var w = pgWin(); if (w) { w.config.systemPrompt = v; pgSave(); } }
 function pgOnContextLimit(v) {
