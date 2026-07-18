@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,6 +17,9 @@ import (
 
 	"github.com/tinyrouter/tinyrouter/internal/console"
 )
+
+// ErrCancelled is returned when a download is cancelled via context.
+var ErrCancelled = errors.New("cancelled")
 
 // Executor 负责单个下载任务的 yt-dlp 进程管理。
 // 移植自 VidBee YtDlpExecutor，简化为不依赖外部队列接口的独立执行器。
@@ -119,7 +124,7 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 			mu.Lock()
 			log := stdoutTail.Read()
 			mu.Unlock()
-			return "", log, fmt.Errorf("cancelled")
+			return "", log, ErrCancelled
 		}
 		mu.Lock()
 		stderrText := stderrTail.Read()
@@ -135,6 +140,11 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 	if filePath == "" {
 		return "", tail, fmt.Errorf("yt-dlp finished but output file path not found")
 	}
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return "", tail, fmt.Errorf("failed to resolve output path: %w", err)
+	}
+	filePath = absPath
 	if info, statErr := os.Stat(filePath); statErr != nil || info.Size() == 0 {
 		return "", tail, fmt.Errorf("downloaded file missing or empty: %s", filePath)
 	}
@@ -184,7 +194,7 @@ func (e *Executor) runCapture(ctx context.Context, ytDlpPath string, args []stri
 	cmd.Stderr = &stderrBuf
 	runErr := cmd.Run()
 	if ctx.Err() == context.Canceled {
-		return nil, stderrBuf.String(), fmt.Errorf("cancelled")
+		return nil, stderrBuf.String(), ErrCancelled
 	}
 	if runErr != nil {
 		return stdoutBuf.Bytes(), stderrBuf.String(), runErr

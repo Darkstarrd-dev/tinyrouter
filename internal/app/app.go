@@ -270,10 +270,9 @@ func (a *App) Shutdown(ctx context.Context) error {
 		_ = os.Remove(a.lockPath)
 	}
 	
-	// Force the process to exit immediately. On Windows, jchv/go-webview2 or 
-	// fyne.io/systray's message loops can sometimes resist termination, 
-	// leaving a zombie process.
-	os.Exit(0)
-	
+	// Tray/webview builds force-exit to prevent zombie processes (message
+	// loops can resist termination); the default console host returns normally.
+	forceExitIfNeeded()
+
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,12 +18,14 @@ import (
 var galleryCleanupOnce sync.Once
 
 // newGallerySessionID returns a short random hex identifier for a zip session.
-func newGallerySessionID() string {
+// Returns an error if the system's crypto/rand fails, so the caller can
+// respond with 500 instead of silently using a colliding constant.
+func newGallerySessionID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
-		return hex.EncodeToString([]byte("gallery"))
+		return "", fmt.Errorf("failed to generate session id: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 // galleryListZip receives a raw zip binary, caches it in an in-memory session,
@@ -47,7 +50,11 @@ func (rt *Router) galleryListZip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionID := newGallerySessionID()
+	sessionID, err := newGallerySessionID()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	gallerySessions.put(sessionID, body)
 
 	galleryCleanupOnce.Do(func() {

@@ -8,6 +8,13 @@ let importTarget = 'models';
 var usageEventSource = null;
 var navGen = 0;
 
+// Fallback: close all streams when the tab is closed.
+window.addEventListener('beforeunload', () => {
+    if (typeof closeConsoleStream === 'function') closeConsoleStream();
+    if (typeof closeMonitorStream === 'function') closeMonitorStream();
+    if (typeof closeTerminalSession === 'function') closeTerminalSession();
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
   initTheme();
   initFontSize();
@@ -37,6 +44,12 @@ function navigateTo(page) {
   if (page !== 'download' && typeof downloadEventSource !== 'undefined' && downloadEventSource) {
     downloadEventSource.close();
     downloadEventSource = null;
+  }
+  // Close Console/Monitor/Terminal streams when leaving the console page.
+  if (page !== 'console') {
+    if (typeof closeConsoleStream === 'function') closeConsoleStream();
+    if (typeof closeMonitorStream === 'function') closeMonitorStream();
+    if (typeof closeTerminalSession === 'function') closeTerminalSession();
   }
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);

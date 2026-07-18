@@ -34,7 +34,7 @@ func (rt *Router) startMonitor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowed := rt.cfg.Monitor.AllowedCommands
+	allowed := rt.reg.Config().Monitor.AllowedCommands
 	if err := rt.monitorMgr.Start(req.Command, req.Args, allowed); err != nil {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return

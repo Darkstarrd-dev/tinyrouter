@@ -25,9 +25,9 @@ async function renderCombos(c) {
         <span class="card-title copyable" data-name="' + escapeHtml(cb.name) + '" onclick="copyToClipboard(this.dataset.name, this.dataset.name)" title="' + t('clickToCopy') + '">' + escapeHtml(cb.name) + '</span>\
         <div class="flex" style="gap:8px">\
           <span class="badge ' + (cb.disabled ? 'badge-inactive' : 'badge-active') + '">' + escapeHtml(cb.strategy) + '</span>\
-          <button type="button" class="btn btn-sm" onclick="toggleComboDisabled(\'' + cb.id + '\')">' + (cb.disabled ? t('enable') : t('disable')) + '</button>\
-          <button type="button" class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('edit') + '</button>\
-          <button type="button" class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
+          <button type="button" class="btn btn-sm" onclick="toggleComboDisabled(\'' + escapeAttr(cb.id) + '\')">' + (cb.disabled ? t('enable') : t('disable')) + '</button>\
+          <button type="button" class="btn btn-sm" onclick="showEditCombo(\'' + escapeAttr(cb.id) + '\')">' + t('edit') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + escapeAttr(cb.id) + '\')">' + t('delete') + '</button>\
         </div>\
       </div>\
       <p class="muted">' + t('models') + ' ' + (cb.models ? cb.models.join(', ') : 'none') + '</p>\
@@ -145,7 +145,7 @@ async function showEditCombo(id) {
     </div>\
     <div class="modal-footer">\
       <button type="button" class="btn" onclick="closeModalOverlay()">' + t('cancel') + '</button>\
-      <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditCombo(\'' + id + '\'))">' + t('saveCombo') + '</button>\
+      <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditCombo(\'' + escapeAttr(id) + '\'))">' + t('saveCombo') + '</button>\
     </div>\
   </div>';
   requestAnimationFrame(function() { overlay.classList.add('show'); });

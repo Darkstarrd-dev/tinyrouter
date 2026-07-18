@@ -188,7 +188,28 @@
   }
 
   function clearObjectURLs() {
+    if (state.objectURLs && state.objectURLs.length) {
+      for (var i = 0; i < state.objectURLs.length; i++) {
+        var url = state.objectURLs[i];
+        if (url) URL.revokeObjectURL(url);
+      }
+      state.objectURLs.length = 0;
+    }
     state.mainURL = null;
+  }
+
+  function setMainURL(item, url) {
+    if (item.mainURL && item.mainURL.startsWith('blob:')) {
+      URL.revokeObjectURL(item.mainURL);
+    }
+    item.mainURL = url;
+  }
+
+  function setThumbURL(item, url) {
+    if (item.thumbURL && item.thumbURL.startsWith('blob:')) {
+      URL.revokeObjectURL(item.thumbURL);
+    }
+    item.thumbURL = url;
   }
 
   // ---------- item accessors ---------------------------------------
@@ -236,7 +257,7 @@
         blob = await getItemBlob(item);
       }
       if (!blob) return;
-      item.mainURL = trackURL(URL.createObjectURL(blob));
+      setMainURL(item, trackURL(URL.createObjectURL(blob)));
     } catch (e) {
       console.warn('ensureMainSrc failed:', e);
     }
@@ -263,7 +284,7 @@
       } catch (e) {
         url = trackURL(URL.createObjectURL(blob));
       }
-      item.thumbURL = url;
+      setThumbURL(item, url);
       item.thumbReady = true;
       var imgEl = item.thumbImgEl;
       if (imgEl) imgEl.src = url;
@@ -356,13 +377,6 @@
     if (state.viewMode === 'split') {
       state.focus = state.mediaType;
     }
-    updateLayoutMode();
-    flashFocusOverlay(state.focus);
-  }
-
-  function switchFocus() {
-    if (state.viewMode !== 'split') return;
-    state.focus = (state.focus === 'image') ? 'video' : 'image';
     updateLayoutMode();
     flashFocusOverlay(state.focus);
   }

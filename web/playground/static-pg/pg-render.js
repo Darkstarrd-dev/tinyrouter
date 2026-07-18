@@ -124,7 +124,7 @@ function pgRenderMermaid(pre, code, isStreaming) {
     return window.mermaid.run({ nodes: [placeholder], suppressErrors: true }).then(function() {
       var svg = placeholder.querySelector('svg');
       if (svg && !isStreaming) {
-        try { var s = new XMLSerializer().serializeToString(svg); PG_MERMAID_MAP[code] = s; } catch (e) {}
+        try { var s = new XMLSerializer().serializeToString(svg); if (Object.keys(PG_MERMAID_MAP).length >= PG_MERMAID_MAX) PG_MERMAID_MAP = Object.create(null); PG_MERMAID_MAP[code] = s; } catch (e) {}
       }
     }).catch(function(e) {
       placeholder.classList.add('mermaid-error');
@@ -137,12 +137,13 @@ function insertMermaidSvg(placeholder, svgString) {
   try {
     placeholder.textContent = '';
     var tpl = document.createElement('template');
-    tpl.innerHTML = svgString;
+    tpl.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(svgString) : svgString;
     var svg = tpl.content.firstChild;
     if (svg) placeholder.appendChild(svg);
   } catch (e) {}
 }
 
+var PG_MERMAID_MAX = 50;
 var PG_MERMAID_MAP = Object.create(null);
 var PG_MERMAID_SEQ = 0;
 var PG_MERMAID_QUEUE = Promise.resolve();
@@ -158,6 +159,7 @@ function pgOpenMermaidSvg(el) {
   var blob = new Blob([text], { type: 'image/svg+xml' });
   var url = URL.createObjectURL(blob);
   window.open(url, '_blank');
+  setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
 }
 
 function pgRenderHtmlPreview(pre, html) {
@@ -169,7 +171,7 @@ function pgRenderHtmlPreview(pre, html) {
   title.className = 'pg-html-preview-title';
   title.textContent = pgT('pgHtmlPreview');
   var iframe = document.createElement('iframe');
-  iframe.setAttribute('sandbox', 'allow-same-origin');
+  iframe.setAttribute('sandbox', '');
   iframe.setAttribute('srcDoc', html);
   iframe.style.height = '150px';
   iframe.addEventListener('load', function() {

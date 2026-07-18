@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/proxy/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-18，仓库工作区（`main`）。本次新增/核对：(a) 修复了 WebView2 及浏览器对 Playground 与核心静态资产（如 `playground.css`/`vendor/*`/`index.html` 等）的强缓存问题。通过在 `router.go` 的 `serveUI` 与 `noCacheHandler` 中统一注入 `Cache-Control: no-store, no-cache, must-revalidate, max-age=0` 响应头，确保每次编译后 WebView 能够立刻加载最新的静态代码。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-19，仓库工作区（`main`）。本次新增/核对：(a) 非流式 keep-alive 从**立即 flush** 改为**延迟 flush**（20s 宽限期后才提交 HTTP 200），快速失败（429/5xx/网络错误）现在能正确返回 502；`passThroughResponse` 新增 `headersFlushed` 参数；(b) CORS 预检 `/v1/*` 现在只反射 localhost 来源的 Origin；(c) 修复了 WebView2 及浏览器对 Playground 与核心静态资产（如 `playground.css`/`vendor/*`/`index.html` 等）的强缓存问题。通过在 `router.go` 的 `serveUI` 与 `noCacheHandler` 中统一注入 `Cache-Control: no-store, no-cache, must-revalidate, max-age=0` 响应头，确保每次编译后 WebView 能够立刻加载最新的静态代码。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 > **2026-07-18 更新（Anthropic 协议路由 + 软策略 + Responses 路由 + 多协议探测）：** 本轮在 Anthropic 入口基础上进一步：(1) **软策略修正**——proxy 不再因 `provider.APIType` 拒绝请求，客户端用什么协议入口（`/v1/chat/completions` / `/v1/messages` / `/v1/responses`）请求就按该协议转发；已删除 `forward.go` 旧的两处入口协议严格匹配 400 块，同一聚合 provider 可同时被三入口访问；(2) 新增 **OpenAI Responses 入口** `POST /v1/responses`（router.go:207，`proxyHandler.Responses`，`handleProxy(..., EntryFormatOpenAIResponses)`），与 OpenAI Chat / Anthropic Messages **三入口并列、同端口、按路径区分**；`forwardUpstream` 改为按 `entryFormat` 三分支（upstream.go:76-91），Responses 分支 URL 不注入 `/v1` 前缀、鉴权头 `Authorization: Bearer`；(3) **Anthropic usage 提取**——stream.go 新增 `parseAnthropicSSEUsage` 读 `message_start`/`message_delta` 的 input/output tokens 并复用 `recordUsage`，OpenAI `util.ExtractTokens` 加 guard 避免 anthropic `output_tokens` 干扰；(4) **三协议复合探测**——`api/probe_model.go`+`probe_common.go` 对单模型并发探测 OpenAI-compat / OpenAI-Responses / Anthropic 三协议，把成功集合写回 `ModelDef.Protocols`（变化时落 config.yaml）并写 `state.yaml` 的 `probes` map。详见本文第 §1、§3、§3.1、§3.2、§4、§7、§8.8、§13.1、§17、§18 各节。
 
@@ -10,7 +10,7 @@
 
 > **2026-07-14 更新（Image 模式）：** 代理核心新增两个 `/v1/*` 端点：`POST /v1/images/generations`（`ImagesGenerations`，透明转发，复用 `handleProxy`）与 `POST /v1/tasks/{taskId}`（`PollTask`，ModelScope 异步任务轮询），路由总数由 3 个升至 5 个。`normalizeBaseURL` 的 suffix 剥离列表新增 `"/images/generations"`；`forwardUpstream` 新增 `X-Modelscope-Async-Mode` 请求头透传。两端点同样位于 `AuthMiddleware` 之外、CORS preflight 覆盖范围内。
 
-> **2026-07-15 更新（非流式 keep-alive 刷新）：** `forwardWithRetry`（`forward.go`）对**非流式**请求新增 keep-alive 刷新机制：在上游请求发出前先 `Write("\n")` 并 `Flush` 一个 valid JSON 空白字符，随后启动一个后台 ticker goroutine 每 5s `Write(" ") + Flush` 一次，直到上游响应到达（`close(keepAliveDone)`）或请求上下文取消（`r.Context().Done()`）才停止。这解决了 Chromium HTTP/1.1/WebView2 在长耗时非流式响应（图片生成 ~50s+）上因 body idle timer 超时主动断连的问题——浏览器周期性收到解压后的真实 body 字节从而重置定时器。详见 §8.7。
+> **2026-07-19 更新（非流式 keep-alive 延迟刷新）：** `forwardWithRetry`（`forward.go`）对**非流式**请求的 keep-alive 刷新机制从**立即 flush** 改为**延迟 flush**：在 20s 宽限期（`keepAliveDelay`）后才提交 HTTP 200 头并写入首字节 `"\n"`，随后启动后台 ticker goroutine 每 5s 写 `" " + Flush` 一次。快速失败（429、5xx、网络错误在 20s 内解决）现在能正确返回 502 而非 200。`keepAliveStopped` channel 确保 goroutine 退出后 `passThroughResponse` 再写 body。`passThroughResponse` 新增 `headersFlushed bool` 参数，为 true 时跳过 `WriteHeader`（头已由 keep-alive 提交）。详见 §8.7。
 >
 > **2026-07-15 更新（压缩中间件绕过）：** `internal/api/compress.go` 的 `Compress` 中间件对 `POST /v1/images/generations` 与 `POST /v1/images/edits` 直接放行（不包装 `compressWriter`），使上述 keep-alive 字节以原始明文送达浏览器，避免 brotli/gzip 编码后浏览器解压器无法从碎片化小包还原输出字节。该两端点不再返回 `Content-Encoding: br/gzip`，仅返回 `Transfer-Encoding: chunked` + `Content-Type: application/json`。
 >
@@ -75,7 +75,7 @@ flowchart LR
   - `r.Post("/v1/tasks/{taskId}", proxyHandler.PollTask)`。
 
 - **鉴权边界：** `/v1/*` 路由写在 `Routes` 函数顶层（router.go:196-204），而 `AuthMiddleware` 只包裹 `/api` 路由组（router.go:212-214）。因此 `/v1/*` 完全在 `AuthMiddleware` 之外，任意 API Key 或无 Key 均可访问（与 AGENTS.md “纯本地，无对外鉴权”一致）。
-- **CORS preflight（仅 `/v1/*`）：** router.go:180-192 处理 `OPTIONS /v1/*`，设置 `Access-Control-Allow-Origin` 为请求方 `Origin`、`Allow-Methods: GET, POST, OPTIONS`、`Allow-Headers: Content-Type, Authorization`、`Expose-Headers: X-TinyRouter-Provider, X-TinyRouter-Key`，并以 204 响应。管理 `/api/*` 无 CORS（同源管理 UI），外部页面不能跨域读取配置或密钥。`/v1/messages` 经路径前缀 `/v1/*` 的 OPTIONS 处理自动覆盖，无需额外配置（router.go:200-203 注释）。
+- **CORS preflight（仅 `/v1/*`）：** router.go:194-204 处理 `OPTIONS /v1/*`，通过 `isLocalhostOrigin`（router.go:170-177）校验请求方 `Origin` 的 host 是否为 `127.0.0.1`、`localhost` 或 `::1`——**仅 localhost 来源的 Origin 被反射**到 `Access-Control-Allow-Origin`，外部网页不再能跨域调用本机代理。此外设置 `Allow-Methods: GET, POST, OPTIONS`、`Allow-Headers: Content-Type, Authorization`、`Expose-Headers: X-TinyRouter-Provider, X-TinyRouter-Key`，并以 204 响应。管理 `/api/*` 无 CORS（同源管理 UI），外部页面不能跨域读取配置或密钥。`/v1/messages` 经路径前缀 `/v1/*` 的 OPTIONS 处理自动覆盖，无需额外配置（router.go:200-203 注释）。
 - **securityHeaders 跳过 `/v1/`：** `securityHeaders` 中间件（router.go:151-165）对 `/v1/` 前缀路径跳过设置 CSP / `X-Content-Type-Options` / `X-Frame-Options` / `X-XSS-Protection`，使上游响应头透传（router.go:156）。
 - **上游 HTTP 代理：** `proxy.Handler.SetProxy`（handler.go:102-142）设置走代理的 `*url.URL`；`provider.UseProxy` 为 true 时，`forwardUpstream` 选择代理 client（upstream.go:104-120）。代理 URL 始终以 `http://host:port` 重建，端口范围 `[1,65535]`，非法则禁用代理并返回错误（handler.go:129-141）。
 
@@ -344,23 +344,26 @@ providers:
 
 非流式成功响应：设置 `Content-Type: application/json` 与 `X-TinyRouter-*` 头，用 `w.WriteHeader(resp.StatusCode)` **原样透传上游状态码**（stream.go:312-317），整段读取上限 64 MiB（`io.LimitReader(resp.Body, 64<<20)`，stream.go:319），写出后 `util.ExtractTokens` 提取用量并 `recordUsage`（stream.go:324-340）。客户端断开时 `status="client_disconnected"`（stream.go:333-337）。
 
-### 8.7 非流式 keep-alive 刷新循环（forward.go `forwardWithRetry`）
+### 8.7 非流式 keep-alive 延迟刷新（forward.go `forwardWithRetry`）
 
-> 2026-07-15 新增。解决 WebView2 / Chromium HTTP/1.1 在长耗时非流式响应（图片生成 ~50s+，4k 可达 ~4min）上提前断连的问题。
+> 2026-07-19 改造（从立即 flush 改为延迟 flush）。解决 WebView2 / Chromium HTTP/1.1 在长耗时非流式响应（图片生成 ~50s+，4k 可达 ~4min）上提前断连的问题，同时纠正了旧实现中"所有 key 耗尽返回 200 而非 502"的 bug。
 
-**触发条件：** `forwardWithRetry` 内每次迭代（`!isStream && !state.headersFlushed`）首次写出响应头时启动；只对非流式请求生效，流式请求走 `streamResponse` 自身已逐块 flush。
+**触发条件：** `forwardWithRetry` 内每次迭代（`!isStream`）启动一个后台 goroutine，等待 20s 宽限期（`keepAliveDelay`）后才提交 HTTP 200 头。只对非流式请求生效，流式请求走 `streamResponse` 自身已逐块 flush。
 
-**两阶段刷新：**
-1. **首字节：** `state.headersFlushed = true` 后写入 `Content-Type: application/json` + `X-TinyRouter-Provider/Key` 头，`w.Write([]byte("\n"))`（合法 JSON 空白），随后 `http.Flusher.Flush()` 立即下送。
-2. **心跳 ticker：** 启动后台 goroutine，每 `keepAliveInterval = 5s` 执行 `w.Write([]byte(" ")) + flusher.Flush()`，向浏览器周期性注入合法 JSON 空白字符。退出条件二选一：
-   - `keepAliveDone` 在 `forwardUpstream` 返回后 `close(keepAliveDone)`（上游响应到达，准备 `passThroughResponse` 写入真正 body）；
-   - `r.Context().Done()`（客户端已断开，无需继续维持）。
+**延迟刷新机制：**
+1. **goroutine 启动（forward.go:228-266）：** 创建一个 goroutine，内部用 `time.NewTimer(keepAliveDelay)`（20s）和 `time.NewTicker(keepAliveInterval)`（5s）驱动。
+2. **20s 宽限期（timer.C 分支）：** 在 `keepAliveDelay` 超时前，goroutine 不写任何响应头。若上游在 20s 内快速返回错误（429、5xx、网络错误），`keepAliveDone` 被关闭（forward.go:275），goroutine 退出未提交任何头——`forwardWithRetry` 随后可正确返回 502。
+3. **宽限期后首字节（timer.C 触发）：** 若 20s 内上游仍未返回，`state.headersFlushed = true`，写入 `Content-Type: application/json` + `X-TinyRouter-Provider/Key` 头，`w.Write([]byte("\n"))`（合法 JSON 空白），随后 `http.Flusher.Flush()` 下送。此时才提交 HTTP 200。
+4. **心跳 ticker（ticker.C 分支）：** 仅在 `state.headersFlushed` 为 true 后生效，每 5s 执行 `w.Write([]byte(" ")) + flusher.Flush()`，向浏览器周期性注入合法 JSON 空白字符。退出条件：`keepAliveDone` 关闭或 `r.Context().Done()`。
+5. **同步退出（forward.go:274-276）：** `close(keepAliveDone)` 后通过 `<-keepAliveStopped` 等待 goroutine 退出，防止并发写 `ResponseWriter`——goroutine 在 `defer close(keepAliveStopped)` 中保证退出信号。
 
-**为什么有效：** Chromium HTTP/1.1 对非流式响应有两个定时器——响应头超时（~30s 无 header）与 body 首字节超时（收到 header 后 ~2s 起算，等待解压后真实 body 字节）。单次首字节 `\n` 只能重置一次；后台 5s 心跳持续注入字节，让 body 定时器在 ~50s+ 生成窗内被反复重置，浏览器不停留在 idle 等待状态。
+**为什么有效：** Chromium HTTP/1.1 对非流式响应有两个定时器——响应头超时（~30s 无 header）与 body 首字节超时。14s 左右的模型推理窗口在 20s 宽限期内若未超时，则首字节 + 5s 心跳持续注入字节，让 body 定时器被反复重置。
 
 **为什么必须绕过压缩（见 `Compress` 中间件）：** 若 `compressWriter` 包装该响应，brotli 编码后会向浏览器发送编码后的小帧；brotli 解压器无法从碎片化的小帧还原出输出字节，浏览器视为"无 body 数据"→ body 定时器立即触发→ 2s 断连。`Compress` 对 `/v1/images/generations` 与 `/v1/images/edits` 直接放行后，`\n`/` ` 以原始明文送达浏览器，立即被识为解压后 body 数据。
 
-**最终 body 拼接：** `passThroughResponse` 随后以 `WriteHeader(resp.StatusCode)`（status 与首次隐式 200 同为 200 时无副作用）+ `w.Write(bodyBytes)` 追加上游 JSON。最终响应体 = `\n` + 若干 ` ` + `{"created":...}`，全部为合法 JSON 空白 + JSON 对象，`resp.json()` 可正常解析。
+**`passThroughResponse` 的 `headersFlushed` 参数：** `passThroughResponse`（stream.go:348）新增 `headersFlushed bool` 参数——当 `true` 时，跳过 `WriteHeader`（HTTP 头已由 keep-alive goroutine 提交），只写 body；当 `false` 时（无 keep-alive 场景），照常 `WriteHeader(resp.StatusCode)`（stream.go:354）。
+
+**最终 body 拼接：** 当 `headersFlushed == true` 时，`passThroughResponse` 跳过 `WriteHeader` 直接 `w.Write(bodyBytes)` 写上游 JSON。最终响应体 = `\n` + 若干 ` ` + `{"created":...}`，全部为合法 JSON 空白 + JSON 对象，`resp.json()` 可正常解析。
 
 ### 8.8 Anthropic 入口的 SSE 透传
 
@@ -545,7 +548,7 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 8. **excludeKeyIDs 从不裁剪：** `retryState.excludeKeyIDs` 只 append（retry.go:55、74、105、129、…），无容量上限或裁剪，长重试链会无限增长。
 9. **Gemini 回填 BaseURL 条件严格：** 需 BaseURL 同时含 `generativelanguage.googleapis.com` 与 `/openai`，否则不回填（config/types.go:113-116）。
 10. **签名 TTL 固定 10m：** `defaultSigTTL = 10 * time.Minute` 不可配，长 tool-call 间隔可能丢失签名（signature_cache.go:33）。
-11. **CORS 反射任意 Origin：** `Access-Control-Allow-Origin` 原样回显请求方 `Origin`（router.go:182-185），配合 `/v1/*` 未鉴权，任意网页可跨域调用本机代理。
+11. **CORS 已限制为仅 localhost 来源：** `Access-Control-Allow-Origin` 仅对 `127.0.0.1`/`localhost`/`::1` 的 Origin 反射（router.go:196-197），外部网页不再能跨域调用本机代理。与 `/v1/*` 未鉴权配合，仅 localhost 来源可访问。
 12. **BuildUpstreamURL raw 模式语义特殊：** base 以 `*` 结尾时整段作端点、跳过归一化（upstream.go:40-43），配置错误易静默写错 URL。
 13. **passThroughResponse 忽略 Content-Encoding：** 直接 `io.ReadAll` + 原样写出，未对上游 gzip/br 等做解压（stream.go:309-341）。
 14. **recordUsage 错误状态粗粒度：** `status` 仅 `error`/`success`/`client_disconnected` 三档，HTTP 状态通过 `RespStatus` 字段附带，不再细分细粒度错误类型（recorder.go:16-66）。
@@ -593,9 +596,9 @@ go build -o tinyrouter .
 
 - `internal/proxy/handler.go`：Handler 结构体（15-36）、构造函数 New（43-80）、ChatCompletions/Completions（159-165）、Messages（179-181，Anthropic 入口，调用 `handleProxy(..., EntryFormatAnthropic)`）、Responses（188-189，OpenAI Responses 入口，调用 `handleProxy(..., EntryFormatOpenAIResponses)`）、SetProxy（102-142）、SetUpstreamTimeout（147-154）、SetDebugModeProvider（215-224）、ImagesGenerations（167-169）、PollTask（171-173）。
 - `internal/proxy/interfaces.go`：6 个能力接口 Logger/KeyProvider/ModelResolver/ComboResolver（`Resolve(name, entryFormat)`，61-64）/UsageRecorder/QuotaTracker（16-81）。
-- `internal/proxy/forward.go`：handleProxy（15-105，软策略：不再做入口协议严格匹配 400 块，仅模型解析 + 透传准备）、handleCombo（102-142，含 `entryFormat` 透传）、forwardWithRetry（139-342，含 `entryFormat` 透传）、broadcastRequestStart（344-354）、writeError（356-365）、backfillThoughtSignatures（380-421）、hasThoughtSignature（423-434）。
+- `internal/proxy/forward.go`：handleProxy（15-105，软策略：不再做入口协议严格匹配 400 块，仅模型解析 + 透传准备）、handleCombo（102-142，含 `entryFormat` 透传）、forwardWithRetry（139-342，含 `entryFormat` 透传，延迟 keep-alive 217-276）、broadcastRequestStart（344-354）、writeError（356-365）、backfillThoughtSignatures（380-421）、hasThoughtSignature（423-434）。
 - `internal/proxy/upstream.go`：normalizeBaseURL（17-26，suffix 剥离列表含 `"/images/generations"`）、BuildUpstreamURL（38-56）、forwardUpstream（67-121，按 `entryFormat` 三分支：OpenAI Chat / Anthropic / OpenAI Responses）、buildAnthropicUpstreamRequest（135-164，URL 不注入 `/v1` 前缀）、setAnthropicHeaders（168-179，x-api-key/anthropic-version/anthropic-beta，不设 Authorization）、buildResponsesUpstreamRequest（185-225，URL 不注入 `/v1` 前缀、鉴权 `Authorization: Bearer`）。
-- `internal/proxy/stream.go`：SSELineBuffer（15-41）、SSEDataPayloads（50-64）、normalizeSSEChunk（74-110）、streamResponse（139-305，`entryFormat` 控制 OpenAI 专用 `parseAndBroadcastChunk` 仅 OpenAI 入口调用、anthropic 入口走 `parseAnthropicSSEUsage` 提取 usage）、passThroughResponse（307-341）、parseAndBroadcastChunk（349-368）、chunkDelta/parseSSEChunkDelta（371-418）、extractThoughtSignature（444-490）、parseAnthropicSSEUsage（415-450，读 message_start/message_delta 的 input/output tokens）。
+- `internal/proxy/stream.go`：SSELineBuffer（15-41）、SSEDataPayloads（50-64）、normalizeSSEChunk（74-110）、streamResponse（139-305，`entryFormat` 控制 OpenAI 专用 `parseAndBroadcastChunk` 仅 OpenAI 入口调用、anthropic 入口走 `parseAnthropicSSEUsage` 提取 usage）、passThroughResponse（307-341，新增 `headersFlushed bool` 参数，348）、parseAndBroadcastChunk（349-368）、chunkDelta/parseSSEChunkDelta（371-418）、extractThoughtSignature（444-490）、parseAnthropicSSEUsage（415-450，读 message_start/message_delta 的 input/output tokens）。
 - `internal/proxy/retry.go`：retryState（14-21）、maxRetries（33-39）、logRequest（42-49）、handleNetworkError（52-59）、handle429（62-235）、handleUpstreamError（241-305）、classifySenseNova429（318-327）、excludeSameAccountKeys（332-342）。
 - `internal/proxy/recorder.go`：recordUsage（16-66）、parseAndUpdateQuota（68-90）。
 - `internal/proxy/request_events.go`：generateRequestID（24-31）、RequestEvent（71-78）、requestIDCounter（14）。
@@ -625,7 +628,7 @@ go build -o tinyrouter .
 | 修改重试策略 | retry.go 三个错误处理器（52-305）+ rotation.ClassifyError / Selector + retryState（14-21） |
 | 修改 body 改写 | forward.go:79-83（alias 解析）+ forward.go:130-179（stream_options / model / backfill）+ upstream.go（头与 URL） |
 | 修改 SSE 改写 | stream.go:139-305 + normalizeSSEChunk（74-110）+ SSELineBuffer（15-41）+ passThroughResponse（307-341）；Anthropic 入口经 `entryFormat` 跳过 OpenAI 专用 `parseAndBroadcastChunk`（§8.8） |
-| 修改非流式 keep-alive 刷新 | forward.go `forwardWithRetry`（首字节 Write+Flush + 5s ticker goroutine，§8.7）+ compress.go `Compress`（`/v1/images/*` 绕过列表）+ passThroughResponse（最终 body 拼接） |
+| 修改非流式 keep-alive 刷新 | forward.go `forwardWithRetry`（延迟 20s 宽限期 goroutine + 5s ticker，`keepAliveStopped` 同步退出，§8.7）+ stream.go `passThroughResponse`（`headersFlushed` 参数）+ compress.go `Compress`（`/v1/images/*` 绕过列表） |
 | 修改 Gemini 签名 | signature_cache.go（11-104）+ forward.go backfill（314-355）+ stream.go extract（444-490）+ config IsGeminiOpenAICompat（109-117） |
 | 修改用量/在途 | recorder.go（16-90）+ entry_tracker.go（13-82）+ inflight.go（11-88）+ broadcaster.go（9-80）+ api/sse_events.go（16-79）；改 `Entry.Source` 来源标记须同步前端 `X-TinyRouter-Source` 头（pg-stream.js）。改 `RespPayload` 截断策略须同步 §8.7 上方"recorder.go 大响应截断"更新块 |
 | 新增 combo 策略 | combo/resolver + handleCombo 分支（forward.go:107-142） |

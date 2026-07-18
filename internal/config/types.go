@@ -194,7 +194,6 @@ type SecurityConfig struct {
 
 // MonitorConfig controls the Monitor feature (command output streaming).
 type MonitorConfig struct {
-	Enabled         bool     `yaml:"enabled" json:"enabled"`
 	AllowedCommands []string `yaml:"allowedCommands,omitempty" json:"allowedCommands,omitempty"`
 	MaxLineLength   int      `yaml:"maxLineLength,omitempty" json:"maxLineLength,omitempty"`
 }

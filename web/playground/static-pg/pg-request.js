@@ -23,10 +23,11 @@ function pgParseSSELine(line) {
 }
 
 function pgMergeChunk(current, next) {
-  if (!current || !next || next.indexOf(current) !== 0) {
-    return (current || '') + (next || '');
-  }
-  return next;
+  if (!current || !next) return (current || '') + (next || '');
+  // Total-replacement chunk: next contains the full accumulated text from the start
+  if (next.indexOf(current) === 0) return next;
+  // Incremental delta: append to accumulated text
+  return current + next;
 }
 
 function pgParseErrorDetails(text) {

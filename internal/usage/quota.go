@@ -89,7 +89,9 @@ func (qt *QuotaTracker) Update(providerName, model, keyID, keyName string, limit
 		})
 	}
 
-	bar.PerKeyLimit = limit
+	if bar.PerKeyLimit == 0 {
+		bar.PerKeyLimit = limit
+	}
 	bar.TotalCapacity = limit * totalKeyCount
 	bar.TotalUsed = 0
 	for _, k := range bar.Keys {

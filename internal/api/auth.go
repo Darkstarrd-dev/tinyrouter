@@ -154,6 +154,7 @@ func (rt *Router) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
 	w.Header().Set("Content-Type", "application/json")
@@ -165,8 +166,9 @@ func setSessionCookie(w http.ResponseWriter, token string) {
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
-		MaxAge:   86400 * 30,
+		MaxAge:   int(sessionMaxAge.Seconds()),
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
 }

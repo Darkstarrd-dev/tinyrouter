@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,7 +32,6 @@ import (
 // longer carries ~20 unrelated top-level fields.
 type deps struct {
 	reg          *registry.Registry
-	cfg          *config.Config
 	configPath   string
 	usage        *usage.RingBuffer
 	quotaTracker *usage.QuotaTracker
@@ -78,7 +78,6 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 	return &Router{
 		deps: deps{
 			reg:          reg,
-			cfg:          cfg,
 			configPath:   configPath,
 			usage:        usageBuf,
 			quotaTracker: quotaTracker,
@@ -90,6 +89,15 @@ func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf
 			shutdown:     shutdown,
 			testClient: &http.Client{
 				Timeout: 30 * time.Second,
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					if len(via) >= 5 {
+						return fmt.Errorf("too many redirects")
+					}
+					if isBlockedSSRFHost(req.URL.Hostname()) {
+						return fmt.Errorf("redirect to blocked host: %s", req.URL.Hostname())
+					}
+					return nil
+				},
 			},
 			monitorMgr: monitor.New(500, cfg.Monitor.MaxLineLength),
 		},
@@ -165,6 +173,18 @@ func securityHeaders(port int) func(http.Handler) http.Handler {
 	}
 }
 
+// isLocalhostOrigin reports whether the given Origin URL has a localhost host.
+// Only localhost origins are allowed for /v1/* CORS — external websites must
+// not be able to probe or abuse the local proxy via cross-origin requests.
+func isLocalhostOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
+
 // Routes returns the root HTTP handler with all routes registered.
 func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	r := chi.NewRouter()
@@ -172,7 +192,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	// Middleware
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
-	r.Use(securityHeaders(rt.cfg.Port))
+	r.Use(securityHeaders(rt.reg.Config().Port))
 	// Compress responses (brotli/gzip) for compressible content types.
 	// SSE responses and pre-compressed binaries are auto-skipped inside.
 	r.Use(Compress)
@@ -182,7 +202,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	// be able to read/modify config or steal API keys via cross-origin fetch.
 	r.Options("/v1/*", func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" {
+		if origin != "" && isLocalhostOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 		}

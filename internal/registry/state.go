@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -158,13 +159,10 @@ func snapshotKeyState(ks *KeyRuntimeState) state.KeySnapshot {
 }
 
 // convertKey converts registry internal key format "a/b" to "a::b".
+// All "/" are replaced with "::" to avoid ambiguity when provider or key
+// IDs contain "/".
 func convertKey(internal string) string {
-	for i := 0; i < len(internal); i++ {
-		if internal[i] == '/' {
-			return internal[:i] + "::" + internal[i+1:]
-		}
-	}
-	return internal
+	return strings.ReplaceAll(internal, "/", "::")
 }
 
 // RestoreKeyState restores a key's runtime state from a snapshot. Returns an

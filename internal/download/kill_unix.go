@@ -5,15 +5,30 @@ package download
 import (
 	"os/exec"
 	"syscall"
+	"time"
 )
 
-// killProcessTree 终止进程及其整个子进程树（Unix）。
-// 向进程组发送 SIGTERM（子进程已成为独立进程组组长，见 setupProcessGroup）。
+// killProcessTree terminates the process group by first sending SIGTERM, then
+// escalating to SIGKILL after a 2-second grace period if the group is still
+// alive. This ensures stubborn child processes (yt-dlp/ffmpeg ignoring SIGTERM
+// during large file processing) are force-killed, preventing zombie processes
+// and leftover .part files.
 func killProcessTree(pid int) error {
 	pgid, err := syscall.Getpgid(pid)
-	if err == nil {
-		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	if err != nil {
+		return nil
 	}
+	// Send SIGTERM to the entire process group.
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	// SIGKILL fallback: after the grace period, check if the group still
+	// exists and force-kill it if so.
+	go func() {
+		time.Sleep(2 * time.Second)
+		// Signal 0 checks process existence without actually sending a signal.
+		if err := syscall.Kill(-pgid, 0); err == nil {
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		}
+	}()
 	return nil
 }
 

@@ -81,10 +81,16 @@ func (r *Registry) UpdateKey(providerID, keyID string, updates config.Key) bool 
 			if r.config.Providers[i].Keys[j].ID == keyID {
 				k := &r.config.Providers[i].Keys[j]
 				k.Name = updates.Name
-				k.Key = updates.Key
 				k.Priority = updates.Priority
 				k.IsActive = updates.IsActive
-				k.Account = updates.Account
+				// Partial update: only overwrite the plaintext key and account
+				// when the caller actually provides a new key value. This prevents
+				// UI updates (e.g. toggling IsActive) from accidentally clearing
+				// the existing key to an empty string.
+				if updates.Key != "" {
+					k.Key = updates.Key
+					k.Account = updates.Account
+				}
 				return true
 			}
 		}

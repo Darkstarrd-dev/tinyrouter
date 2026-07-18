@@ -22,7 +22,7 @@ func (rt *Router) getModelKeys(w http.ResponseWriter, r *http.Request) {
 
 	var provider *config.Provider
 	for _, p := range rt.reg.ListProviders() {
-		if p.Name == providerName {
+		if p.Name == providerName || p.ID == providerName {
 			pp := p
 			provider = &pp
 			break

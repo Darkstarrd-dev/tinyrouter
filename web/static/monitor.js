@@ -104,6 +104,10 @@ function clearMonitorOutput() {
   if (output) output.innerHTML = '';
 }
 
+function closeMonitorStream() {
+  stopMonitorStream();
+}
+
 function cleanupMonitor() {
   monitorRunning = false;
   stopMonitorStream();

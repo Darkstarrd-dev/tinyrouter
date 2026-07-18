@@ -365,8 +365,15 @@ function pgSendImage(i, body, assistantIdx) {
 function pgPollModelScopeTask(i, taskId, model, assistantIdx, msg) {
   var w = pgWinAt(i);
   var pollUrl = '/v1/tasks/' + encodeURIComponent(taskId) + '?model=' + encodeURIComponent(model);
+  var pollAttempts = 0;
+  var maxPollAttempts = 60; // 60 * 5s = 5 minutes max
   function poll() {
     if (!w.streaming) return;
+    pollAttempts++;
+    if (pollAttempts > maxPollAttempts) {
+      pgFail(i, assistantIdx, 'ModelScope task polling timed out after ' + maxPollAttempts + ' attempts');
+      return;
+    }
     fetch(pollUrl, {
       method: 'GET',
       headers: { 'X-ModelScope-Task-Type': 'image_generation', 'X-TinyRouter-Source': 'playground' },

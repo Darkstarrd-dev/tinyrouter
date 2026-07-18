@@ -104,7 +104,7 @@ type currentKey struct {
 func (rt *Router) currentKey(providerName, model string) currentKey {
 	var provider *config.Provider
 	for _, p := range rt.reg.ListProviders() {
-		if p.Name == providerName {
+		if p.Name == providerName || p.ID == providerName {
 			pp := p
 			provider = &pp
 			break

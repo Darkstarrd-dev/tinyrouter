@@ -27,6 +27,12 @@ func (rt *Router) addProviderModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check provider existence first so we can return the correct status.
+	if _, ok := rt.reg.GetProvider(providerID); !ok {
+		writeAPIError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
 	if rt.reg.AddModel(providerID, config.ModelDef{ID: req.Model}) {
 		cfg := rt.reg.Config()
 		if err := rt.saveConfig(&cfg); err != nil {
@@ -36,7 +42,7 @@ func (rt *Router) addProviderModel(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	} else {
-		writeAPIError(w, http.StatusNotFound, "provider not found")
+		writeAPIError(w, http.StatusConflict, "model or alias already exists")
 	}
 }
 

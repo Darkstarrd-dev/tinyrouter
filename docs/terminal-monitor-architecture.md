@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/terminal/`（交互式 PTY over WebSocket）、`internal/monitor/`（白名单 shell 命令、SSE 输出）、对应 API `internal/api/terminal.go` / `internal/api/monitor.go` 与前端 `web/static/terminal.js` / `web/static/monitor.js` 的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-15，仓库工作区（`main`）。**外延修复**（不改变本文覆盖的 terminal/monitor 架构本身，仅触及承载页面）：`web/static/console.js` 的 `startConsoleStream` 删除冗余的 `apiGet('/console-logs')` 历史拉取——`/api/console-logs/stream` 的 SSE 流在握手后已先回放全部历史行（见 `internal/api/console_logs.go` 的 `streamConsoleLogs` L33-38 "Send existing lines first"），此前同时做 REST 拉取 + SSE 回放导致已存在的日志行被渲染两次。Terminal/Monitor 主流程未变。基线仍为 `2026-07-13 提交 c2f89c6`。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-19，仓库工作区（`main`）。**外延修复**（不改变本文覆盖的 terminal/monitor 架构本身，仅触及承载页面）：`web/static/console.js` 的 `startConsoleStream` 删除冗余的 `apiGet('/console-logs')` 历史拉取——`/api/console-logs/stream` 的 SSE 流在握手后已先回放全部历史行（见 `internal/api/console_logs.go` 的 `streamConsoleLogs` L33-38 "Send existing lines first"），此前同时做 REST 拉取 + SSE 回放导致已存在的日志行被渲染两次。Terminal/Monitor 主流程未变。基线仍为 `2026-07-13 提交 c2f89c6`。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -98,7 +98,7 @@ sequenceDiagram
 2. `exec.LookPath(shellPath)` 校验 shell 存在（session.go:34-37）。
 3. `pty.New()` 创建 PTY（session.go:39-42）。
 4. `pt.CommandContext(ctx, path)` 把 shell 绑定到 PTY 的 context（session.go:44-45）。
-5. **环境变量块**（session.go:46-58）：固定 `TERM=xterm-256color` + 从宿主继承 `PATH`/`HOME`/`USER`/`USERNAME`/`USERPROFILE`/`APPDATA`/`LOCALAPPDATA`/`SystemRoot`/`TEMP`/`TMP`。注意这里**刻意不设** `CREATE_NO_WINDOW`（见 §4.6）。
+5. **环境变量块**（session.go:46）：通过 `cmd.Env = append(os.Environ(), "TERM=xterm-256color")` 继承父进程的全部环境变量（`os.Environ()` 返回所有环境变量），再附加 `TERM=xterm-256color`。注意这里**没有**固定白名单继承——shell 子进程获得与 TinyRouter 自身完全相同的环境变量集合，唯一叠加的是 `TERM`。另注意**刻意不设** `CREATE_NO_WINDOW`（见 §4.6）。
 6. `cmd.Start()` 启动 shell（session.go:69-73，失败则 cancel + 关 pty 返回错误）。
 7. `session.pty.Resize(80, 24)` 初始尺寸（session.go:83）。
 8. 启动**三个 goroutine**（session.go:85-87）：`readFromPTY`、`readFromWebSocket`、`waitForProcess`。
@@ -280,9 +280,9 @@ type Manager struct {
   - `killProcessGroup`：`taskkill /T /F /PID <pid>`（manager_windows.go:23-24）。
 - **Unix**（`manager_unix.go`，`//go:build !windows`）：
   - `setProcessGroup`：`SysProcAttr{Setpgid: true}`（manager_unix.go:10-12）。
-  - `killProcessGroup`：`syscall.Kill(-pid, syscall.SIGTERM)`（manager_unix.go:14-15）。
+   - `killProcessGroup`：先 `syscall.Kill(-pid, syscall.SIGTERM)`，随后启动后台 goroutine 等待 2 秒 grace period，用 `signal 0` 探活进程组是否仍存活，若仍存活则发 `SIGKILL` 强制终止（manager_unix.go:14-31）。
 
-> **平台差异（有意）**：Unix 上 Monitor 用 **SIGTERM**（manager_unix.go:15），而 Terminal 用 **SIGKILL**（process_unix.go:8）。前者给命令优雅退出机会，后者强制杀 shell 进程组。二者都是对 `-pid`（进程组）发信号。
+> **平台差异（有意）**：Unix 上 Monitor 用 **SIGTERM → 2s grace → SIGKILL 兜底**（manager_unix.go:14-31），而 Terminal 用 **SIGKILL**（process_unix.go:8）。前者给监控命令优雅退出机会（忽略 SIGTERM 时由 SIGKILL 兜底），后者直接强制杀交互式 shell 进程组。二者都是对 `-pid`（进程组）发信号。
 
 ## 10. Monitor — API 与 SSE 流
 
@@ -296,7 +296,7 @@ type Manager struct {
 | 4 | `GET /monitor/stream` | `streamMonitor` (monitor.go:57-94) | SSE 推送行输出 | `text/event-stream` |
 
 - **密码门已移除**：`startMonitor` 原 `cfg.Security.PasswordEnabled` 校验已删（monitor.go:18-23 注释），理由同 Terminal——已落在 AuthMiddleware 内。
-- **startMonitor**（monitor.go:17-45）：解析 body（monitor.go:24-31），`command` 空返回 400（monitor.go:32-35），`allowed := rt.cfg.Monitor.AllowedCommands`（monitor.go:37），`rt.monitorMgr.Start(req.Command, req.Args, allowed)` 失败返回 400（monitor.go:38-41），成功回 `{ok:true}`。
+- **startMonitor**（monitor.go:17-45）：解析 body（monitor.go:24-31），`command` 空返回 400（monitor.go:32-35），`allowed := rt.reg.Config().Monitor.AllowedCommands`（monitor.go:37，从 registry 读配置快照而非过期指针，修复热重载后 `rt.cfg` 指针失效的问题），`rt.monitorMgr.Start(req.Command, req.Args, allowed)` 失败返回 400（monitor.go:38-41），成功回 `{ok:true}`。
 - **streamMonitor（SSE）**（monitor.go:57-94）：
   1. 校验 `http.Flusher`（monitor.go:58-62），写 SSE 头 `text/event-stream` + `no-cache` + `keep-alive`（monitor.go:64-67）。
   2. **先重放** `BufferedLines()` 全部行，每行 `data: {"type":"line","line":...}\n\n` + flush（monitor.go:69-73）。
@@ -361,7 +361,7 @@ type Manager struct {
 5. **白名单僵化 / 可绕过**：白名单是**名字级** `EqualFold` 比对（manager.go:54-65），不校验参数内容（仅拒绝 null 字节/空串，manager.go:67-74）；`exec.LookPath` 沿 PATH 解析，PATH 中靠前的恶意同名二进制可影子白名单命令（manager.go:81-83，已声明为接受限制）。
 6. **`MonitorConfig.Enabled` 死字段**：类型定义 `config/types.go:156-161`，但全文无 `Monitor.Enabled` 引用（grep 证实），对运行无任何影响——Monitor 是否可用只取决于 AuthMiddleware 与白名单内容。
 7. **Monitor 输出量**：环形缓冲固定 500 行（router.go:94）、单行截断 4096（manager.go:35-37、147-149）；慢 SSE 订阅者（缓冲 256 满）行被丢弃（manager.go:166-171）；30s keepalive 保活（monitor.go:90-92）。
-8. **平台差异**：go-pty ConPTY（Windows）vs PTY（Unix）行为不同；Monitor Unix 用 SIGTERM、Terminal Unix 用 SIGKILL（有意差别，见 §9）。
+8. **平台差异**：go-pty ConPTY（Windows）vs PTY（Unix）行为不同；Monitor Unix 用 SIGTERM → 2s grace → SIGKILL 兜底、Terminal Unix 用 SIGKILL（有意差别，见 §9）。
 9. **前端 xterm-addon-fit 未用**：因 xterm.js 6.0 内部 API 变更导致 `FitAddon.fit()` 静默失效，改用自定义 `doFit`（terminal.js:108-113、121-158）。
 
 ## 15. 测试与验证现状
@@ -426,7 +426,7 @@ go test ./...
 
 - `internal/monitor/manager.go`：Manager 结构体（15-28）、New（31-43）、Start（46-140，白名单 54-65、参数硬化 67-74、PATH 影子注释 81-83、wait goroutine 120-137）、readPipe（142-152，1MB scanner + 截断）、broadcastLine（154-172，环形 + 非阻塞发送）、Stop（175-188）、Status（191-204）、BufferedLines（207-214）、Subscribe（217-223）、Unsubscribe（225-230）。
 - `internal/monitor/manager_windows.go`：createNoWindow=0x08000000（15）、setProcessGroup CREATE_NEW_PROCESS_GROUP|createNoWindow（17-21）、killProcessGroup taskkill /T /F（23-24，build windows）。
-- `internal/monitor/manager_unix.go`：setProcessGroup Setpgid（10-12）、killProcessGroup syscall.Kill(-pid, SIGTERM)（14-15，build !windows）。
+- `internal/monitor/manager_unix.go`：setProcessGroup Setpgid（10-12）、killProcessGroup SIGTERM → 2s grace → SIGKILL 兜底（14-31，build !windows）。
 - `internal/monitor/manager_test.go`：12 个 `Test*` 函数（26-293）。
 - `internal/api/monitor.go`：getMonitorStatus（12-15）、startMonitor（17-45，密码门移除 18-23、AllowedCommands 37）、stopMonitor（47-55）、streamMonitor SSE（57-94，重放 69-73、Subscribe 75-76、flush 87、keepalive 90-92）。
 - `web/static/monitor.js`：renderMonitorView（6-8）、getLastMonitorCommand（10-12）、updateMonitorButtonState（14-23）、startMonitorCommand（25-50）、stopMonitorCommand（52-61）、startMonitorStream（63-85）、appendMonitorLine（94-100，textContent XSS 安全）、cleanupMonitor（107-110）。

@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -11,6 +14,55 @@ import (
 )
 
 // --- Download API Handlers ---
+
+// validateDownloadDir validates that the download directory is non-empty and
+// does not traverse outside the allowed root (DefaultDir). It cleans the path
+// and rejects ".." traversal. If dir is empty, it returns nil (the caller will
+// apply the default).
+func validateDownloadDir(dir, defaultDir string) error {
+	if dir == "" {
+		return nil
+	}
+	cleaned := filepath.Clean(dir)
+	// Reject path traversal: after cleaning, ".." only appears at the start
+	// if the path escapes the root.
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("download directory cannot contain path traversal (..)")
+	}
+	// If the path is absolute and a default dir is configured, ensure it's
+	// within the default dir subtree.
+	if filepath.IsAbs(cleaned) && defaultDir != "" {
+		absDefault, err := filepath.Abs(defaultDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve default download dir: %w", err)
+		}
+		absDir, err := filepath.Abs(cleaned)
+		if err != nil {
+			return fmt.Errorf("failed to resolve download dir: %w", err)
+		}
+		if absDir != absDefault && !strings.HasPrefix(absDir, absDefault+string(filepath.Separator)) {
+			return fmt.Errorf("download directory must be within %s", absDefault)
+		}
+	}
+	return nil
+}
+
+// validateDownloadURL validates that a download URL uses an allowed scheme
+// (http/https) and does not target a private/loopback address (SSRF).
+func validateDownloadURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("only http/https urls are supported, got: %s", scheme)
+	}
+	if isBlockedSSRFHost(u.Hostname()) {
+		return fmt.Errorf("url host resolves to a blocked address")
+	}
+	return nil
+}
 
 // createDownload 创建下载任务
 // POST /api/downloads
@@ -29,6 +81,10 @@ func (rt *Router) createDownload(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "url is required")
 		return
 	}
+	if err := validateDownloadURL(input.URL); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if input.Type == "" {
 		input.Type = download.TypeVideo
 	}
@@ -39,7 +95,12 @@ func (rt *Router) createDownload(w http.ResponseWriter, r *http.Request) {
 		input.Container = download.ContainerAuto
 	}
 	if input.DownloadDir == "" {
-		input.DownloadDir = rt.cfg.Download.DefaultDir
+		input.DownloadDir = rt.reg.Config().Download.DefaultDir
+	}
+	cfg := rt.reg.Config()
+	if err := validateDownloadDir(input.DownloadDir, cfg.Download.DefaultDir); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	taskID := rt.downloadMgr.CreateTask(input)
@@ -65,6 +126,10 @@ func (rt *Router) getVideoInfo(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "url is required")
 		return
 	}
+	if err := validateDownloadURL(req.URL); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	info, err := rt.downloadMgr.GetVideoInfo(req.URL)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("query failed: %v", err))
@@ -88,6 +153,10 @@ func (rt *Router) getPlaylistInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.URL == "" {
 		writeAPIError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+	if err := validateDownloadURL(req.URL); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	info, err := rt.downloadMgr.GetPlaylistInfo(req.URL)
@@ -121,6 +190,10 @@ func (rt *Router) createPlaylistDownload(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, http.StatusBadRequest, "url is required")
 		return
 	}
+	if err := validateDownloadURL(input.URL); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if input.Type == "" {
 		input.Type = download.TypeVideo
 	}
@@ -131,7 +204,12 @@ func (rt *Router) createPlaylistDownload(w http.ResponseWriter, r *http.Request)
 		input.Container = download.ContainerAuto
 	}
 	if input.DownloadDir == "" {
-		input.DownloadDir = rt.cfg.Download.DefaultDir
+		input.DownloadDir = rt.reg.Config().Download.DefaultDir
+	}
+	cfg := rt.reg.Config()
+	if err := validateDownloadDir(input.DownloadDir, cfg.Download.DefaultDir); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	ids, title, err := rt.downloadMgr.CreatePlaylistTask(input)

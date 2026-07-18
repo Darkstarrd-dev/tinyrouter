@@ -11,6 +11,7 @@ function pgEnsureModalOverlay() {
 }
 
 function pgCloseModal() {
+  pgRemoveZoomListeners();
   var overlay = document.getElementById('pg-modal-overlay');
   if (overlay) { overlay.classList.remove('show'); }
 }
@@ -123,6 +124,10 @@ function pgShowImageModal(url) {
   });
 }
 
+var pgZoomResizeHandler = null;
+var pgZoomMouseMoveHandler = null;
+var pgZoomMouseUpHandler = null;
+
 function pgInitImageZoom() {
   var img = document.getElementById('pg-img-modal-img');
   var body = document.getElementById('pg-img-modal-body');
@@ -187,7 +192,7 @@ function pgInitImageZoom() {
 
   // Recalculate fit scale on window resize
   var resizeTimer;
-  window.addEventListener('resize', function() {
+  pgZoomResizeHandler = function() {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function() {
       var prevFit = fitScale;
@@ -195,7 +200,8 @@ function pgInitImageZoom() {
       if (scale <= prevFit) { scale = fitScale; translateX = 0; translateY = 0; }
       applyTransform();
     }, 150);
-  });
+  };
+  window.addEventListener('resize', pgZoomResizeHandler);
 
   body.addEventListener('wheel', function(e) {
     e.preventDefault();
@@ -220,24 +226,32 @@ function pgInitImageZoom() {
     e.preventDefault();
   });
 
-  window.addEventListener('mousemove', function(e) {
+  pgZoomMouseMoveHandler = function(e) {
     if (!isDragging) return;
     translateX = dragTranslateX + (e.clientX - dragStartX) / scale;
     translateY = dragTranslateY + (e.clientY - dragStartY) / scale;
     applyTransform();
-  });
+  };
+  window.addEventListener('mousemove', pgZoomMouseMoveHandler);
 
-  window.addEventListener('mouseup', function() {
+  pgZoomMouseUpHandler = function() {
     if (isDragging) {
       isDragging = false;
       body.style.cursor = scale > fitScale ? 'grab' : 'default';
     }
-  });
+  };
+  window.addEventListener('mouseup', pgZoomMouseUpHandler);
 
   // Expose reset for the button onclick
   window.pgResetImageZoom = reset;
 
   init();
+}
+
+function pgRemoveZoomListeners() {
+  if (pgZoomResizeHandler) { window.removeEventListener('resize', pgZoomResizeHandler); pgZoomResizeHandler = null; }
+  if (pgZoomMouseMoveHandler) { window.removeEventListener('mousemove', pgZoomMouseMoveHandler); pgZoomMouseMoveHandler = null; }
+  if (pgZoomMouseUpHandler) { window.removeEventListener('mouseup', pgZoomMouseUpHandler); pgZoomMouseUpHandler = null; }
 }
 
 function pgCopyImage(url, btn) {

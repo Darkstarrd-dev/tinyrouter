@@ -214,34 +214,21 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		h.EntryTracker.Register(processingEntry)
 		h.broadcastRequestStart(reqID, processingEntry)
 
-		// Send keep-alive whitespace bytes and flush so the client receives body
-		// data periodically while the upstream is still generating. This prevents
-		// browsers (e.g. Chromium HTTP/1.1 / WebView2) from timing out on
-		// long-running non-streaming responses (image generation ~50s).
-		//
-		// Strategy: write a leading "\n" now, then start a background ticker that
-		// writes " " (valid JSON whitespace) every keepAliveInterval until the
-		// upstream response arrives. The ticker is stopped before passThroughResponse
-		// writes the actual response body so the framing stays clean.
-		if !isStream && !state.headersFlushed {
-			state.headersFlushed = true
-			w.Header().Set("Content-Type", "application/json")
-			if sel != nil {
-				w.Header().Set("X-TinyRouter-Provider", sel.Provider.Name)
-				w.Header().Set("X-TinyRouter-Key", sel.KeyName)
-			}
-			w.Write([]byte("\n"))
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
-			}
-		}
-
-		// Background keep-alive: write a space every keepAliveInterval so the
-		// browser sees periodic body data and doesn't abort on a body idle timer.
+		// Delayed keep-alive: for non-streaming requests, only start flushing
+		// whitespace bytes after a grace period (keepAliveDelay). This allows
+		// quick failures (429, 5xx, network errors) to return the correct HTTP
+		// status code. If the upstream takes longer than the grace period, the
+		// keep-alive bytes commit a 200 status and subsequent errors are written
+		// in the body (acceptable trade-off for genuinely long-running requests).
+		keepAliveDelay := 20 * time.Second
 		keepAliveInterval := 5 * time.Second
 		keepAliveDone := make(chan struct{})
+		keepAliveStopped := make(chan struct{})
 		if !isStream {
 			go func() {
+				defer close(keepAliveStopped)
+				timer := time.NewTimer(keepAliveDelay)
+				defer timer.Stop()
 				ticker := time.NewTicker(keepAliveInterval)
 				defer ticker.Stop()
 				flusher, _ := w.(http.Flusher)
@@ -251,12 +238,28 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 						return
 					case <-r.Context().Done():
 						return
-					case <-ticker.C:
-						if _, err := w.Write([]byte(" ")); err != nil {
-							return
+					case <-timer.C:
+						// Grace period elapsed: flush headers + first keep-alive byte.
+						if !state.headersFlushed {
+							state.headersFlushed = true
+							w.Header().Set("Content-Type", "application/json")
+							if sel != nil {
+								w.Header().Set("X-TinyRouter-Provider", sel.Provider.Name)
+								w.Header().Set("X-TinyRouter-Key", sel.KeyName)
+							}
+							w.Write([]byte("\n"))
+							if flusher != nil {
+								flusher.Flush()
+							}
 						}
-						if flusher != nil {
-							flusher.Flush()
+					case <-ticker.C:
+						if state.headersFlushed {
+							if _, err := w.Write([]byte(" ")); err != nil {
+								return
+							}
+							if flusher != nil {
+								flusher.Flush()
+							}
 						}
 					}
 				}
@@ -266,9 +269,11 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		startTime := time.Now()
 		resp, err := h.forwardUpstream(r.Context(), sel, upstreamBody, r.Header, isStream, path, entryFormat)
 
-		// Stop the keep-alive ticker before writing the real body.
+		// Stop the keep-alive goroutine and wait for it to exit before writing
+		// the response body, to avoid concurrent writes to the ResponseWriter.
 		if !isStream {
 			close(keepAliveDone)
+			<-keepAliveStopped
 		}
 
 		if err != nil {
@@ -323,7 +328,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			normalize := cfgProvider != nil && cfgProvider.NormalizeStreamChunks
 			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize, reqID, r.Header, upstreamURL, entryFormat)
 		} else {
-			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, reqID, r.Header, upstreamURL)
+			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, reqID, r.Header, upstreamURL, state.headersFlushed)
 		}
 		h.EntryTracker.Remove(reqID)
 		// DecInFlight after the synchronous response handling completes — this

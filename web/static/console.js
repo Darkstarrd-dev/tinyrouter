@@ -160,6 +160,13 @@ function clearCurrentView() {
 
 // ===================== Log streaming =====================
 
+function closeConsoleStream() {
+  if (consoleEventSource) {
+    consoleEventSource.close();
+    consoleEventSource = null;
+  }
+}
+
 function startConsoleStream() {
   if (consoleEventSource) consoleEventSource.close();
   var container = document.getElementById('log-container');

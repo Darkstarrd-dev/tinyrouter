@@ -22,9 +22,9 @@ function renderQuickSlotListInline(quickslots) {
         <span class="card-title copyable" data-name="' + escapeHtml(qs.name) + '" onclick="copyToClipboard(this.dataset.name, this.dataset.name)" title="' + t('clickToCopy') + '">#' + (qs.order || 0) + ' ' + escapeHtml(qs.name) + '</span>\
         <div class="flex" style="gap:8px">\
           <span class="badge ' + (qs.disabled ? 'badge-inactive' : 'badge-active') + '">order: ' + (qs.order || 0) + '</span>\
-          <button type="button" class="btn btn-sm" onclick="toggleQuickSlotDisabled(\'' + qs.id + '\')">' + (qs.disabled ? t('enable') : t('disable')) + '</button>\
-          <button type="button" class="btn btn-sm" onclick="showEditQuickSlot(\'' + qs.id + '\')">' + t('edit') + '</button>\
-          <button type="button" class="btn btn-sm btn-danger" onclick="deleteQuickSlot(\'' + qs.id + '\')">' + t('delete') + '</button>\
+          <button type="button" class="btn btn-sm" onclick="toggleQuickSlotDisabled(\'' + escapeAttr(qs.id) + '\')">' + (qs.disabled ? t('enable') : t('disable')) + '</button>\
+          <button type="button" class="btn btn-sm" onclick="showEditQuickSlot(\'' + escapeAttr(qs.id) + '\')">' + t('edit') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger" onclick="deleteQuickSlot(\'' + escapeAttr(qs.id) + '\')">' + t('delete') + '</button>\
         </div>\
       </div>\
       <p class="muted">' + t('models') + ' ' + (qs.models ? qs.models.join(', ') : 'none') + '</p>\
@@ -122,7 +122,7 @@ async function showEditQuickSlot(id) {
     </div>\
     <div class="modal-footer">\
       <button type="button" class="btn" onclick="closeModalOverlay()">' + t('cancel') + '</button>\
-      <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditQuickSlot(\'' + id + '\'))">' + t('saveQuickSlot') + '</button>\
+      <button type="button" class="btn btn-primary" onclick="withLoading(this, () => saveEditQuickSlot(\'' + escapeAttr(id) + '\'))">' + t('saveQuickSlot') + '</button>\
     </div>\
   </div>';
   requestAnimationFrame(function() { overlay.classList.add('show'); });
@@ -425,7 +425,7 @@ async function renderHeaderQuickSlots() {
       var fullIdEsc = escapeHtml(fullId);
       var num = i + 1;
       var titleAttr = fullIdEsc ? nameEsc + '&#10;' + fullIdEsc : nameEsc;
-      html += '<div class="quickslot-btn" onclick="showQuickSlotDropdown(\'' + qs.id + '\')" data-qs-id="' + qs.id + '" title="' + titleAttr + '">\
+      html += '<div class="quickslot-btn" onclick="showQuickSlotDropdown(\'' + escapeAttr(qs.id) + '\')" data-qs-id="' + escapeAttr(qs.id) + '" title="' + titleAttr + '">\
         <div class="qs-number">' + num + '</div>\
         <div class="qs-content">\
           <div class="qs-name">' + nameEsc + '</div>\
@@ -461,7 +461,7 @@ function showQuickSlotDropdown(id) {
       for (var i = 0; i < models.length; i++) {
         var note = noteMap[models[i]] || '';
         var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '" class="quickslot-dropdown-item has-model-note' + (i === sel ? ' selected' : '') + '"' : ' class="quickslot-dropdown-item' + (i === sel ? ' selected' : '') + '"';
-        html += '<div' + noteAttr + ' onclick="selectQuickSlotModel(\'' + id + '\',' + i + ')">' + escapeHtml(models[i]) + '</div>';
+        html += '<div' + noteAttr + ' onclick="selectQuickSlotModel(\'' + escapeAttr(id) + '\',' + i + ')">' + escapeHtml(models[i]) + '</div>';
       }
     }
     html += '</div>';

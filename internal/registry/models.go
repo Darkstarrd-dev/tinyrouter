@@ -21,8 +21,9 @@ func (r *Registry) ListModels(providerID string) []config.ModelDef {
 }
 
 // AddModel appends a model def to the provider if not already present.
-// Returns false if the provider is not found, or if the model ID or alias
-// conflicts with an existing model in the same provider.
+// If a model with the same ID already exists, it returns true (idempotent —
+// no duplicate is added). Returns false if the provider is not found, or if
+// the model's alias conflicts with an existing model ID or alias.
 func (r *Registry) AddModel(providerID string, model config.ModelDef) bool {
 	r.cfgMu.Lock()
 	defer r.cfgMu.Unlock()

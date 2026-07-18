@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Manager manages a single running monitor command. Only one command runs at a time.
@@ -145,7 +146,12 @@ func (m *Manager) readPipe(r io.Reader) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if len(line) > m.maxLineLength {
-			line = line[:m.maxLineLength] + " [truncated]"
+			// Truncate at a rune boundary to avoid splitting multi-byte UTF-8.
+			cut := m.maxLineLength
+			for cut > 0 && !utf8.RuneStart(line[cut-1]) {
+				cut--
+			}
+			line = line[:cut] + " [truncated]"
 		}
 		m.broadcastLine(line)
 	}

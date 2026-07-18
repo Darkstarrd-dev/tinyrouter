@@ -28,7 +28,6 @@ func newTestRouter(t *testing.T, cfg *config.Config) (*Router, string) {
 	rt := &Router{
 		deps: deps{
 			reg:          reg,
-			cfg:          cfg,
 			configPath:   cfgPath,
 			quotaTracker: usage.NewQuotaTracker(),
 			logger:       console.New(100),

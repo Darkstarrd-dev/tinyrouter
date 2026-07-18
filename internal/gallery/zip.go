@@ -22,7 +22,13 @@ func IsNotFound(err error) bool {
 
 func cleanZipPath(p string) string {
 	p = strings.ReplaceAll(p, "\\", "/")
-	return strings.TrimPrefix(p, "/")
+	p = strings.TrimPrefix(p, "/")
+	// Normalize ../ and ./ sequences. path.Clean also collapses double slashes.
+	p = path.Clean(p)
+	// path.Clean can turn "foo/../.." into ".", strip a leading "/" again
+	// in case Clean produces an absolute-looking path.
+	p = strings.TrimPrefix(p, "/")
+	return p
 }
 
 // ListZipEntries opens the zip archive described by reader/size and returns a

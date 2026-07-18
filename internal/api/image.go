@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -67,6 +68,15 @@ func (rt *Router) saveImage(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if strings.HasPrefix(req.URL, "http://") || strings.HasPrefix(req.URL, "https://") {
 		// Fetch the external URL
+		parsedURL, err := url.Parse(req.URL)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid image url")
+			return
+		}
+		if isBlockedSSRFHost(parsedURL.Hostname()) {
+			writeAPIError(w, http.StatusForbidden, "image url resolves to a blocked address")
+			return
+		}
 		resp, err := rt.testClient.Get(req.URL)
 		if err != nil {
 			writeAPIError(w, http.StatusBadGateway, "failed to fetch image: "+err.Error())
@@ -89,6 +99,16 @@ func (rt *Router) saveImage(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		writeAPIError(w, http.StatusBadRequest, "unsupported URL scheme")
+		return
+	}
+
+	// allowedImageExts is the set of file extensions permitted for saved images.
+	var allowedImageExts = map[string]bool{
+		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+		".webp": true, ".svg": true, ".bmp": true, ".tiff": true,
+	}
+	if !allowedImageExts[ext] {
+		writeAPIError(w, http.StatusBadRequest, "unsupported image type")
 		return
 	}
 
@@ -127,6 +147,15 @@ func (rt *Router) imageProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
 		writeAPIError(w, http.StatusBadRequest, "only http(s) urls supported")
+		return
+	}
+	parsedURL, err := url.Parse(u)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid url")
+		return
+	}
+	if isBlockedSSRFHost(parsedURL.Hostname()) {
+		writeAPIError(w, http.StatusForbidden, "url resolves to a blocked address")
 		return
 	}
 	resp, err := rt.testClient.Get(u)

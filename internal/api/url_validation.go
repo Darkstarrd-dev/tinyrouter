@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 )
@@ -25,4 +26,21 @@ func validateBaseURL(baseURL string) error {
 		return fmt.Errorf("URL must have a hostname")
 	}
 	return nil
+}
+
+// isBlockedSSRFHost reports whether the given host resolves to a private,
+// loopback, link-local, or unspecified IP address. Used to prevent SSRF via
+// the image proxy and save-image endpoints. If DNS resolution fails, the host
+// is blocked (fail-closed).
+func isBlockedSSRFHost(host string) bool {
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return true
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return true
+		}
+	}
+	return false
 }

@@ -38,10 +38,10 @@ func validateProviders(cfg *Config) {
 			continue
 		}
 		if prefixes[p.Prefix] {
-			fmt.Fprintf(os.Stderr, "[config] warning: duplicate prefix %q for provider %q, skipping\n", p.Prefix, p.ID)
-			continue
+			fmt.Fprintf(os.Stderr, "[config] warning: duplicate prefix %q for provider %q\n", p.Prefix, p.ID)
+		} else {
+			prefixes[p.Prefix] = true
 		}
-		prefixes[p.Prefix] = true
 		if p.BaseURL == "" || (!strings.HasPrefix(p.BaseURL, "http://") && !strings.HasPrefix(p.BaseURL, "https://")) {
 			fmt.Fprintf(os.Stderr, "[config] warning: provider %q has invalid baseUrl %q\n", p.ID, p.BaseURL)
 		}

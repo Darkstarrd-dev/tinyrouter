@@ -108,6 +108,18 @@ func defaultShell() string {
 	return shell
 }
 
+// parseResizeMessage parses a resize message from a WebSocket binary message.
+// Format: 0x01 + 2 bytes rows (big-endian) + 2 bytes cols (big-endian).
+// Returns rows, cols, and whether the message was valid.
+func parseResizeMessage(data []byte) (rows, cols uint16, ok bool) {
+	if len(data) < 5 || data[0] != 0x01 {
+		return 0, 0, false
+	}
+	rows = uint16(data[1])<<8 | uint16(data[2])
+	cols = uint16(data[3])<<8 | uint16(data[4])
+	return rows, cols, true
+}
+
 func (s *Session) readFromPTY() {
 	defer s.cleanup()
 	buf := make([]byte, 32*1024)
@@ -147,20 +159,12 @@ func (s *Session) readFromWebSocket() {
 			}
 			s.mu.Unlock()
 		case websocket.BinaryMessage:
-			if len(data) < 1 {
-				continue
-			}
-			switch data[0] {
-			case 0x01:
-				if len(data) >= 5 {
-					rows := uint16(data[1])<<8 | uint16(data[2])
-					cols := uint16(data[3])<<8 | uint16(data[4])
-					s.mu.Lock()
-					if s.pty != nil && !s.closed {
-						_ = s.pty.Resize(int(cols), int(rows))
-					}
-					s.mu.Unlock()
+			if rows, cols, ok := parseResizeMessage(data); ok {
+				s.mu.Lock()
+				if s.pty != nil && !s.closed {
+					_ = s.pty.Resize(int(cols), int(rows))
 				}
+				s.mu.Unlock()
 			}
 		}
 	}
@@ -187,7 +191,10 @@ func (s *Session) cleanup() {
 	if s.pty != nil {
 		// Run Close in a goroutine because ConPTY's ClosePseudoConsole can
 		// deadlock indefinitely on Windows if the child process was force-killed.
+		// recover guards against panics from the underlying PTY implementation
+		// so a failed Close never crashes the process.
 		go func(p pty.Pty) {
+			defer func() { _ = recover() }()
 			_ = p.Close()
 		}(s.pty)
 	}

@@ -23,6 +23,7 @@ function renderTerminalView(container) {
 }
 
 function initTerminal() {
+  closeTerminalSession(); // prevent duplicate sessions
   var container = document.getElementById('terminal-xterm');
   if (!container) return;
 
@@ -246,5 +247,6 @@ function stopTerminalSession() {
 }
 
 function cleanupTerminal() {
-  detachTerminalView();
+  closeTerminalSession();  // closes WebSocket + removes resize listener
+  detachTerminalView();    // detaches xterm DOM
 }

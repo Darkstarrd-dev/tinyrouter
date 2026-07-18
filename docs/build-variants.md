@@ -1,6 +1,6 @@
 # 构建变体 (Build Variants)
 
-> 最后核对：2026-07-14
+> 最后核对：2026-07-19
 
 TinyRouter 通过 build tag + 链接器 flag 组合，提供多个构建变体。Windows 下用 `build.ps1` 一键产出。
 

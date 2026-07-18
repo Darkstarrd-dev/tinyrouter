@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -92,14 +93,15 @@ func (m *Manager) Started() bool {
 func (m *Manager) Start() {
 	m.mu.Lock()
 	m.started = true
+	concurrency := m.maxConcurrent
 	m.mu.Unlock()
 
-	for i := 0; i < m.maxConcurrent; i++ {
+	for i := 0; i < concurrency; i++ {
 		m.wg.Add(1)
 		go m.worker()
 	}
 	if m.logger != nil {
-		m.logger.Info("download workers started (concurrent=%d)", m.maxConcurrent)
+		m.logger.Info("download workers started (concurrent=%d)", concurrency)
 	}
 }
 
@@ -182,7 +184,7 @@ func (m *Manager) processTask(taskID string) {
 	m.mu.Unlock()
 
 	switch {
-	case err != nil && err.Error() == "cancelled":
+	case err != nil && errors.Is(err, ErrCancelled):
 		m.finalizeTask(taskID, StatusCancelled, "", 0)
 	case err != nil:
 		m.finalizeTask(taskID, StatusError, err.Error(), 0)
@@ -285,6 +287,9 @@ func (m *Manager) CreateTask(input CreateTaskInput) string {
 	case m.pendingCh <- id:
 	default:
 		// 队列满，立即标记错误。
+		m.mu.Lock()
+		delete(m.controls, id)
+		m.mu.Unlock()
 		m.finalizeTask(id, StatusError, "download queue is full", 0)
 		return id
 	}

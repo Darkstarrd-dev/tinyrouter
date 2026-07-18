@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/config/`、`internal/registry/`、`internal/state/` 三个包共同构成的 **配置定义 + 内存注册表 + 运行时状态持久化** 基础设施的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-18，仓库工作区（`main`）。本轮新增：`ModelDef.Protocols`（`[]string`，`yaml/json:"protocols,omitempty"`，记录多协议探测结果，types.go:50-55）+ `ProtocolOpenAICompat`/`ProtocolOpenAIResponses`/`ProtocolAnthropic` 合法值常量（types.go:31-37）+ `validate.go` 的 `validateModelDef`（合法值告警）；`registry.UpdateModelProtocols`（models.go:182）+ `PATCH /providers/{id}/models/protocols`（api/router.go:262）；`state.yaml` 新增 `probes` map（`ProbeRecord`/`ProbeDetail`，state.go:22-49）+ `registry` 的 `probeRecords` 与 `UpdateProbeRecord`/`GetProbeRecord`/`SnapshotProbeRecords`/`RestoreProbeRecord` + `state.Manager` 的 `WithProbeStateProvider` + `app.go:166` 注入。行号随 `ModelDef`/`state.Snapshot` 扩展整体下移。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-19，仓库工作区（`main`）。本轮新增：(a) `UpdateKey` 采用 partial update 语义——`Key`/`Account` 仅在 `updates.Key != ""` 时覆盖；(b) 会话 cookie 设置 `Secure: true`，`MaxAge` 与 `sessionMaxAge`（24h）对齐；(c) 移除 `deps.cfg` 字段，所有运行时配置读取统一走 `rt.reg.Config()` 快照。`ModelDef.Protocols`（`[]string`，`yaml/json:"protocols,omitempty"`，记录多协议探测结果，types.go:50-55）+ `ProtocolOpenAICompat`/`ProtocolOpenAIResponses`/`ProtocolAnthropic` 合法值常量（types.go:31-37）+ `validate.go` 的 `validateModelDef`（合法值告警）；`registry.UpdateModelProtocols`（models.go:182）+ `PATCH /providers/{id}/models/protocols`（api/router.go:262）；`state.yaml` 新增 `probes` map（`ProbeRecord`/`ProbeDetail`，state.go:22-49）+ `registry` 的 `probeRecords` 与 `UpdateProbeRecord`/`GetProbeRecord`/`SnapshotProbeRecords`/`RestoreProbeRecord` + `state.Manager` 的 `WithProbeStateProvider` + `app.go:166` 注入。行号随 `ModelDef`/`state.Snapshot` 扩展整体下移。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -198,7 +198,7 @@ type Registry struct {
 - **`New(cfg)`（registry.go:19-26）：** 建 `states` map 并立即 `reloadStatesLocked()` 初始化。
 - **`reloadStatesLocked()`（registry.go:28-54）：** **调用方已持 `cfgMu`**，只取 `stateMu`（29 注释）。按 `providerID/keyID` 重建 `newStates`：既有 key **复用原 `*KeyRuntimeState` 指针**（保留冷却/锁定/退避/NIM 计数），新 key 分配空状态（`ModelLocks`/`ModelStatus`/`ModelErrors` 三个空 map），消失 key 自然丢弃。最后整体替换 `r.states`。
 - **`stateKey(providerID, keyID)`（registry.go:56-58）：** 返回 `"providerID/keyID"`（注意用 `/`，与 state.yaml 的 `::` 分隔不同）。
-- **`Config()`（registry.go:61-65）：** 在 `cfgMu.RLock` 下返回 `*r.config` 的**值副本**。
+- **`Config()`（registry.go:61-65）：** 在 `cfgMu.RLock` 下返回 `*r.config` 的**值副本**。**这是所有运行时配置读取的唯一入口**——`deps.cfg`（`*config.Config` 指针字段）已从 `api/router.go` 中移除，`api/download.go`、`api/monitor.go`、`api/router.go` 的 `securityHeaders` 等全部改走 `rt.reg.Config()` 快照，避免 reload 后读取到 stale 指针。
 - **`Reload(cfg)`（registry.go:68-73）：** 取 `cfgMu.Lock` → 替换 `config` → `reloadStatesLocked()`（指针复用）。
 
 **双锁纪律：** `cfgMu` 为外层、`stateMu` 为内层；CRUD 在 `cfgMu` 下、做 key-state 簿记时才再取 `stateMu`（如 providers.go:61-62、keys.go:37-43）。**锁顺序不可逆**（先 `cfgMu` 后 `stateMu`），否则存在死锁风险。
@@ -210,7 +210,7 @@ type Registry struct {
 | 文件 | 主要方法 | 行为要点 |
 |---|---|---|
 | `providers.go` | `ListProviders`(11-17)、`HasProvider`(20-29)、`GetProvider`(31-41)、`GetProviderByPrefix`(44-54)、`AddProvider`(56-70)、`UpdateProvider`(72-94)、`DeleteProvider`(96-113)、`UpdateProviderStrategy`(116-127) | `AddProvider` 为每个 key 初始化 `KeyRuntimeState`（61-69）；`UpdateProvider` **仅更新标量字段**，**不触碰 Keys/Models**（注释 88-89）；`DeleteProvider` 在 `stateMu` 下清理该 provider 全部 key 的 state（103-107）。读返回副本（35-38、49-52） |
-| `keys.go` | `HasKey`(12-26)、`AddKey`(28-48)、`DeleteKey`(50-71)、`UpdateKey`(73-93) | `AddKey`/`DeleteKey` 在 `cfgMu` 下再取 `stateMu` 增删 state（37-43、62-64）；`UpdateKey` 仅改 `Name/Key/Priority/IsActive/Account`，不动运行时状态 |
+| `keys.go` | `HasKey`(12-26)、`AddKey`(28-48)、`DeleteKey`(50-71)、`UpdateKey`(73-93) | `AddKey`/`DeleteKey` 在 `cfgMu` 下再取 `stateMu` 增删 state（37-43、62-64）；`UpdateKey` 采用 partial update 语义：`Name`/`Priority`/`IsActive` 始终覆盖，`Key`/`Account` 仅在 `updates.Key != ""` 时覆盖（防止 UI 切换开关意外清空明文 API Key），不动运行时状态 |
 | `models.go` | `ListModels`(6-17)、`AddModel`(20-36)、`DeleteModel`(39-56)、`UpdateModelQuotaType`(59-75)、`UpdateModelAlias`(86-113)、`UpdateModelNote`(117-135)、`UpdateModelNIMOverride`(136-151)、`UpdateModelKind`、`UpdateModelImgProtocol`、`ResolveModelAlias`(156-168)、`GetModelByAliasOrID`(173-185) | `AddModel` 去重 + 别名冲突检查（27-36）；`UpdateModelQuotaType` 改模型 `QuotaType`；`UpdateModelAlias` 别名唯一性校验；`UpdateModelKind`/`UpdateModelImgProtocol` 改模型 `Kind`/`ImgProtocol`；`ResolveModelAlias` / `GetModelByAliasOrID` 按别名或 ID 查找 |
 | `combos.go` | `ListCombos`(7-13)、`GetComboByName`(15-25)、`HasCombo`(28-37)、`AddCombo`(39-43)、`UpdateCombo`(45-59)、`DeleteCombo`(61-71) | 全在 `cfgMu` 下；`UpdateCombo` 改 `Name/Strategy/Models/Disabled/DisabledModels`（combo 运行时状态由 combo 包自管，不经此处） |
 | `quickslots.go` | `ListQuickSlots`(7-13)、`GetQuickSlotByName`(16-26)、`GetQuickSlot`(29-39)、`HasQuickSlot`(42-51)、`AddQuickSlot`(53-57)、`UpdateQuickSlot`(59-74)、`DeleteQuickSlot`(76-86) | `UpdateQuickSlot` 改 `Name/Models/Disabled/DisabledModels/Order/SelectedIndex` |
@@ -364,6 +364,7 @@ flowchart LR
 - **Load（defaults.go:130-144）：** `finalizeConfig` 在 `PasswordEnabled && EncryptionKey!=""` 时，对 `enc:` 前缀 key 调 `Decrypt` 原地还原明文。
 - **双重门控：** `Security.PasswordEnabled` 同时控制管理员登录密码 **与** key-at-rest 加密（两者都依赖同一 `EncryptionKey`）。
 - **共址风险：** 加密密钥 `EncryptionKey` 以明文 base64 与受它保护的明文（解密后）/密文（加密后）API Key **同文件存储**——能读到 config.yaml 的人即可解密任何 `enc:` key。该机制仅防“明文 key 被直接读取/备份泄露”，并非强访问控制（见第 20 节 #7）。
+- **会话 cookie 加固：** `setSessionCookie`（`api/auth.go:164-174`）与登出 cookie（`api/auth.go:151-162`）已设置 `Secure: true`（与 `HttpOnly`、`SameSite=Strict` 配合），`MaxAge` 从 `86400*30`（30 天）改为 `int(sessionMaxAge.Seconds())`（24h），与服务端 `sessionMaxAge` 一致，防止过期 cookie 被重放。
 
 ## 18. 状态模型总览
 

@@ -385,7 +385,7 @@ func TestProxyRoutes_OPTIONSCORS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("Origin", "http://example.com")
+	req.Header.Set("Origin", "http://127.0.0.1:8080")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
