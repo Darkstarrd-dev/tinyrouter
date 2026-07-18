@@ -117,6 +117,17 @@
   var state = {
     items: [],
     index: -1,
+    videoItems: [],
+    videoIndex: -1,
+    viewMode: 'single',
+    mediaType: 'image',
+    focus: 'image',
+    videoURL: null,
+    videoCurDirPath: '',
+    videoDirMap: {},
+    videoDirPathList: [],
+    currentVideoFolderIndices: [],
+    currentVideoSubIndex: -1,
     autoplayTimer: null,
     autoplayOn: false,
     autoplayInterval: 3000, // ms, default 3rd gear
@@ -357,9 +368,36 @@
     var rVid = (vidEl && vidEl.videoWidth && vidEl.videoHeight)
       ? (vidEl.videoWidth / vidEl.videoHeight) : 1.0;
 
-    var ratioImg = rImg / (rImg + rVid);
-    ratioImg = Math.max(0.20, Math.min(0.80, ratioImg));
-    var ratioVid = 1 - ratioImg;
+    var containerW = window.innerWidth || document.documentElement.clientWidth || 1920;
+    var containerH = window.innerHeight || document.documentElement.clientHeight || 1080;
+
+    var ratioImg, ratioVid;
+
+    var isImgPortrait = rImg < 1.0;
+    var isVidPortrait = rVid < 1.0;
+
+    if (isImgPortrait && !isVidPortrait) {
+      // 图片竖向，视频横向/方图：图片优先占满 100vh 高度，算出其所需宽度占比，剩余归视频
+      var neededImgW = containerH * rImg;
+      ratioImg = neededImgW / containerW;
+      ratioImg = Math.max(0.20, Math.min(0.75, ratioImg));
+      ratioVid = 1 - ratioImg;
+    } else if (!isImgPortrait && isVidPortrait) {
+      // 视频竖向，图片横向/方图：视频优先占满 100vh 高度，算出其所需宽度占比，剩余归图片
+      var neededVidW = containerH * rVid;
+      ratioVid = neededVidW / containerW;
+      ratioVid = Math.max(0.20, Math.min(0.75, ratioVid));
+      ratioImg = 1 - ratioVid;
+    } else if (isImgPortrait && isVidPortrait) {
+      // 两侧均为竖向：按各自 Aspect Ratio 的比例分配宽度
+      ratioImg = rImg / (rImg + rVid);
+      ratioImg = Math.max(0.25, Math.min(0.75, ratioImg));
+      ratioVid = 1 - ratioImg;
+    } else {
+      // 两侧均为横向或 1:1：左右平分各 50%
+      ratioImg = 0.5;
+      ratioVid = 0.5;
+    }
 
     paneImg.style.flex = (ratioImg * 100) + ' 1 0%';
     paneVid.style.flex = (ratioVid * 100) + ' 1 0%';
@@ -1433,11 +1471,15 @@
         if (vidEl.src !== item.mainURL) {
           vidEl.src = item.mainURL;
         }
+        try {
+          vidEl.play().catch(function(err) { console.warn('video play interrupted:', err); });
+        } catch (e) {}
       }
       if (info) {
         var countStr = (index + 1) + ' / ' + state.videoItems.length;
         info.textContent = countStr + ' | Video';
       }
+      autoBalanceFullscreenSplitRatio();
     }).catch(function(e) { console.warn('renderActiveVideo failed:', e); });
   }
 
@@ -1587,7 +1629,8 @@
   }
 
   function onGalleryKeyDown(e) {
-    if (typeof currentPage !== 'undefined' && currentPage !== 'gallery') return;
+    var layout = document.getElementById('gallery-layout');
+    if (!layout && typeof currentPage !== 'undefined' && currentPage !== 'gallery') return;
     if (isFullscreen()) return; // handled by onFullscreenKey
 
     var tag = document.activeElement ? document.activeElement.tagName : '';
