@@ -368,15 +368,7 @@
   }
 
   function flashFocusOverlay(targetFocus) {
-    var paneId = (targetFocus === 'video') ? 'gallery-pane-video' : 'gallery-pane-image';
-    var pane = document.getElementById(paneId);
-    if (!pane) return;
-    var flash = document.createElement('div');
-    flash.className = 'gallery-focus-flash';
-    pane.appendChild(flash);
-    setTimeout(function() {
-      if (flash.parentNode) flash.parentNode.removeChild(flash);
-    }, 750);
+    // Focus indicator handled by CSS border and fullscreen left accent border line
   }
 
   function autoBalanceFullscreenSplitRatio() {
