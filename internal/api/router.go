@@ -154,7 +154,7 @@ func securityHeaders(port int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, "/v1/") {
-				csp := fmt.Sprintf("default-src 'self'; frame-ancestors 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; connect-src 'self' ws://127.0.0.1:%d", port)
+				csp := fmt.Sprintf("default-src 'self'; frame-ancestors 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data:; connect-src 'self' ws://127.0.0.1:%d", port)
 				w.Header().Set("Content-Security-Policy", csp)
 				w.Header().Set("X-Content-Type-Options", "nosniff")
 				w.Header().Set("X-Frame-Options", "SAMEORIGIN")
@@ -328,12 +328,17 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Get("/downloads/{id}/log", rt.getDownloadLog)
 			r.Post("/downloads/{id}/cancel", rt.cancelDownload)
 			r.Delete("/downloads/{id}", rt.removeDownload)
-
-			// Gallery (zip preview + TIFF transcoding)
-			r.Post("/gallery/zip", rt.galleryListZip)
-			r.Get("/gallery/zip/{sessionId}/{entryPath:*}", rt.galleryGetZipEntry)
-			r.Post("/gallery/tiff", rt.galleryConvertTiff)
 		})
+	})
+
+	// Gallery API routes: outside the /api group so they bypass the 1MB body
+	// limit (zip uploads can be up to 500MB) but still require auth, matching
+	// the protected /api/* authorization boundary.
+	r.Route("/api/gallery", func(r chi.Router) {
+		r.Use(rt.AuthMiddleware)
+		r.Post("/zip", rt.galleryListZip)
+		r.Get("/zip/{sessionId}/{entryPath:*}", rt.galleryGetZipEntry)
+		r.Post("/tiff", rt.galleryConvertTiff)
 	})
 
 	// Embedded UI (fallback to index.html)

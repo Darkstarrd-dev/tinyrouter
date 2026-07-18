@@ -231,17 +231,14 @@
     container.classList.add('gallery-page');
     container.innerHTML =
       '<div class="gallery-layout" id="gallery-layout">' +
-        '<div class="gallery-toolbar">' +
-          '<div class="gallery-drop-zone" id="gallery-drop-zone">' +
-            '<span class="gallery-drop-hint">' + escapeHtml(T('Drop/Paste/Open') || 'Drop / Paste / Open') + '</span>' +
-            '<button class="btn" id="gallery-open-btn" type="button">' + escapeHtml(T('Open') || 'Open') + '</button>' +
-          '</div>' +
-          '<span class="gallery-toolbar-msg" id="gallery-toolbar-msg" style="display:none"></span>' +
-          '<div class="gallery-counter" id="gallery-counter">0 / 0</div>' +
-          '<div class="gallery-info" id="gallery-info"></div>' +
-        '</div>' +
         '<div class="gallery-main" id="gallery-main">' +
           '<img class="gallery-main-img" id="gallery-main-img" alt="">' +
+          '<div class="gallery-empty" id="gallery-empty">' +
+            '<div class="gallery-empty-icon">[ ]</div>' +
+            '<div class="gallery-empty-hint">' + escapeHtml(T('Drop/Paste/Open') || 'Drop / Paste / Open') + '</div>' +
+            '<div class="gallery-empty-sub">' + escapeHtml(T('galleryEmpty') || '') + '</div>' +
+          '</div>' +
+          '<span class="gallery-main-msg" id="gallery-toolbar-msg" style="display:none"></span>' +
         '</div>' +
         '<div class="gallery-bottom">' +
           '<div class="gallery-thumbnails" id="gallery-thumbnails"></div>' +
@@ -255,6 +252,8 @@
             '</select>' +
             '<button class="btn" id="gallery-next-btn" type="button">' + escapeHtml(T('Next') || 'Next') + '</button>' +
             '<button class="btn" id="gallery-fs-btn" type="button">' + escapeHtml(T('Fullscreen') || 'Fullscreen') + '</button>' +
+            '<span class="gallery-counter" id="gallery-counter">0 / 0</span>' +
+            '<span class="gallery-info" id="gallery-info"></span>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -275,7 +274,7 @@
     });
     container.appendChild(input);
 
-    var zone = document.getElementById('gallery-drop-zone');
+    var zone = document.getElementById('gallery-layout');
     var layout = document.getElementById('gallery-layout');
 
     layout.addEventListener('dragover', onDragOver);
@@ -283,7 +282,7 @@
     layout.addEventListener('dragleave', onDragLeave);
     layout.addEventListener('drop', onDrop);
 
-    document.getElementById('gallery-open-btn').addEventListener('click', onOpenClick);
+    document.getElementById('gallery-empty').addEventListener('click', onOpenClick);
     document.getElementById('gallery-prev-btn').addEventListener('click', goPrev);
     document.getElementById('gallery-next-btn').addEventListener('click', goNext);
     document.getElementById('gallery-autoplay-btn').addEventListener('click', toggleAutoplay);
@@ -343,6 +342,7 @@
     var imgEl = document.getElementById('gallery-main-img');
     var counter = document.getElementById('gallery-counter');
     var info = document.getElementById('gallery-info');
+    var empty = document.getElementById('gallery-empty');
     if (counter) counter.textContent = (state.items.length ? (index + 1) : 0) + ' / ' + state.items.length;
 
     // highlight active thumb
@@ -358,6 +358,7 @@
     if (!item) {
       if (imgEl) imgEl.removeAttribute('src');
       if (info) info.textContent = '';
+      if (empty) empty.style.display = '';
       return;
     }
 
@@ -370,6 +371,7 @@
         }
         state.mainURL = item.mainURL;
         imgEl.src = item.mainURL;
+        if (empty) empty.style.display = 'none';
       }
       if (info) info.textContent = (escapeHtml(item.path) || escapeHtml(item.name)) + ' | ' + (T('Loading...') || 'Loading...');
       updateInfo(item, info);
@@ -407,18 +409,18 @@
 
   function onDragEnter(e) {
     e.preventDefault();
-    var zone = document.getElementById('gallery-drop-zone');
+    var zone = document.getElementById('gallery-layout');
     if (zone) zone.classList.add('drag-active');
   }
 
   function onDragLeave(e) {
-    var zone = document.getElementById('gallery-drop-zone');
+    var zone = document.getElementById('gallery-layout');
     if (zone) zone.classList.remove('drag-active');
   }
 
   function onDrop(e) {
     e.preventDefault();
-    var zone = document.getElementById('gallery-drop-zone');
+    var zone = document.getElementById('gallery-layout');
     if (zone) zone.classList.remove('drag-active');
     var dt = e.dataTransfer;
     if (!dt) return;
