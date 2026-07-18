@@ -1666,7 +1666,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 .gallery-pane.focused{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-glow)}
 .gallery-main-video{width:100%;height:100%;object-fit:contain;background:var(--bg-main);outline:none}
 .gallery-layout-fullscreen .gallery-main-video{background:#000}
-.gallery-video-hover-ctrl{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(to top, rgba(0,0,0,0.85), transparent);padding:16px 12px 8px 12px;opacity:0;visibility:hidden;transition:all var(--transition-fast);display:flex;flex-direction:column;gap:6px;z-index:20}
+.gallery-video-hover-ctrl{position:absolute;bottom:0;left:0;right:0;background:transparent;padding:16px 12px 8px 12px;opacity:0;visibility:hidden;transition:all var(--transition-fast);display:flex;flex-direction:column;gap:6px;z-index:20}
 .gallery-pane:hover .gallery-video-hover-ctrl,
 .gallery-layout-fullscreen .gallery-pane:hover .gallery-video-hover-ctrl,
 .gallery-layout-fullscreen .gallery-main:hover .gallery-video-hover-ctrl{opacity:1;visibility:visible}
