@@ -256,7 +256,6 @@
   }
 
   // ---------- render ----------------------------------------------
-  // ---------- render ----------------------------------------------
   function renderInitial(container) {
     state.container = container;
     container.classList.add('gallery-page');
@@ -298,6 +297,8 @@
               '</div>' +
               '<div class="gallery-ctrl-right">' +
                 '<span class="gallery-info" id="gallery-info">0 / 0</span>' +
+                '<button class="gallery-btn gallery-btn-icon" id="gallery-split-btn" type="button" title="Split / Single Mode (D)">▍▍</button>' +
+                '<button class="gallery-btn gallery-btn-icon" id="gallery-mode-btn" type="button" title="Image / Video Mode (M)">🖼</button>' +
                 '<button class="gallery-btn gallery-btn-icon" id="gallery-fs-btn" type="button" title="Fullscreen (F)">' +
                   '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
                     '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>' +
@@ -339,6 +340,8 @@
     document.getElementById('gallery-next-btn').addEventListener('click', goNext);
     document.getElementById('gallery-next-folder-btn').addEventListener('click', goNextFolder);
     document.getElementById('gallery-autoplay-btn').addEventListener('click', toggleAutoplay);
+    document.getElementById('gallery-split-btn').addEventListener('click', toggleSplitMode);
+    document.getElementById('gallery-mode-btn').addEventListener('click', toggleMediaType);
     document.getElementById('gallery-fs-btn').addEventListener('click', toggleFullscreen);
 
     var treePanel = document.getElementById('gallery-tree-panel');
@@ -347,8 +350,11 @@
         var target = e.target.closest('.gallery-tree-node');
         if (!target) return;
         var dir = target.getAttribute('data-dir');
-        if (dir && state.dirMap[dir] && state.dirMap[dir].length) {
-          setActive(state.dirMap[dir][0]);
+        var isVid = (state.viewMode === 'split') ? (state.focus === 'video') : (state.mediaType === 'video');
+        var map = isVid ? state.videoDirMap : state.dirMap;
+        if (dir && map[dir] && map[dir].length) {
+          if (isVid) setVideoActive(map[dir][0]);
+          else setActive(map[dir][0]);
         }
       });
     }
@@ -370,6 +376,122 @@
       state.pageKeyHandler = onGalleryKeyDown;
       document.addEventListener('keydown', state.pageKeyHandler);
     }
+  }
+
+  // ---------- split / media mode & focus handlers ---------------------
+  function toggleSplitMode() {
+    state.viewMode = (state.viewMode === 'single') ? 'split' : 'single';
+    if (state.viewMode === 'split') state.focus = 'image';
+    updateLayoutMode();
+    flashFocusOverlay(state.focus);
+  }
+
+  function toggleMediaType() {
+    state.mediaType = (state.mediaType === 'image') ? 'video' : 'image';
+    if (state.viewMode === 'split') {
+      state.focus = state.mediaType;
+    }
+    updateLayoutMode();
+    flashFocusOverlay(state.focus);
+  }
+
+  function switchFocus() {
+    if (state.viewMode !== 'split') return;
+    state.focus = (state.focus === 'image') ? 'video' : 'image';
+    updateLayoutMode();
+    flashFocusOverlay(state.focus);
+  }
+
+  function flashFocusOverlay(targetFocus) {
+    var paneId = (targetFocus === 'video') ? 'gallery-pane-video' : 'gallery-pane-image';
+    var pane = document.getElementById(paneId);
+    if (!pane) return;
+    var flash = document.createElement('div');
+    flash.className = 'gallery-focus-flash';
+    pane.appendChild(flash);
+    setTimeout(function() {
+      if (flash.parentNode) flash.parentNode.removeChild(flash);
+    }, 360);
+  }
+
+  function updateLayoutMode() {
+    var splitBtn = document.getElementById('gallery-split-btn');
+    var modeBtn = document.getElementById('gallery-mode-btn');
+    if (splitBtn) splitBtn.classList.toggle('active', state.viewMode === 'split');
+    if (modeBtn) modeBtn.textContent = (state.mediaType === 'video') ? '🎬' : '🖼';
+
+    var main = document.getElementById('gallery-main');
+    if (!main) return;
+
+    var activeMediaType = (state.viewMode === 'split') ? state.focus : state.mediaType;
+
+    if (state.viewMode === 'split') {
+      main.className = 'gallery-main gallery-main-split';
+      main.innerHTML =
+        '<div class="gallery-pane' + (state.focus === 'image' ? ' focused' : '') + '" id="gallery-pane-image">' +
+          '<img class="gallery-main-img" id="gallery-main-img" alt="">' +
+        '</div>' +
+        '<div class="gallery-pane' + (state.focus === 'video' ? ' focused' : '') + '" id="gallery-pane-video">' +
+          '<video class="gallery-main-video" id="gallery-main-video" autoplay loop></video>' +
+          '<div class="gallery-video-hover-ctrl" id="gallery-video-ctrl">' +
+            '<input type="range" class="gallery-video-seeker" id="gallery-video-seeker" value="0" min="0" max="100" step="0.1">' +
+            '<div class="gallery-video-bar">' +
+              '<div style="display:flex;align-items:center;gap:6px">' +
+                '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-play" type="button">▶</button>' +
+                '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-stop" type="button">■</button>' +
+                '<span id="gallery-vid-time" style="font-family:monospace">00:00 / 00:00</span>' +
+              '</div>' +
+              '<div style="display:flex;align-items:center;gap:6px">' +
+                '<span>🔊</span>' +
+                '<input type="range" class="gallery-vol-slider" id="gallery-vol-slider" value="80" min="0" max="100">' +
+                '<span id="gallery-vid-info" style="font-family:monospace">-</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
+      document.getElementById('gallery-pane-image').addEventListener('click', function() {
+        if (state.focus !== 'image') { state.focus = 'image'; updateLayoutMode(); flashFocusOverlay('image'); }
+      });
+      document.getElementById('gallery-pane-video').addEventListener('click', function() {
+        if (state.focus !== 'video') { state.focus = 'video'; updateLayoutMode(); flashFocusOverlay('video'); }
+      });
+      bindVideoControls();
+    } else {
+      main.className = 'gallery-main';
+      if (state.mediaType === 'image') {
+        main.innerHTML =
+          '<img class="gallery-main-img" id="gallery-main-img" alt="">' +
+          '<div class="gallery-empty" id="gallery-empty" style="display:none">' +
+            '<div class="gallery-empty-icon">⬚</div>' +
+            '<div class="gallery-empty-hint">' + escapeHtml(T('Drop/Paste/Open') || 'Drop / Paste / Open') + '</div>' +
+          '</div>';
+      } else {
+        main.innerHTML =
+          '<video class="gallery-main-video" id="gallery-main-video" autoplay loop></video>' +
+          '<div class="gallery-video-hover-ctrl" id="gallery-video-ctrl">' +
+            '<input type="range" class="gallery-video-seeker" id="gallery-video-seeker" value="0" min="0" max="100" step="0.1">' +
+            '<div class="gallery-video-bar">' +
+              '<div style="display:flex;align-items:center;gap:6px">' +
+                '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-play" type="button">▶</button>' +
+                '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-stop" type="button">■</button>' +
+                '<span id="gallery-vid-time" style="font-family:monospace">00:00 / 00:00</span>' +
+              '</div>' +
+              '<div style="display:flex;align-items:center;gap:6px">' +
+                '<span>🔊</span>' +
+                '<input type="range" class="gallery-vol-slider" id="gallery-vol-slider" value="80" min="0" max="100">' +
+                '<span id="gallery-vid-info" style="font-family:monospace">-</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        bindVideoControls();
+      }
+    }
+
+    renderTreePanel();
+    renderThumbnails();
+    if (state.index >= 0 && state.items.length) renderActive(state.index);
+    if (state.videoIndex >= 0 && state.videoItems.length) renderActiveVideo(state.videoIndex);
   }
 
   // ---------- directory tree & folder navigation helpers -------------
@@ -803,20 +925,26 @@
   async function processCollectedEntries(collected) {
     state.pendingZipQueue = [];
     state.loadingZip = false;
-    var out = [];
+    var outImg = [];
+    var outVid = [];
     var zipFiles = [];
     for (var i = 0; i < collected.length; i++) {
       var item = collected[i];
       if (item.kind === 'zipfile') {
         zipFiles.push(item.file);
       } else if (item.kind === 'plain' && item.file && item.file.size > 0) {
-        out.push({
+        var plainObj = {
           name: item.file.name || item.path.split('/').pop(),
           path: item.path || item.file.name,
           kind: 'plain',
           file: item.file,
           size: item.file.size || 0
-        });
+        };
+        if (isVideoExt(plainObj.path)) {
+          outVid.push(plainObj);
+        } else {
+          outImg.push(plainObj);
+        }
       }
     }
 
@@ -826,11 +954,24 @@
     });
 
     if (zipFiles.length > 0) {
-      await addZipBlob(zipFiles[0], out);
+      await addZipBlob(zipFiles[0], outImg);
       state.pendingZipQueue = zipFiles.slice(1);
     }
 
-    finalizeItems(out);
+    if (outVid.length) {
+      sortItems(outVid);
+      state.videoItems = outVid;
+      state.videoIndex = -1;
+      updateVideoDirStructure();
+      if (state.viewMode === 'single' && outImg.length === 0) {
+        state.mediaType = 'video';
+      }
+      setVideoActive(0);
+    }
+
+    if (outImg.length || !outVid.length) {
+      finalizeItems(outImg);
+    }
   }
 
   async function processHandles(handles, leaves) {
@@ -890,8 +1031,8 @@
     for (var i = 0; i < blobs.length; i++) {
       var b = blobs[i];
       if (b.type === 'application/zip' || isZipName(b.name)) collected.push({ kind: 'zipfile', file: b });
-      else if (isSupportedExt(b.name) || (b.type && b.type.startsWith('image/'))) {
-        if (b.size > 0) collected.push({ kind: 'plain', file: b, path: b.name || ('paste' + extOf(b.type)) });
+      else if (isSupportedExt(b.name) || (b.type && (b.type.startsWith('image/') || b.type.startsWith('video/')))) {
+        if (b.size > 0) collected.push({ kind: 'plain', file: b, path: b.name || ('paste' + (b.type.startsWith('video/') ? '.mp4' : extOf(b.type))) });
       }
     }
     processCollectedEntries(collected);
@@ -1103,12 +1244,176 @@
     }
   }
 
+  function updateVideoDirStructure() {
+    state.videoDirMap = {};
+    state.videoDirPathList = [];
+    for (var i = 0; i < state.videoItems.length; i++) {
+      var item = state.videoItems[i];
+      var dir = getDirPath(item.path);
+      if (!state.videoDirMap[dir]) {
+        state.videoDirMap[dir] = [];
+        state.videoDirPathList.push(dir);
+      }
+      state.videoDirMap[dir].push(i);
+    }
+  }
+
+  function setVideoActive(index) {
+    if (!state.videoItems.length) return;
+    if (index < 0) index = state.videoItems.length - 1;
+    if (index >= state.videoItems.length) index = 0;
+    state.videoIndex = index;
+    renderActiveVideo(index);
+  }
+
+  function renderActiveVideo(index) {
+    var item = state.videoItems[index];
+    var vidEl = document.getElementById('gallery-main-video');
+    var pathEl = document.getElementById('gallery-path');
+    var info = document.getElementById('gallery-info');
+
+    if (!item) {
+      if (vidEl) vidEl.removeAttribute('src');
+      return;
+    }
+
+    var isVidActive = (state.viewMode === 'split') ? (state.focus === 'video') : (state.mediaType === 'video');
+    if (isVidActive && pathEl) {
+      var displayPath = item.path || item.name || '';
+      pathEl.textContent = displayPath;
+      pathEl.title = displayPath;
+    }
+
+    ensureMainSrc(item).then(function() {
+      if (vidEl && item.mainURL) {
+        state.videoURL = item.mainURL;
+        vidEl.src = item.mainURL;
+      }
+      if (isVidActive && info) {
+        var countStr = (index + 1) + ' / ' + state.videoItems.length;
+        info.textContent = countStr + ' | Video';
+      }
+    }).catch(function(e) { console.warn('renderActiveVideo failed:', e); });
+  }
+
+  function bindVideoControls() {
+    var vidEl = document.getElementById('gallery-main-video');
+    var seeker = document.getElementById('gallery-video-seeker');
+    var playBtn = document.getElementById('gallery-vid-play');
+    var stopBtn = document.getElementById('gallery-vid-stop');
+    var volSlider = document.getElementById('gallery-vol-slider');
+    var timeTxt = document.getElementById('gallery-vid-time');
+    var infoTxt = document.getElementById('gallery-vid-info');
+
+    if (!vidEl) return;
+
+    if (playBtn) {
+      playBtn.onclick = function() {
+        if (vidEl.paused) vidEl.play();
+        else vidEl.pause();
+      };
+    }
+    if (stopBtn) {
+      stopBtn.onclick = function() {
+        vidEl.pause();
+        vidEl.currentTime = 0;
+      };
+    }
+    vidEl.onplay = function() { if (playBtn) playBtn.textContent = '⏸'; };
+    vidEl.onpause = function() { if (playBtn) playBtn.textContent = '▶'; };
+
+    vidEl.ontimeupdate = function() {
+      if (seeker && vidEl.duration) {
+        seeker.value = (vidEl.currentTime / vidEl.duration) * 100;
+      }
+      if (timeTxt) {
+        timeTxt.textContent = formatTime(vidEl.currentTime) + ' / ' + formatTime(vidEl.duration);
+      }
+    };
+
+    vidEl.onloadedmetadata = function() {
+      if (infoTxt) {
+        infoTxt.textContent = vidEl.videoWidth + 'x' + vidEl.videoHeight;
+      }
+      if (timeTxt) {
+        timeTxt.textContent = formatTime(vidEl.currentTime) + ' / ' + formatTime(vidEl.duration);
+      }
+    };
+
+    if (seeker) {
+      seeker.oninput = function() {
+        if (vidEl.duration) {
+          vidEl.currentTime = (seeker.value / 100) * vidEl.duration;
+        }
+      };
+    }
+
+    if (volSlider) {
+      volSlider.oninput = function() {
+        vidEl.volume = volSlider.value / 100;
+      };
+    }
+  }
+
   function onFullscreenKey(e) {
     if (!isFullscreen()) {
       unbindFullscreen();
       return;
     }
     var k = e.key;
+    if (k === 'Tab') {
+      if (state.viewMode === 'split') {
+        e.preventDefault(); e.stopPropagation(); switchFocus(); return;
+      }
+    }
+    if (k === 'd' || k === 'D') {
+      e.preventDefault(); e.stopPropagation(); toggleSplitMode(); return;
+    }
+    if (k === 'm' || k === 'M') {
+      e.preventDefault(); e.stopPropagation(); toggleMediaType(); return;
+    }
+
+    var isVidActive = (state.viewMode === 'split') ? (state.focus === 'video') : (state.mediaType === 'video');
+
+    if (isVidActive) {
+      var vidEl = document.getElementById('gallery-main-video');
+      if (k >= '1' && k <= '9') {
+        e.preventDefault(); e.stopPropagation();
+        var num = parseInt(k, 10);
+        var volPct = num * 11;
+        if (volPct > 100) volPct = 100;
+        if (vidEl) vidEl.volume = volPct / 100;
+        var volSlider = document.getElementById('gallery-vol-slider');
+        if (volSlider) volSlider.value = volPct;
+        showMsg('Volume: ' + volPct + '%');
+        return;
+      }
+      if (k === 'ArrowUp') {
+        e.preventDefault(); e.stopPropagation(); setVideoActive(state.videoIndex - 1); return;
+      }
+      if (k === 'ArrowDown') {
+        e.preventDefault(); e.stopPropagation(); setVideoActive(state.videoIndex + 1); return;
+      }
+      if (k === 'ArrowLeft') {
+        e.preventDefault(); e.stopPropagation();
+        if (vidEl) vidEl.currentTime = Math.max(0, vidEl.currentTime - 10);
+        return;
+      }
+      if (k === 'ArrowRight') {
+        e.preventDefault(); e.stopPropagation();
+        if (vidEl) vidEl.currentTime = Math.min(vidEl.duration || 0, vidEl.currentTime + 10);
+        return;
+      }
+      if (k === ' ' || k === 'Spacebar') {
+        e.preventDefault(); e.stopPropagation();
+        if (vidEl) {
+          if (vidEl.paused) vidEl.play();
+          else vidEl.pause();
+        }
+        return;
+      }
+    }
+
     if (k === 'ArrowLeft' || k === 'PageUp') {
       e.preventDefault(); e.stopPropagation(); goPrev();
     } else if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Spacebar') {
@@ -1145,6 +1450,70 @@
     }
 
     var k = e.key;
+    if (k === 'Tab') {
+      if (state.viewMode === 'split') {
+        e.preventDefault();
+        e.stopPropagation();
+        switchFocus();
+        return;
+      }
+    }
+    if (k === 'd' || k === 'D') {
+      e.preventDefault();
+      toggleSplitMode();
+      return;
+    }
+    if (k === 'm' || k === 'M') {
+      e.preventDefault();
+      toggleMediaType();
+      return;
+    }
+
+    var isVidActive = (state.viewMode === 'split') ? (state.focus === 'video') : (state.mediaType === 'video');
+
+    if (isVidActive) {
+      var vidEl = document.getElementById('gallery-main-video');
+      if (k >= '1' && k <= '9') {
+        e.preventDefault();
+        var num = parseInt(k, 10);
+        var volPct = num * 11;
+        if (volPct > 100) volPct = 100;
+        if (vidEl) vidEl.volume = volPct / 100;
+        var volSlider = document.getElementById('gallery-vol-slider');
+        if (volSlider) volSlider.value = volPct;
+        showMsg('Volume: ' + volPct + '%');
+        return;
+      }
+      if (k === 'ArrowUp') {
+        e.preventDefault();
+        setVideoActive(state.videoIndex - 1);
+        return;
+      }
+      if (k === 'ArrowDown') {
+        e.preventDefault();
+        setVideoActive(state.videoIndex + 1);
+        return;
+      }
+      if (k === 'ArrowLeft') {
+        e.preventDefault();
+        if (vidEl) vidEl.currentTime = Math.max(0, vidEl.currentTime - 10);
+        return;
+      }
+      if (k === 'ArrowRight') {
+        e.preventDefault();
+        if (vidEl) vidEl.currentTime = Math.min(vidEl.duration || 0, vidEl.currentTime + 10);
+        return;
+      }
+      if (k === ' ' || k === 'Spacebar') {
+        e.preventDefault();
+        if (vidEl) {
+          if (vidEl.paused) vidEl.play();
+          else vidEl.pause();
+        }
+        return;
+      }
+    }
+
     if (k === 'ArrowLeft' || k === 'PageUp') {
       e.preventDefault(); goPrev();
     } else if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Spacebar') {
