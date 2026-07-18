@@ -62,7 +62,7 @@ function navigateTo(page) {
       case 'gallery': return renderGallery(container);
     }
   })();
-  if (page === 'playground' || page === 'endpoint' && mainEl) mainEl.classList.add('main-no-scroll');
+  if ((page === 'playground' || page === 'gallery' || page === 'endpoint') && mainEl) mainEl.classList.add('main-no-scroll');
   if (p && p.then) {
     p.then(() => { if (gen === navGen) container.classList.add('page-enter'); })
      .catch((e) => {
@@ -433,8 +433,9 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'F5') { e.preventDefault(); navigateTo('download'); return; }
   if (e.key === 'F6') { e.preventDefault(); var galNav = document.querySelector('.nav-item[data-page="gallery"]'); if (galNav) navigateTo('gallery'); return; }
 
-  // Number keys 1-9: cycle quickslot models (only when not in input)
+  // Number keys 1-9: cycle quickslot models (only when not in input and not in gallery)
   if (!isInput && e.key >= '1' && e.key <= '9') {
+    if (typeof currentPage !== 'undefined' && currentPage === 'gallery') return;
     e.preventDefault();
     var orderNum = parseInt(e.key, 10);
     if (typeof cycleQuickSlotModel === 'function') cycleQuickSlotModel(orderNum);

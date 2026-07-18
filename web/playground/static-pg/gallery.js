@@ -7,7 +7,7 @@
   var SUPPORTED_EXTS = ['webp', 'png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif'];
   var AUTOPLAY_INTERVALS = [1000, 2000, 3000, 5000, 10000, 15000, 30000, 60000, 120000]; // ms
   var AUTOPLAY_LABELS = ['1s', '2s', '3s', '5s', '10s', '15s', '30s', '60s', '120s'];
-  var THUMB_SIZE = 96;
+  var THUMB_SIZE = 300;
 
   function isSupportedExt(name) {
     if (!name) return false;
@@ -62,11 +62,24 @@
       .replace(/'/g, '&#39;');
   }
 
+  function naturalComparePath(pathA, pathB) {
+    var segsA = (pathA || '').split('/');
+    var segsB = (pathB || '').split('/');
+    var minLen = Math.min(segsA.length, segsB.length);
+
+    for (var i = 0; i < minLen; i++) {
+      var a = segsA[i];
+      var b = segsB[i];
+      if (a !== b) {
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+      }
+    }
+    return segsA.length - segsB.length;
+  }
+
   function sortItems(items) {
     items.sort(function(a, b) {
-      var pa = a.path || '';
-      var pb = b.path || '';
-      return pa.localeCompare(pb, undefined, { numeric: true, sensitivity: 'base' });
+      return naturalComparePath(a.path, b.path);
     });
   }
 
@@ -95,17 +108,35 @@
     fullscreenEl: null,
     keyHandler: null,
     fsChangeHandler: null,
+    contextMenuHandler: null,
     pasteHandler: null,
+    pageKeyHandler: null,
     zipSessionId: null,
     zipEntriesCache: null,
+    pendingZipQueue: [],
+    loadingZip: false,
     objectURLs: [],
     thumbObserver: null,
-    container: null
+    container: null,
+    treeOpen: false,
+    curDirPath: '',
+    dirMap: {},
+    dirPathList: [],
+    currentFolderIndices: [],
+    currentSubIndex: -1
   };
 
   function trackURL(url) {
     if (url) state.objectURLs.push(url);
     return url;
+  }
+
+  function clearObjectURLs() {
+    for (var i = 0; i < state.objectURLs.length; i++) {
+      try { URL.revokeObjectURL(state.objectURLs[i]); } catch (e) {}
+    }
+    state.objectURLs = [];
+    state.mainURL = null;
   }
 
   // ---------- item accessors ---------------------------------------
@@ -120,7 +151,9 @@
         return Promise.resolve(item.file);
       }
       if (item.kind === 'zip') {
-        var url = '/api/gallery/zip/' + encodeURIComponent(state.zipSessionId) + '/' + encodeURIComponent(item.path);
+        var sid = item.sessionId || state.zipSessionId;
+        var identifier = (typeof item.index === 'number' && item.index >= 0) ? String(item.index) : (item.path || '').split('/').map(encodeURIComponent).join('/');
+        var url = '/api/gallery/zip/' + encodeURIComponent(sid) + '/' + identifier;
         return fetch(url).then(function(r) {
           if (!r.ok) throw new Error('zip entry http ' + r.status);
           return r.blob();
@@ -164,16 +197,15 @@
       var url;
       try {
         var bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
-        var canvas = new OffscreenCanvas(THUMB_SIZE, THUMB_SIZE);
-        var ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, THUMB_SIZE, THUMB_SIZE);
-        var scale = Math.min(THUMB_SIZE / bitmap.width, THUMB_SIZE / bitmap.height);
+        var maxDim = THUMB_SIZE;
+        var scale = Math.min(maxDim / bitmap.width, maxDim / bitmap.height);
         var w = Math.round(bitmap.width * scale);
         var h = Math.round(bitmap.height * scale);
-        ctx.drawImage(bitmap, (THUMB_SIZE - w) / 2, (THUMB_SIZE - h) / 2, w, h);
+        var canvas = new OffscreenCanvas(w, h);
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0, w, h);
         bitmap.close && bitmap.close();
-        var tblob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.7 });
+        var tblob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
         url = trackURL(URL.createObjectURL(tblob));
       } catch (e) {
         url = trackURL(URL.createObjectURL(blob));
@@ -189,14 +221,12 @@
 
   // ---------- filesystem traversal ---------------------------------
   async function walkDir(dirHandle, prefix, out) {
-    // BFS: collect top-level entries first, then process directories in a queue.
     var queue = [];
     queue.push({ handle: dirHandle, prefix: prefix });
     while (queue.length) {
       var cur = queue.shift();
       var entries = [];
       try {
-        // eslint-disable-next-line no-await-in-loop
         for await (var entry of cur.handle.values()) {
           entries.push(entry);
         }
@@ -226,34 +256,55 @@
   }
 
   // ---------- render ----------------------------------------------
+  // ---------- render ----------------------------------------------
   function renderInitial(container) {
     state.container = container;
     container.classList.add('gallery-page');
     container.innerHTML =
       '<div class="gallery-layout" id="gallery-layout">' +
-        '<div class="gallery-main" id="gallery-main">' +
-          '<img class="gallery-main-img" id="gallery-main-img" alt="">' +
-          '<div class="gallery-empty" id="gallery-empty">' +
-            '<div class="gallery-empty-icon">[ ]</div>' +
-            '<div class="gallery-empty-hint">' + escapeHtml(T('Drop/Paste/Open') || 'Drop / Paste / Open') + '</div>' +
-            '<div class="gallery-empty-sub">' + escapeHtml(T('galleryEmpty') || '') + '</div>' +
+        '<div class="gallery-tree-panel hidden" id="gallery-tree-panel"></div>' +
+        '<div class="gallery-main-area" id="gallery-main-area">' +
+          '<div class="gallery-main" id="gallery-main">' +
+            '<img class="gallery-main-img" id="gallery-main-img" alt="">' +
+            '<div class="gallery-empty" id="gallery-empty">' +
+              '<div class="gallery-empty-icon">⬚</div>' +
+              '<div class="gallery-empty-hint">' + escapeHtml(T('Drop/Paste/Open') || 'Drop / Paste / Open') + '</div>' +
+              '<div class="gallery-empty-sub">' + escapeHtml(T('galleryEmpty') || '') + '</div>' +
+            '</div>' +
+            '<span class="gallery-main-msg" id="gallery-toolbar-msg" style="display:none"></span>' +
           '</div>' +
-          '<span class="gallery-main-msg" id="gallery-toolbar-msg" style="display:none"></span>' +
-        '</div>' +
-        '<div class="gallery-bottom">' +
-          '<div class="gallery-thumbnails" id="gallery-thumbnails"></div>' +
-          '<div class="gallery-controls">' +
-            '<button class="btn" id="gallery-prev-btn" type="button">' + escapeHtml(T('Prev') || 'Prev') + '</button>' +
-            '<button class="btn" id="gallery-autoplay-btn" type="button">' + escapeHtml(T('Auto') || 'Auto') + '</button>' +
-            '<select class="gallery-interval" id="gallery-interval">' +
-              AUTOPLAY_LABELS.map(function(l, i) {
-                return '<option value="' + i + '">' + escapeHtml(l) + ' ' + escapeHtml(T('IntervalSec') || 'sec') + '</option>';
-              }).join('') +
-            '</select>' +
-            '<button class="btn" id="gallery-next-btn" type="button">' + escapeHtml(T('Next') || 'Next') + '</button>' +
-            '<button class="btn" id="gallery-fs-btn" type="button">' + escapeHtml(T('Fullscreen') || 'Fullscreen') + '</button>' +
-            '<span class="gallery-counter" id="gallery-counter">0 / 0</span>' +
-            '<span class="gallery-info" id="gallery-info"></span>' +
+          '<div class="gallery-bottom">' +
+            '<div class="gallery-thumbnails" id="gallery-thumbnails"></div>' +
+            '<div class="gallery-controls">' +
+              '<button class="gallery-btn gallery-btn-icon" id="gallery-tree-btn" type="button" title="Directory Tree (T)">☱</button>' +
+              '<div class="gallery-path" id="gallery-path" title="">-</div>' +
+              '<div class="gallery-ctrl-center">' +
+                '<button class="gallery-btn" id="gallery-prev-folder-btn" type="button" title="Prev Folder (&lt;| / Up)">&lt;|</button>' +
+                '<button class="gallery-btn" id="gallery-prev-btn" type="button" title="Prev (‹ / Left / PageUp)">‹</button>' +
+                '<div class="gallery-auto-wrapper" id="gallery-auto-wrapper">' +
+                  '<button class="gallery-btn" id="gallery-autoplay-btn" type="button" title="Autoplay (A / ▶)">▶</button>' +
+                  '<div class="gallery-interval-dropdown" id="gallery-interval-dropdown">' +
+                    AUTOPLAY_LABELS.map(function(l, i) {
+                      var act = (AUTOPLAY_INTERVALS[i] === state.autoplayInterval) ? ' active' : '';
+                      return '<div class="gallery-interval-item' + act + '" data-idx="' + i + '">' +
+                               '<span>' + escapeHtml(l) + '</span>' +
+                               '<span class="gallery-key-hint">' + (i + 1) + '</span>' +
+                             '</div>';
+                    }).join('') +
+                  '</div>' +
+                '</div>' +
+                '<button class="gallery-btn" id="gallery-next-btn" type="button" title="Next (› / Right / PageDown / Space)">›</button>' +
+                '<button class="gallery-btn" id="gallery-next-folder-btn" type="button" title="Next Folder (|&gt; / Down)">|&gt;</button>' +
+              '</div>' +
+              '<div class="gallery-ctrl-right">' +
+                '<span class="gallery-info" id="gallery-info">0 / 0</span>' +
+                '<button class="gallery-btn gallery-btn-icon" id="gallery-fs-btn" type="button" title="Fullscreen (F)">' +
+                  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                    '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>' +
+                  '</svg>' +
+                '</button>' +
+              '</div>' +
+            '</div>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -274,7 +325,6 @@
     });
     container.appendChild(input);
 
-    var zone = document.getElementById('gallery-layout');
     var layout = document.getElementById('gallery-layout');
 
     layout.addEventListener('dragover', onDragOver);
@@ -283,18 +333,157 @@
     layout.addEventListener('drop', onDrop);
 
     document.getElementById('gallery-empty').addEventListener('click', onOpenClick);
+    document.getElementById('gallery-tree-btn').addEventListener('click', toggleTreePanel);
+    document.getElementById('gallery-prev-folder-btn').addEventListener('click', goPrevFolder);
     document.getElementById('gallery-prev-btn').addEventListener('click', goPrev);
     document.getElementById('gallery-next-btn').addEventListener('click', goNext);
+    document.getElementById('gallery-next-folder-btn').addEventListener('click', goNextFolder);
     document.getElementById('gallery-autoplay-btn').addEventListener('click', toggleAutoplay);
-    document.getElementById('gallery-fs-btn').addEventListener('click', enterFullscreen);
-    var sel = document.getElementById('gallery-interval');
-    sel.value = String(AUTOPLAY_INTERVALS.indexOf(state.autoplayInterval));
-    sel.addEventListener('change', function(e) {
-      setAutoplayInterval(parseInt(e.target.value, 10) || 0);
-    });
+    document.getElementById('gallery-fs-btn').addEventListener('click', toggleFullscreen);
+
+    var treePanel = document.getElementById('gallery-tree-panel');
+    if (treePanel) {
+      treePanel.addEventListener('click', function(e) {
+        var target = e.target.closest('.gallery-tree-node');
+        if (!target) return;
+        var dir = target.getAttribute('data-dir');
+        if (dir && state.dirMap[dir] && state.dirMap[dir].length) {
+          setActive(state.dirMap[dir][0]);
+        }
+      });
+    }
+
+    var dropdown = document.getElementById('gallery-interval-dropdown');
+    if (dropdown) {
+      dropdown.addEventListener('click', function(e) {
+        var item = e.target.closest('[data-idx]');
+        if (!item) return;
+        var idx = parseInt(item.dataset.idx, 10);
+        if (!isNaN(idx)) setAutoplayInterval(idx);
+      });
+    }
 
     state.pasteHandler = onPaste;
     document.addEventListener('paste', state.pasteHandler);
+
+    if (!state.pageKeyHandler) {
+      state.pageKeyHandler = onGalleryKeyDown;
+      document.addEventListener('keydown', state.pageKeyHandler);
+    }
+  }
+
+  // ---------- directory tree & folder navigation helpers -------------
+  function getDirPath(itemPath) {
+    if (!itemPath) return 'Root';
+    var parts = itemPath.split('/');
+    if (parts.length <= 1) return 'Root';
+    parts.pop();
+    return parts.join('/') || 'Root';
+  }
+
+  function updateDirStructure() {
+    state.dirMap = {};
+    state.dirPathList = [];
+    for (var i = 0; i < state.items.length; i++) {
+      var item = state.items[i];
+      var dir = getDirPath(item.path);
+      if (!state.dirMap[dir]) {
+        state.dirMap[dir] = [];
+        state.dirPathList.push(dir);
+      }
+      state.dirMap[dir].push(i);
+    }
+    renderTreePanel();
+  }
+
+  function toggleTreePanel() {
+    state.treeOpen = !state.treeOpen;
+    var panel = document.getElementById('gallery-tree-panel');
+    var btn = document.getElementById('gallery-tree-btn');
+    if (panel) panel.classList.toggle('hidden', !state.treeOpen);
+    if (btn) btn.classList.toggle('active', state.treeOpen);
+    if (state.treeOpen) renderTreePanel();
+  }
+
+  function renderTreePanel() {
+    var panel = document.getElementById('gallery-tree-panel');
+    if (!panel) return;
+    if (!state.dirPathList.length) {
+      panel.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No Folder</div>';
+      return;
+    }
+
+    var html = '';
+    for (var i = 0; i < state.dirPathList.length; i++) {
+      var dir = state.dirPathList[i];
+      var count = state.dirMap[dir] ? state.dirMap[dir].length : 0;
+      var parts = dir.split('/');
+      var name = parts[parts.length - 1] || dir;
+      var level = Math.max(0, parts.length - 1);
+      var indent = level * 10;
+      var isActive = (dir === state.curDirPath) ? ' active' : '';
+      var icon = isZipName(dir) ? '📦' : '📁';
+
+      html += '<div class="gallery-tree-node' + isActive + '" data-dir="' + escapeHtml(dir) + '" style="padding-left:' + (indent + 8) + 'px" title="' + escapeHtml(dir) + '">' +
+                '<span class="tree-icon">' + icon + '</span>' +
+                '<span class="tree-name">' + escapeHtml(name) + '</span>' +
+                '<span class="tree-count">' + count + '</span>' +
+              '</div>';
+    }
+    panel.innerHTML = html;
+  }
+
+  function updateCurrentFolderItems(index) {
+    if (index < 0 || index >= state.items.length) {
+      state.curDirPath = '';
+      state.currentFolderIndices = [];
+      state.currentSubIndex = -1;
+      return;
+    }
+    var item = state.items[index];
+    var dir = getDirPath(item.path);
+    var prevDir = state.curDirPath;
+    state.curDirPath = dir;
+    var indices = state.dirMap[dir] || [index];
+    state.currentFolderIndices = indices;
+    state.currentSubIndex = indices.indexOf(index);
+
+    if (prevDir !== dir) {
+      renderThumbnails();
+    }
+
+    var panel = document.getElementById('gallery-tree-panel');
+    if (panel) {
+      var nodes = panel.querySelectorAll('.gallery-tree-node');
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        var isAct = (n.getAttribute('data-dir') === dir);
+        n.classList.toggle('active', isAct);
+        if (isAct && state.treeOpen) {
+          n.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      }
+    }
+  }
+
+  function goPrevFolder() {
+    if (!state.dirPathList.length) return;
+    var curIdx = state.dirPathList.indexOf(state.curDirPath);
+    var targetIdx = (curIdx > 0) ? curIdx - 1 : state.dirPathList.length - 1;
+    var targetDir = state.dirPathList[targetIdx];
+    if (targetDir && state.dirMap[targetDir] && state.dirMap[targetDir].length) {
+      setActive(state.dirMap[targetDir][0]);
+    }
+  }
+
+  function goNextFolder() {
+    if (!state.dirPathList.length) return;
+    var curIdx = state.dirPathList.indexOf(state.curDirPath);
+    var targetIdx = (curIdx >= 0) ? (curIdx + 1) % state.dirPathList.length : 0;
+    var targetDir = state.dirPathList[targetIdx];
+    if (targetDir && state.dirMap[targetDir] && state.dirMap[targetDir].length) {
+      setActive(state.dirMap[targetDir][0]);
+    }
   }
 
   function renderThumbnails() {
@@ -305,7 +494,7 @@
       state.thumbObserver.disconnect();
       state.thumbObserver = null;
     }
-    if (!state.items.length) return;
+    if (!state.currentFolderIndices || !state.currentFolderIndices.length) return;
 
     state.thumbObserver = new IntersectionObserver(function(entries) {
       entries.forEach(function(en) {
@@ -317,11 +506,11 @@
       });
     }, { root: wrap, rootMargin: '120px' });
 
-    for (var i = 0; i < state.items.length; i++) {
+    for (var k = 0; k < state.currentFolderIndices.length; k++) {
       (function(idx) {
         var item = state.items[idx];
         var div = document.createElement('div');
-        div.className = 'gallery-thumb';
+        div.className = 'gallery-thumb' + (idx === state.index ? ' active' : '');
         div.dataset.idx = String(idx);
         var img = document.createElement('img');
         img.className = 'gallery-thumb-img';
@@ -333,22 +522,26 @@
         item.thumbDivEl = div;
         state.thumbObserver.observe(div);
         if (item.thumbURL) img.src = item.thumbURL;
-      })(i);
+      })(state.currentFolderIndices[k]);
     }
   }
 
   function renderActive(index) {
     var item = state.items[index];
     var imgEl = document.getElementById('gallery-main-img');
-    var counter = document.getElementById('gallery-counter');
+    var pathEl = document.getElementById('gallery-path');
     var info = document.getElementById('gallery-info');
     var empty = document.getElementById('gallery-empty');
-    if (counter) counter.textContent = (state.items.length ? (index + 1) : 0) + ' / ' + state.items.length;
+
+    updateCurrentFolderItems(index);
 
     // highlight active thumb
-    for (var i = 0; i < state.items.length; i++) {
-      if (state.items[i].thumbDivEl) {
-        state.items[i].thumbDivEl.classList.toggle('active', i === index);
+    if (state.currentFolderIndices) {
+      for (var i = 0; i < state.currentFolderIndices.length; i++) {
+        var idx = state.currentFolderIndices[i];
+        if (state.items[idx] && state.items[idx].thumbDivEl) {
+          state.items[idx].thumbDivEl.classList.toggle('active', idx === index);
+        }
       }
     }
     if (item && item.thumbDivEl) {
@@ -357,28 +550,33 @@
 
     if (!item) {
       if (imgEl) imgEl.removeAttribute('src');
-      if (info) info.textContent = '';
+      if (pathEl) { pathEl.textContent = '-'; pathEl.title = ''; }
+      if (info) info.textContent = '0 / 0';
       if (empty) empty.style.display = '';
       return;
     }
 
+    var displayPath = item.path || item.name || '';
+    if (pathEl) {
+      pathEl.textContent = displayPath;
+      pathEl.title = displayPath;
+    }
+
     ensureMainSrc(item).then(function() {
       if (imgEl && item.mainURL) {
-        if (state.mainURL && state.mainURL !== item.mainURL) {
-          URL.revokeObjectURL(state.mainURL);
-          var pos = state.objectURLs.indexOf(state.mainURL);
-          if (pos >= 0) state.objectURLs.splice(pos, 1);
-        }
         state.mainURL = item.mainURL;
         imgEl.src = item.mainURL;
         if (empty) empty.style.display = 'none';
       }
-      if (info) info.textContent = (escapeHtml(item.path) || escapeHtml(item.name)) + ' | ' + (T('Loading...') || 'Loading...');
-      updateInfo(item, info);
+      var subIdx = (state.currentSubIndex >= 0) ? (state.currentSubIndex + 1) : 0;
+      var totalFolder = state.currentFolderIndices ? state.currentFolderIndices.length : 0;
+      var countStr = subIdx + ' / ' + totalFolder;
+      if (info) info.textContent = countStr + ' | Loading...';
+      updateInfo(item, info, countStr);
     }).catch(function(e) { console.warn('renderActive failed:', e); });
   }
 
-  function updateInfo(item, info) {
+  function updateInfo(item, info, countStr) {
     getItemBlob(item).then(function(blob) {
       if (!blob) return;
       item.size = blob.size;
@@ -386,11 +584,13 @@
       createImageBitmap(blob).then(function(bmp) {
         var dim = bmp.width + 'x' + bmp.height;
         bmp.close && bmp.close();
-        if (info) info.textContent = (escapeHtml(item.path) || escapeHtml(item.name)) + ' | ' + dim + ' | ' + sizeStr;
+        if (info) info.textContent = countStr + ' | ' + dim + ' | ' + sizeStr;
       }).catch(function() {
-        if (info) info.textContent = (escapeHtml(item.path) || escapeHtml(item.name)) + ' | ? | ' + sizeStr;
+        if (info) info.textContent = countStr + ' | ? | ' + sizeStr;
       });
-    }).catch(function() {});
+    }).catch(function() {
+      if (info) info.textContent = countStr;
+    });
   }
 
   function setActive(index) {
@@ -399,6 +599,50 @@
     if (index >= state.items.length) index = 0;
     state.index = index;
     renderActive(index);
+  }
+
+  // ---------- recursive directory reader for Drag & Drop / Paste -----------
+  function readEntryRecursive(entry, prefix) {
+    return new Promise(function(resolve) {
+      if (!entry) return resolve([]);
+      if (entry.isFile) {
+        entry.file(function(file) {
+          var name = file.name || entry.name || '';
+          if (file && file.size > 0 && (isSupportedExt(name) || isZipName(name))) {
+            var rel = prefix ? prefix + '/' + name : name;
+            resolve([{ kind: isZipName(name) ? 'zipfile' : 'plain', file: file, path: rel }]);
+          } else {
+            resolve([]);
+          }
+        }, function() { resolve([]); });
+      } else if (entry.isDirectory) {
+        var reader = entry.createReader();
+        var allEntries = [];
+        var readBatch = function() {
+          reader.readEntries(function(results) {
+            if (!results || !results.length) {
+              var dirPrefix = prefix ? prefix + '/' + entry.name : entry.name;
+              var promises = allEntries.map(function(child) {
+                return readEntryRecursive(child, dirPrefix);
+              });
+              Promise.all(promises).then(function(nested) {
+                var flat = [];
+                for (var i = 0; i < nested.length; i++) {
+                  flat = flat.concat(nested[i]);
+                }
+                resolve(flat);
+              });
+            } else {
+              allEntries = allEntries.concat(Array.prototype.slice.call(results));
+              readBatch();
+            }
+          }, function() { resolve([]); });
+        };
+        readBatch();
+      } else {
+        resolve([]);
+      }
+    });
   }
 
   // ---------- event handlers ---------------------------------------
@@ -423,55 +667,74 @@
     var zone = document.getElementById('gallery-layout');
     if (zone) zone.classList.remove('drag-active');
     var dt = e.dataTransfer;
-    if (!dt) return;
-    var items = dt.items;
-    if (items && items.length && typeof items[0].getAsFileSystemHandle === 'function') {
-      var handles = [];
-      var files = [];
-      var pending = [];
-      for (var i = 0; i < items.length; i++) {
-        var it = items[i];
-        if (it.kind !== 'file') continue;
-        pending.push((async function(item) {
-          try {
-            var handle = await item.getAsFileSystemHandle();
-            if (!handle) return;
-            if (handle.kind === 'directory') handles.push({ kind: 'directory', handle: handle });
-            else if (handle.kind === 'file') {
-              if (isZipName(handle.name)) files.push({ kind: 'ziphandle', handle: handle });
-              else handles.push({ kind: 'file', handle: handle });
-            }
-          } catch (err) {
-            var f = item.getAsFile();
-            if (f) files.push({ kind: 'blob', file: f });
-          }
-        })(it));
+    if (!dt || !dt.items) {
+      if (dt && dt.files && dt.files.length) {
+        processFiles(Array.prototype.slice.call(dt.files));
       }
-      Promise.all(pending).then(function() {
-        processHandles(handles, files);
-      }).catch(function(err) { console.warn('drop handle failed:', err); });
-    } else {
-      var fileList = dt.files;
-      if (fileList && fileList.length) {
-        processFiles(Array.prototype.slice.call(fileList));
+      return;
+    }
+
+    var promises = [];
+    for (var i = 0; i < dt.items.length; i++) {
+      var item = dt.items[i];
+      if (item.kind !== 'file') continue;
+      if (typeof item.webkitGetAsEntry === 'function') {
+        var entry = item.webkitGetAsEntry();
+        if (entry) {
+          promises.push(readEntryRecursive(entry, ''));
+          continue;
+        }
       }
+      var f = item.getAsFile();
+      if (f && f.size > 0) {
+        if (isZipName(f.name)) promises.push(Promise.resolve([{ kind: 'zipfile', file: f, path: f.name }]));
+        else if (isSupportedExt(f.name)) promises.push(Promise.resolve([{ kind: 'plain', file: f, path: f.name }]));
+      }
+    }
+
+    if (promises.length) {
+      Promise.all(promises).then(function(results) {
+        var flat = [];
+        for (var r = 0; r < results.length; r++) {
+          flat = flat.concat(results[r]);
+        }
+        processCollectedEntries(flat);
+      }).catch(function(err) { console.warn('drop parse failed:', err); });
     }
   }
 
   function onPaste(e) {
     var cd = e.clipboardData;
     if (!cd || !cd.items) return;
-    var blobs = [];
+    var promises = [];
     for (var i = 0; i < cd.items.length; i++) {
       var it = cd.items[i];
       if (it.kind !== 'file') continue;
+      if (typeof it.webkitGetAsEntry === 'function') {
+        var entry = it.webkitGetAsEntry();
+        if (entry) {
+          promises.push(readEntryRecursive(entry, ''));
+          continue;
+        }
+      }
       var blob = it.getAsFile();
-      if (!blob) continue;
-      blobs.push(blob);
+      if (blob && blob.size > 0) {
+        var nm = blob.name || '';
+        if (isZipName(nm)) promises.push(Promise.resolve([{ kind: 'zipfile', file: blob, path: nm }]));
+        else if (isSupportedExt(nm) || (blob.type && blob.type.startsWith('image/'))) {
+          promises.push(Promise.resolve([{ kind: 'plain', file: blob, path: nm || ('paste' + extOf(blob.type)) }]));
+        }
+      }
     }
-    if (!blobs.length) return;
+    if (!promises.length) return;
     e.preventDefault();
-    processBlobs(blobs);
+    Promise.all(promises).then(function(results) {
+      var flat = [];
+      for (var r = 0; r < results.length; r++) {
+        flat = flat.concat(results[r]);
+      }
+      processCollectedEntries(flat);
+    }).catch(function(err) { console.warn('paste parse failed:', err); });
   }
 
   function onOpenClick() {
@@ -505,7 +768,7 @@
     for (var i = 0; i < handles.length; i++) {
       var h = handles[i];
       if (h.kind === 'directory') {
-        await walkDir(h, '', fsHandles);
+        await walkDir(h.handle, '', fsHandles);
       } else {
         if (isZipName(h.name)) blobs.push({ kind: 'ziphandle', handle: h });
         else fsHandles.push({ kind: 'file', handle: h });
@@ -514,30 +777,80 @@
     await processHandles(fsHandles, blobs);
   }
 
-  // ---------- collectors -------------------------------------------
-  async function processHandles(handles, leaves) {
+  // ---------- collectors & lazy zip loader ---------------------------
+  async function loadNextZipChunk() {
+    if (!state.pendingZipQueue.length || state.loadingZip) return;
+    state.loadingZip = true;
+    var nextZip = state.pendingZipQueue.shift();
+    var newItems = [];
+    await addZipBlob(nextZip, newItems);
+    state.loadingZip = false;
+    if (newItems.length) {
+      appendNewItems(newItems);
+    }
+  }
+
+  function appendNewItems(newItems) {
+    sortItems(newItems);
+    state.items = state.items.concat(newItems);
+    updateDirStructure();
+    renderThumbnails();
+    if (state.index >= 0 && state.index < state.items.length) {
+      renderActive(state.index);
+    }
+  }
+
+  async function processCollectedEntries(collected) {
+    state.pendingZipQueue = [];
+    state.loadingZip = false;
     var out = [];
+    var zipFiles = [];
+    for (var i = 0; i < collected.length; i++) {
+      var item = collected[i];
+      if (item.kind === 'zipfile') {
+        zipFiles.push(item.file);
+      } else if (item.kind === 'plain' && item.file && item.file.size > 0) {
+        out.push({
+          name: item.file.name || item.path.split('/').pop(),
+          path: item.path || item.file.name,
+          kind: 'plain',
+          file: item.file,
+          size: item.file.size || 0
+        });
+      }
+    }
+
+    // Sort zip files by name
+    zipFiles.sort(function(a, b) {
+      return (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    if (zipFiles.length > 0) {
+      await addZipBlob(zipFiles[0], out);
+      state.pendingZipQueue = zipFiles.slice(1);
+    }
+
+    finalizeItems(out);
+  }
+
+  async function processHandles(handles, leaves) {
+    var collected = [];
     for (var i = 0; i < handles.length; i++) {
       var h = handles[i];
       if (h.kind === 'directory') {
-        await walkDir(h, '', out);
+        await walkDir(h.handle, '', collected);
       } else if (h.kind === 'file' && h.handle) {
         var name = h.handle.name;
         if (isZipName(name)) {
-          // read zip as blob
           try {
             var file = await h.handle.getFile();
-            await addZipBlob(file, out);
+            collected.push({ kind: 'zipfile', file: file });
           } catch (e) { console.warn('zip handle read failed:', e); }
         } else {
-          out.push({
-            name: name,
-            path: name,
-            kind: 'fs',
-            handle: h.handle,
-            getBlob: (function(hh) { return function() { return hh.getFile(); }; })(h.handle),
-            size: 0
-          });
+          try {
+            var ff = await h.handle.getFile();
+            collected.push({ kind: 'plain', file: ff, path: name });
+          } catch (e) {}
         }
       }
     }
@@ -547,54 +860,41 @@
         if (lf.kind === 'ziphandle') {
           try {
             var zf = await lf.handle.getFile();
-            await addZipBlob(zf, out);
-          } catch (e) { console.warn('zip leaf failed:', e); }
+            collected.push({ kind: 'zipfile', file: zf });
+          } catch (e) {}
         } else if (lf.kind === 'file' && lf.handle) {
           try {
-            var ff = await lf.handle.getFile();
-            out.push({
-              name: ff.name, path: ff.name, kind: 'fs',
-              handle: lf.handle, getBlob: (function(hh) { return function() { return hh.getFile(); }; })(lf.handle), size: ff.size
-            });
-          } catch (e) { console.warn('leaf file failed:', e); }
+            var f2 = await lf.handle.getFile();
+            collected.push({ kind: 'plain', file: f2, path: f2.name });
+          } catch (e) {}
         } else if (lf.kind === 'blob' && lf.file) {
-          out.push(makePlainItem(lf.file));
+          collected.push({ kind: 'plain', file: lf.file, path: lf.file.name });
         }
       }
     }
-    finalizeItems(out);
+    await processCollectedEntries(collected);
   }
 
   function processFiles(files) {
-    var plain = [];
-    var zips = [];
+    var collected = [];
     for (var i = 0; i < files.length; i++) {
       var f = files[i];
-      if (isZipName(f.name)) zips.push(f);
-      else plain.push(f);
+      if (isZipName(f.name)) collected.push({ kind: 'zipfile', file: f });
+      else if (isSupportedExt(f.name) && f.size > 0) collected.push({ kind: 'plain', file: f, path: f.name });
     }
-    var out = [];
-    for (var j = 0; j < plain.length; j++) out.push(makePlainItem(plain[j]));
-    var seq = Promise.resolve();
-    for (var k = 0; k < zips.length; k++) {
-      seq = seq.then(function(zf) { return addZipBlob(zf, out); }.bind(null, zips[k]));
-    }
-    seq.then(function() { finalizeItems(out); }).catch(function(e) { console.warn('processFiles failed:', e); });
+    processCollectedEntries(collected);
   }
 
   function processBlobs(blobs) {
-    var out = [];
-    var zips = [];
+    var collected = [];
     for (var i = 0; i < blobs.length; i++) {
       var b = blobs[i];
-      if (b.type === 'application/zip' || isZipName(b.name)) zips.push(b);
-      else out.push(makePlainItem(b));
+      if (b.type === 'application/zip' || isZipName(b.name)) collected.push({ kind: 'zipfile', file: b });
+      else if (isSupportedExt(b.name) || (b.type && b.type.startsWith('image/'))) {
+        if (b.size > 0) collected.push({ kind: 'plain', file: b, path: b.name || ('paste' + extOf(b.type)) });
+      }
     }
-    var seq = Promise.resolve();
-    for (var k = 0; k < zips.length; k++) {
-      seq = seq.then(function(zf) { return addZipBlob(zf, out); }.bind(null, zips[k]));
-    }
-    seq.then(function() { finalizeItems(out); }).catch(function(e) { console.warn('processBlobs failed:', e); });
+    processCollectedEntries(collected);
   }
 
   function makePlainItem(file) {
@@ -621,16 +921,21 @@
         return;
       }
       var data = await res.json();
-      state.zipSessionId = data.sessionId;
+      var sessionId = data.sessionId;
+      state.zipSessionId = sessionId;
       state.zipEntriesCache = data.manifest;
       var entries = (data.manifest && data.manifest.entries) || [];
+      var zipName = file.name || 'archive.zip';
       for (var i = 0; i < entries.length; i++) {
         var e = entries[i];
         var nm = e.path.split('/').pop();
+        var displayPath = zipName + '/' + e.path;
         out.push({
           name: nm,
-          path: e.path,
+          path: displayPath,
           kind: 'zip',
+          index: (typeof e.index === 'number' ? e.index : i),
+          sessionId: sessionId,
           size: e.size || 0,
           getBlob: null
         });
@@ -642,9 +947,11 @@
   }
 
   function finalizeItems(out) {
+    clearObjectURLs();
     if (!out.length) {
       state.items = [];
       state.index = -1;
+      updateDirStructure();
       renderThumbnails();
       renderActive(-1);
       return;
@@ -652,6 +959,7 @@
     sortItems(out);
     state.items = out;
     state.index = -1;
+    updateDirStructure();
     renderThumbnails();
     setActive(0);
   }
@@ -674,7 +982,10 @@
     }
     state.autoplayOn = false;
     var btn = document.getElementById('gallery-autoplay-btn');
-    if (btn) btn.textContent = (T('Auto') || 'Auto');
+    if (btn) {
+      btn.innerHTML = '▶';
+      btn.setAttribute('title', 'Autoplay (A / ▶)');
+    }
   }
 
   function startAutoplay() {
@@ -683,7 +994,10 @@
     state.autoplayOn = true;
     state.autoplayTimer = setInterval(goNext, state.autoplayInterval);
     var btn = document.getElementById('gallery-autoplay-btn');
-    if (btn) btn.textContent = (T('Pause') || 'Pause');
+    if (btn) {
+      btn.innerHTML = '■';
+      btn.setAttribute('title', 'Stop (A / ■)');
+    }
   }
 
   function toggleAutoplay() {
@@ -695,41 +1009,68 @@
     if (idx < 0) idx = 0;
     if (idx >= AUTOPLAY_INTERVALS.length) idx = AUTOPLAY_INTERVALS.length - 1;
     state.autoplayInterval = AUTOPLAY_INTERVALS[idx];
-    var sel = document.getElementById('gallery-interval');
-    if (sel) sel.value = String(idx);
+    var dropdown = document.getElementById('gallery-interval-dropdown');
+    if (dropdown) {
+      var items = dropdown.querySelectorAll('.gallery-interval-item');
+      for (var i = 0; i < items.length; i++) {
+        items[i].classList.toggle('active', i === idx);
+      }
+    }
     if (state.autoplayOn) startAutoplay();
+  }
+
+  function toggleFullscreen() {
+    if (isFullscreen()) exitFullscreen();
+    else enterFullscreen();
   }
 
   function enterFullscreen() {
     var main = document.getElementById('gallery-main');
     var target = main || document.documentElement;
-    var p = target.requestFullscreen ? target.requestFullscreen() : Promise.reject(new Error('no fs'));
-    p.then(function() {
-      var layout = document.getElementById('gallery-layout');
-      if (layout) layout.classList.add('gallery-layout-fullscreen');
-      state.fullscreenEl = target;
-      bindFullscreen();
-    }).catch(function(e) { console.warn('enterFullscreen failed:', e); });
+    var p = target.requestFullscreen ? target.requestFullscreen() : Promise.resolve();
+    p.catch(function(e) { console.warn('enterFullscreen failed:', e); });
+    var layout = document.getElementById('gallery-layout');
+    if (layout) layout.classList.add('gallery-layout-fullscreen');
+    document.body.classList.add('gallery-fullscreen-active');
+    state.fullscreenEl = target;
+    bindFullscreen();
+
+    if (typeof window.toggleNativeFullscreen === 'function') {
+      try { window.toggleNativeFullscreen(true); } catch (e) {}
+    }
   }
 
   function exitFullscreen() {
+    document.body.classList.remove('gallery-fullscreen-active');
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(function(e) { console.warn('exitFullscreen failed:', e); });
-    } else {
-      unbindFullscreen();
-      var layout = document.getElementById('gallery-layout');
-      if (layout) layout.classList.remove('gallery-layout-fullscreen');
+    }
+    unbindFullscreen();
+    var layout = document.getElementById('gallery-layout');
+    if (layout) layout.classList.remove('gallery-layout-fullscreen');
+
+    if (typeof window.toggleNativeFullscreen === 'function') {
+      try { window.toggleNativeFullscreen(false); } catch (e) {}
     }
   }
 
   function isFullscreen() {
-    return !!document.fullscreenElement;
+    return !!document.fullscreenElement || document.body.classList.contains('gallery-fullscreen-active');
+  }
+
+  function onContextMenu(e) {
+    if (isFullscreen()) {
+      e.preventDefault();
+      e.stopPropagation();
+      exitFullscreen();
+    }
   }
 
   function bindFullscreen() {
     if (!state.fsChangeHandler) {
       state.fsChangeHandler = function() {
         if (!document.fullscreenElement) {
+          document.body.classList.remove('gallery-fullscreen-active');
           var layout = document.getElementById('gallery-layout');
           if (layout) layout.classList.remove('gallery-layout-fullscreen');
           unbindFullscreen();
@@ -740,6 +1081,10 @@
     if (!state.keyHandler) {
       state.keyHandler = onFullscreenKey;
       document.addEventListener('keydown', state.keyHandler, true);
+    }
+    if (!state.contextMenuHandler) {
+      state.contextMenuHandler = onContextMenu;
+      document.addEventListener('contextmenu', state.contextMenuHandler, true);
     }
   }
 
@@ -752,6 +1097,10 @@
       document.removeEventListener('fullscreenchange', state.fsChangeHandler);
       state.fsChangeHandler = null;
     }
+    if (state.contextMenuHandler) {
+      document.removeEventListener('contextmenu', state.contextMenuHandler, true);
+      state.contextMenuHandler = null;
+    }
   }
 
   function onFullscreenKey(e) {
@@ -760,22 +1109,59 @@
       return;
     }
     var k = e.key;
-    if (k === 'ArrowLeft') {
+    if (k === 'ArrowLeft' || k === 'PageUp') {
       e.preventDefault(); e.stopPropagation(); goPrev();
-    } else if (k === 'ArrowRight' || k === ' ' || k === 'Spacebar') {
+    } else if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Spacebar') {
       e.preventDefault(); e.stopPropagation(); goNext();
+    } else if (k === 'ArrowUp') {
+      e.preventDefault(); e.stopPropagation(); goPrevFolder();
+    } else if (k === 'ArrowDown') {
+      e.preventDefault(); e.stopPropagation(); goNextFolder();
     } else if (k === 'Escape' || k === 'Enter') {
       e.preventDefault(); e.stopPropagation(); exitFullscreen();
     } else if (k === 'a' || k === 'A') {
       e.preventDefault(); e.stopPropagation(); toggleAutoplay();
+    } else if (k === 'f' || k === 'F') {
+      e.preventDefault(); e.stopPropagation(); toggleFullscreen();
+    } else if (k === 't' || k === 'T') {
+      e.preventDefault(); e.stopPropagation(); toggleTreePanel();
     } else if (k >= '1' && k <= '9') {
       e.preventDefault(); e.stopPropagation();
       setAutoplayInterval(parseInt(k, 10) - 1);
     } else {
-      // block app.js global F1-F6 shortcuts while in gallery fullscreen
       if (k === 'F1' || k === 'F2' || k === 'F3' || k === 'F4' || k === 'F5' || k === 'F6') {
         e.preventDefault(); e.stopPropagation();
       }
+    }
+  }
+
+  function onGalleryKeyDown(e) {
+    if (typeof currentPage !== 'undefined' && currentPage !== 'gallery') return;
+    if (isFullscreen()) return; // handled by onFullscreenKey
+
+    var tag = document.activeElement ? document.activeElement.tagName : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement && document.activeElement.isContentEditable)) {
+      return;
+    }
+
+    var k = e.key;
+    if (k === 'ArrowLeft' || k === 'PageUp') {
+      e.preventDefault(); goPrev();
+    } else if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Spacebar') {
+      e.preventDefault(); goNext();
+    } else if (k === 'ArrowUp') {
+      e.preventDefault(); goPrevFolder();
+    } else if (k === 'ArrowDown') {
+      e.preventDefault(); goNextFolder();
+    } else if (k === 'a' || k === 'A') {
+      e.preventDefault(); toggleAutoplay();
+    } else if (k === 'f' || k === 'F') {
+      e.preventDefault(); toggleFullscreen();
+    } else if (k === 't' || k === 'T') {
+      e.preventDefault(); toggleTreePanel();
+    } else if (k >= '1' && k <= '9') {
+      e.preventDefault();
+      setAutoplayInterval(parseInt(k, 10) - 1);
     }
   }
 
@@ -788,18 +1174,39 @@
   window.renderGallery = function(container) {
     try {
       renderInitial(container);
+
+      // Restore tree panel UI state if tree was open
+      var panel = document.getElementById('gallery-tree-panel');
+      var btn = document.getElementById('gallery-tree-btn');
+      if (panel) panel.classList.toggle('hidden', !state.treeOpen);
+      if (btn) btn.classList.toggle('active', state.treeOpen);
+
+      if (state.items && state.items.length) {
+        // Tab-switching back from another page: restore current session and index
+        updateDirStructure();
+        var targetIndex = (state.index >= 0 && state.index < state.items.length) ? state.index : 0;
+        setActive(targetIndex);
+      }
     } catch (e) {
       console.warn('renderGallery failed:', e);
     }
   };
 
   /**
-   * Cleanup: revoke all object URLs, stop timers, remove document-level
-   * listeners and reset module state. Called by app.js when leaving the page.
+   * Cleanup: suspend gallery state, stop timers, remove document-level
+   * listeners when leaving the page without destroying loaded items.
    */
   window.cleanupGallery = function() {
     stopAutoplay();
     unbindFullscreen();
+    document.body.classList.remove('gallery-fullscreen-active');
+    if (typeof window.toggleNativeFullscreen === 'function') {
+      try { window.toggleNativeFullscreen(false); } catch (e) {}
+    }
+    if (state.pageKeyHandler) {
+      document.removeEventListener('keydown', state.pageKeyHandler);
+      state.pageKeyHandler = null;
+    }
     if (state.pasteHandler) {
       document.removeEventListener('paste', state.pasteHandler);
       state.pasteHandler = null;
@@ -808,18 +1215,6 @@
       state.thumbObserver.disconnect();
       state.thumbObserver = null;
     }
-    for (var i = 0; i < state.objectURLs.length; i++) {
-      try { URL.revokeObjectURL(state.objectURLs[i]); } catch (e) {}
-    }
-    if (state.mainURL) {
-      try { URL.revokeObjectURL(state.mainURL); } catch (e) {}
-    }
-    state.items = [];
-    state.index = -1;
-    state.mainURL = null;
-    state.zipSessionId = null;
-    state.zipEntriesCache = null;
-    state.objectURLs = [];
     var layout = document.getElementById('gallery-layout');
     if (layout) layout.classList.remove('gallery-layout-fullscreen');
     var c = state.container;

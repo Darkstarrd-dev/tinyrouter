@@ -7,6 +7,7 @@ import (
 	"io"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +18,11 @@ var ErrEntryNotFound = errors.New("entry not found")
 // IsNotFound reports whether err is (or wraps) ErrEntryNotFound.
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrEntryNotFound)
+}
+
+func cleanZipPath(p string) string {
+	p = strings.ReplaceAll(p, "\\", "/")
+	return strings.TrimPrefix(p, "/")
 }
 
 // ListZipEntries opens the zip archive described by reader/size and returns a
@@ -30,22 +36,24 @@ func ListZipEntries(reader io.ReaderAt, size int64) (manifest Manifest, err erro
 	}
 
 	var entries []Entry
-	for _, f := range z.File {
+	for idx, f := range z.File {
 		if f.FileInfo().IsDir() {
 			continue
 		}
-		if !IsSupportedExt(f.Name) {
+		cleanName := cleanZipPath(f.Name)
+		if !IsSupportedExt(cleanName) {
 			continue
 		}
 		entries = append(entries, Entry{
-			Path: f.Name,
-			Size: int64(f.UncompressedSize64),
-			Kind: "file",
+			Index: idx,
+			Path:  cleanName,
+			Size:  int64(f.UncompressedSize64),
+			Kind:  "file",
 		})
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Path < entries[j].Path
+		return naturalLess(entries[i].Path, entries[j].Path)
 	})
 
 	return Manifest{
@@ -54,25 +62,105 @@ func ListZipEntries(reader io.ReaderAt, size int64) (manifest Manifest, err erro
 	}, nil
 }
 
-// GetZipEntry finds the named entry inside the zip archive and returns its raw
-// bytes plus a content-type derived from the extension. The name must match
-// exactly (no fuzzy matching). Reads are bounded by a 100 MiB limit. When the
-// entry does not exist, ErrEntryNotFound is returned.
-func GetZipEntry(reader io.ReaderAt, size int64, name string) (data []byte, contentType string, err error) {
+func naturalLess(s1, s2 string) bool {
+	segs1 := strings.Split(cleanZipPath(s1), "/")
+	segs2 := strings.Split(cleanZipPath(s2), "/")
+	minLen := len(segs1)
+	if len(segs2) < minLen {
+		minLen = len(segs2)
+	}
+
+	for i := 0; i < minLen; i++ {
+		if segs1[i] != segs2[i] {
+			return compareSegmentNatural(segs1[i], segs2[i])
+		}
+	}
+	return len(segs1) < len(segs2)
+}
+
+func compareSegmentNatural(a, b string) bool {
+	chunksA := splitChunks(a)
+	chunksB := splitChunks(b)
+	minLen := len(chunksA)
+	if len(chunksB) < minLen {
+		minLen = len(chunksB)
+	}
+
+	for i := 0; i < minLen; i++ {
+		ca := chunksA[i]
+		cb := chunksB[i]
+		if ca != cb {
+			numA, isNumA := parseUint(ca)
+			numB, isNumB := parseUint(cb)
+			if isNumA && isNumB {
+				if numA != numB {
+					return numA < numB
+				}
+			} else {
+				return ca < cb
+			}
+		}
+	}
+	return len(chunksA) < len(chunksB)
+}
+
+func splitChunks(s string) []string {
+	var chunks []string
+	var buf strings.Builder
+	inDigit := false
+
+	for _, r := range s {
+		digit := r >= '0' && r <= '9'
+		if digit != inDigit && buf.Len() > 0 {
+			chunks = append(chunks, buf.String())
+			buf.Reset()
+		}
+		inDigit = digit
+		buf.WriteRune(r)
+	}
+	if buf.Len() > 0 {
+		chunks = append(chunks, buf.String())
+	}
+	return chunks
+}
+
+func parseUint(s string) (uint64, bool) {
+	var n uint64
+	if len(s) == 0 {
+		return 0, false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+		n = n*10 + uint64(s[i]-'0')
+	}
+	return n, true
+}
+
+// GetZipEntry finds the named or indexed entry inside the zip archive and returns
+// its raw bytes plus a content-type derived from the extension.
+func GetZipEntry(reader io.ReaderAt, size int64, identifier string) (data []byte, contentType string, err error) {
 	z, err := zip.NewReader(reader, size)
 	if err != nil {
 		return nil, "", fmt.Errorf("open zip: %w", err)
 	}
 
 	var target *zip.File
-	for _, f := range z.File {
-		if f.Name == name {
-			target = f
-			break
+	if idx, pErr := strconv.Atoi(identifier); pErr == nil && idx >= 0 && idx < len(z.File) {
+		target = z.File[idx]
+	} else {
+		targetName := cleanZipPath(identifier)
+		for _, f := range z.File {
+			if cleanZipPath(f.Name) == targetName {
+				target = f
+				break
+			}
 		}
 	}
+
 	if target == nil {
-		return nil, "", fmt.Errorf("%w: %s", ErrEntryNotFound, name)
+		return nil, "", fmt.Errorf("%w: %s", ErrEntryNotFound, identifier)
 	}
 
 	rc, err := target.Open()

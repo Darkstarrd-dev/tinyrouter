@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"unsafe"
 
 	"fyne.io/systray"
 	"github.com/jchv/go-webview2"
@@ -119,6 +120,79 @@ func openWebviewWindow(hctx *app.HostContext) {
 		return
 	}
 	w.SetTitle("TinyRouter")
+
+	var (
+		fsSavedStyle     uint32
+		fsSavedPlacement tagWINDOWPLACEMENT
+		isFS             bool
+		gwlStyle         uintptr = ^uintptr(15)
+	)
+
+	// Bind toggleNativeFullscreen BEFORE calling Navigate so it is immediately
+	// available in the DOM environment.
+	w.Bind("toggleNativeFullscreen", func(enable bool) error {
+		hwnd := uintptr(w.Window())
+		if hwnd == 0 {
+			return nil
+		}
+		if enable && !isFS {
+			style, _, _ := procGetWindowLongPtrW.Call(hwnd, gwlStyle)
+			fsSavedStyle = uint32(style)
+
+			fsSavedPlacement.length = uint32(unsafe.Sizeof(fsSavedPlacement))
+			procGetWindowPlacement.Call(hwnd, uintptr(unsafe.Pointer(&fsSavedPlacement)))
+
+			hMon, _, _ := procMonitorFromWindow.Call(hwnd, monitorDefaultToNearest)
+			var mi tagMONITORINFO
+			mi.cbSize = uint32(unsafe.Sizeof(mi))
+			procGetMonitorInfoW.Call(hMon, uintptr(unsafe.Pointer(&mi)))
+
+			newStyle := (fsSavedStyle &^ (wsCaption | wsThickFrame | wsSysMenu)) | wsPopup
+			procSetWindowLongPtrW.Call(hwnd, gwlStyle, uintptr(newStyle))
+
+			width := mi.rcMonitor.Right - mi.rcMonitor.Left
+			height := mi.rcMonitor.Bottom - mi.rcMonitor.Top
+			procSetWindowPos.Call(
+				hwnd,
+				0,
+				uintptr(mi.rcMonitor.Left),
+				uintptr(mi.rcMonitor.Top),
+				uintptr(width),
+				uintptr(height),
+				swpFrameChanged|swpShowWindow,
+			)
+			isFS = true
+			hctx.Logger.Info("WebView2 window entered native borderless fullscreen")
+		} else if !enable && isFS {
+			procSetWindowLongPtrW.Call(hwnd, gwlStyle, uintptr(fsSavedStyle))
+			procSetWindowPlacement.Call(hwnd, uintptr(unsafe.Pointer(&fsSavedPlacement)))
+			procSetWindowPos.Call(
+				hwnd,
+				0,
+				0, 0, 0, 0,
+				swpNoMove|swpNoSize|swpFrameChanged|swpShowWindow,
+			)
+			isFS = false
+			hctx.Logger.Info("WebView2 window exited native borderless fullscreen")
+		}
+		return nil
+	})
+
+	// Inject auto-fullscreen sync script into every document load.
+	w.Init(`
+		(function() {
+			function syncFS() {
+				var isFS = !!(document.fullscreenElement || document.webkitFullscreenElement || document.body.classList.contains('gallery-fullscreen-active'));
+				if (typeof window.toggleNativeFullscreen === 'function') {
+					try { window.toggleNativeFullscreen(isFS); } catch(e) {}
+				}
+			}
+			document.addEventListener('fullscreenchange', syncFS);
+			document.addEventListener('webkitfullscreenchange', syncFS);
+		})();
+	`)
+
+	// Navigate AFTER bindings and init scripts are setup.
 	w.Navigate(hctx.ConsoleURL)
 
 	// Apply our own icon to the window class (covers alt-tab, taskbar,
@@ -171,4 +245,43 @@ func openWebviewWindow(hctx *app.HostContext) {
 	// We call systray.Quit() here so closing the window exits the whole app.
 	w.Run()
 	systray.Quit()
+}
+
+var (
+	procGetWindowLongPtrW  = user32Dll.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtrW  = user32Dll.NewProc("SetWindowLongPtrW")
+	procGetWindowPlacement = user32Dll.NewProc("GetWindowPlacement")
+	procSetWindowPlacement = user32Dll.NewProc("SetWindowPlacement")
+	procGetMonitorInfoW    = user32Dll.NewProc("GetMonitorInfoW")
+	procMonitorFromWindow  = user32Dll.NewProc("MonitorFromWindow")
+	procSetWindowPos       = user32Dll.NewProc("SetWindowPos")
+	user32Dll              = windows.NewLazySystemDLL("user32.dll")
+)
+
+const (
+	wsPopup                 = 0x80000000
+	wsCaption               = 0x00C00000
+	wsThickFrame            = 0x00040000
+	wsSysMenu               = 0x00080000
+	monitorDefaultToNearest = 2
+	swpFrameChanged         = 0x0020
+	swpShowWindow           = 0x0040
+	swpNoMove               = 0x0002
+	swpNoSize               = 0x0001
+)
+
+type tagWINDOWPLACEMENT struct {
+	length           uint32
+	flags            uint32
+	showCmd          uint32
+	ptMinPosition    [2]int32
+	ptMaxPosition    [2]int32
+	rcNormalPosition windows.Rect
+}
+
+type tagMONITORINFO struct {
+	cbSize    uint32
+	rcMonitor windows.Rect
+	rcWork    windows.Rect
+	dwFlags   uint32
 }

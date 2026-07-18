@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 
 	"github.com/go-chi/chi/v5"
@@ -72,6 +73,9 @@ func (rt *Router) galleryListZip(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) galleryGetZipEntry(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionId")
 	entryPath := chi.URLParam(r, "entryPath")
+	if unescaped, err := url.PathUnescape(entryPath); err == nil {
+		entryPath = unescaped
+	}
 
 	data, ok := gallerySessions.get(sessionID)
 	if !ok {

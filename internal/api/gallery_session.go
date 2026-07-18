@@ -7,7 +7,7 @@ import (
 
 const (
 	// galleryMaxSessions caps the number of in-memory zip sessions retained.
-	galleryMaxSessions = 8
+	galleryMaxSessions = 32
 	// gallerySessionTTL is the idle expiry for a zip session.
 	gallerySessionTTL = 5 * time.Minute
 )

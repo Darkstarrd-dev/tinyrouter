@@ -49,9 +49,10 @@ func trimExt(name string) string {
 
 // Entry describes a single image file found inside a zip archive.
 type Entry struct {
-	Path string `json:"path"`
-	Size int64  `json:"size"`
-	Kind string `json:"kind"`
+	Index int    `json:"index"`
+	Path  string `json:"path"`
+	Size  int64  `json:"size"`
+	Kind  string `json:"kind"`
 }
 
 // Manifest is the list of image entries extracted from a zip archive.
