@@ -154,7 +154,7 @@
   };
 
   var SVG_ICONS = {
-    tree: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
+    tree: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1.5" fill="currentColor"/><circle cx="4.5" cy="12" r="1.5" fill="currentColor"/><circle cx="4.5" cy="18" r="1.5" fill="currentColor"/></svg>',
     prevFolder: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 19 2 12 11 5 11 19"/><polygon points="22 19 13 12 22 5 22 19"/></svg>',
     prev: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
     play: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
@@ -166,7 +166,7 @@
     single: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
     dual: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>',
     picture: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
-    video: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 4v16M17 4v16M2 8h20M2 16h20"/></svg>',
+    video: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>',
     fullscreen: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>'
   };
 
@@ -436,6 +436,9 @@
     // Mode button is hidden in split mode!
     var modeBtnHTML = isSplit ? '' : '<button class="gallery-btn gallery-btn-icon" id="gallery-mode-btn" type="button" title="' + modeBtnTitle + '">' + modeIcon + '</button>';
 
+    var autoPlayIcon = state.autoplayOn ? SVG_ICONS.stop : SVG_ICONS.play;
+    var autoPlayTitle = state.autoplayOn ? 'Stop (A / ■)' : 'Autoplay (A / ▶)';
+
     var ctrlCenter = isVid ?
       '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-prev-btn" type="button" title="Prev Video (‹ / Up)">' + SVG_ICONS.prev + '</button>' +
       '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-play" type="button" title="Play / Pause (Space)">' + SVG_ICONS.play + '</button>' +
@@ -445,7 +448,7 @@
       '<button class="gallery-btn gallery-btn-icon" id="gallery-prev-folder-btn" type="button" title="Prev Folder (&lt;| / Up)">' + SVG_ICONS.prevFolder + '</button>' +
       '<button class="gallery-btn gallery-btn-icon" id="gallery-prev-btn" type="button" title="Prev (‹ / Left / PageUp)">' + SVG_ICONS.prev + '</button>' +
       '<div class="gallery-auto-wrapper" id="gallery-auto-wrapper">' +
-        '<button class="gallery-btn gallery-btn-icon" id="gallery-autoplay-btn" type="button" title="Autoplay (A / ▶)">' + SVG_ICONS.play + '</button>' +
+        '<button class="gallery-btn gallery-btn-icon" id="gallery-autoplay-btn" type="button" title="' + autoPlayTitle + '">' + autoPlayIcon + '</button>' +
         '<div class="gallery-interval-dropdown" id="gallery-interval-dropdown">' +
           AUTOPLAY_LABELS.map(function(l, i) {
             var act = (AUTOPLAY_INTERVALS[i] === state.autoplayInterval) ? ' active' : '';
@@ -521,6 +524,12 @@
   }
 
   function updateLayoutMode() {
+    var vidElBefore = document.getElementById('gallery-main-video');
+    if (vidElBefore) {
+      if (vidElBefore.currentTime > 0) state.videoCurrentTime = vidElBefore.currentTime;
+      state.videoPaused = vidElBefore.paused;
+    }
+
     var layout = document.getElementById('gallery-layout');
     if (!layout && state.container) {
       layout = document.createElement('div');
@@ -1487,6 +1496,21 @@
         state.videoURL = item.mainURL;
         if (vidEl.src !== item.mainURL) {
           vidEl.src = item.mainURL;
+        }
+        var restoreVidState = function() {
+          if (typeof state.videoCurrentTime === 'number' && state.videoCurrentTime > 0) {
+            try { vidEl.currentTime = state.videoCurrentTime; } catch (e) {}
+          }
+          if (state.videoPaused === false) {
+            try { vidEl.play().catch(function() {}); } catch (e) {}
+          } else if (state.videoPaused === true) {
+            try { vidEl.pause(); } catch (e) {}
+          }
+        };
+        if (vidEl.readyState >= 1) {
+          restoreVidState();
+        } else {
+          vidEl.onloadedmetadata = restoreVidState;
         }
       }
       if (info) {
