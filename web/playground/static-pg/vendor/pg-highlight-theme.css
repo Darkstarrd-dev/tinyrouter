@@ -21,3 +21,13 @@
 .hljs-comment.hljs-doctag{color:#9cb3ff}
 .hljs-operator{color:#d4c5f9}
 .hljs-punctuation{color:#b9a8d6}
+
+/* 浅色主题高亮覆盖 */
+[data-theme="light"] .hljs{color:#24292e}
+[data-theme="light"] .hljs-comment,[data-theme="light"] .hljs-quote{color:#6a737d}
+[data-theme="light"] .hljs-keyword,[data-theme="light"] .hljs-selector-tag,[data-theme="light"] .hljs-literal,[data-theme="light"] .hljs-doctag,[data-theme="light"] .hljs-name{color:#6f42c1;font-weight:600}
+[data-theme="light"] .hljs-string,[data-theme="light"] .hljs-number,[data-theme="light"] .hljs-regexp,[data-theme="light"] .hljs-addition{color:#22863a}
+[data-theme="light"] .hljs-built_in,[data-theme="light"] .hljs-type,[data-theme="light"] .hljs-title,[data-theme="light"] .hljs-section{color:#005cc5}
+[data-theme="light"] .hljs-attr,[data-theme="light"] .hljs-attribute,[data-theme="light"] .hljs-variable{color:#e36209}
+[data-theme="light"] .hljs-deletion{color:#b31d28;background:rgba(255,0,0,.05)}
+

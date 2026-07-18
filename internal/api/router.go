@@ -327,8 +327,12 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	if web.PlaygroundCompiled() {
 		if pgStatic, err := fs.Sub(web.PlaygroundStatic, "playground/static-pg"); err == nil {
 			pgFSRoot := http.FileServer(http.FS(pgStatic))
-			r.Get("/playground.css", pgFSRoot.ServeHTTP)
-			r.Get("/vendor/*", pgFSRoot.ServeHTTP)
+			noCacheHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+				pgFSRoot.ServeHTTP(w, r)
+			})
+			r.Get("/playground.css", noCacheHandler)
+			r.Get("/vendor/*", noCacheHandler)
 			pgJSFiles := []string{
 				"playground.js", "pg-i18n.js",
 				"pg-core.js", "pg-state.js", "pg-markdown.js",
@@ -338,7 +342,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 				"pg-setup.js", "pg-director.js",
 			}
 			for _, f := range pgJSFiles {
-				r.Get("/"+f, pgFSRoot.ServeHTTP)
+				r.Get("/"+f, noCacheHandler)
 			}
 		}
 	}
@@ -356,9 +360,9 @@ func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serve static files (no cache for development)
+	// Serve static files (no cache for local deployment/updates)
 	if r.URL.Path != "/" {
-		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		f := http.FileServer(http.FS(staticFS))
 		f.ServeHTTP(w, r)
 		return
@@ -380,5 +384,6 @@ func (rt *Router) serveUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Write(data)
 }

@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/proxy/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-15，仓库工作区（`main`）。新增非流式 `keep-alive` 刷新循环（`forward.go` `forwardWithRetry` 内）+ `/v1/images/*` 绕过压缩中间件（`compress.go` `Compress`）+ `recorder.go` 大响应 `b64_json` 占位截断；详见下文 §8.7 与 2026-07-15 更新。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-18，仓库工作区（`main`）。本次新增/核对：(a) 修复了 WebView2 及浏览器对 Playground 与核心静态资产（如 `playground.css`/`vendor/*`/`index.html` 等）的强缓存问题。通过在 `router.go` 的 `serveUI` 与 `noCacheHandler` 中统一注入 `Cache-Control: no-store, no-cache, must-revalidate, max-age=0` 响应头，确保每次编译后 WebView 能够立刻加载最新的静态代码。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 > **2026-07-14 更新：** `recorder.go`、`forward.go`、`stream.go` 不再以 `debugMode()` 门控 payload/headers 捕获——始终捕获 `ReqPayload`、`RespPayload`、`ReqHeaders`、`RespHeaders`、`UpstreamURL`、`RespStatus` 及 SSE 累积体。`debugMode()` 仅保留对 `parseAndBroadcastChunk`（实时 SSE chunk 广播）的门控。
 
