@@ -428,9 +428,9 @@
       '</div>';
 
     var treeId = isVid ? 'gallery-video-tree-panel' : 'gallery-tree-panel';
-    var thumbsId = isVid ? 'gallery-video-thumbnails' : 'gallery-thumbnails';
     var pathId = isVid ? 'gallery-video-path' : 'gallery-path';
     var infoId = isVid ? 'gallery-video-info' : 'gallery-info';
+    var thumbsHTML = isVid ? '' : '<div class="gallery-thumbnails" id="gallery-thumbnails"></div>';
 
     return '<div class="gallery-pane' + focused + '" id="' + panelId + '">' +
              '<div class="gallery-tree-panel' + treeClass + '" id="' + treeId + '"></div>' +
@@ -440,7 +440,7 @@
                  '<span class="gallery-main-msg" id="gallery-toolbar-msg" style="display:none"></span>' +
                '</div>' +
                '<div class="gallery-bottom">' +
-                 '<div class="gallery-thumbnails" id="' + thumbsId + '"></div>' +
+                 thumbsHTML +
                  '<div class="gallery-controls">' +
                    '<button class="gallery-btn gallery-btn-icon" id="' + (isVid ? 'gallery-vid-tree-btn' : 'gallery-tree-btn') + '" type="button" title="Directory Tree (T)">☱</button>' +
                    '<div class="gallery-path" id="' + pathId + '" title="">-</div>' +
@@ -517,8 +517,10 @@
       });
     }
 
-    var treeBtn = document.getElementById('gallery-tree-btn') || document.getElementById('gallery-vid-tree-btn');
+    var treeBtn = document.getElementById('gallery-tree-btn');
     if (treeBtn) treeBtn.onclick = toggleTreePanel;
+    var vidTreeBtn = document.getElementById('gallery-vid-tree-btn');
+    if (vidTreeBtn) vidTreeBtn.onclick = toggleTreePanel;
 
     var splitBtns = document.querySelectorAll('#gallery-split-btn');
     splitBtns.forEach(function(b) { b.onclick = toggleSplitMode; });
@@ -566,9 +568,9 @@
 
     bindVideoControls();
 
-    var treePanel = document.getElementById('gallery-tree-panel') || document.getElementById('gallery-video-tree-panel');
-    if (treePanel) {
-      treePanel.onclick = function(e) {
+    var treePanels = document.querySelectorAll('#gallery-tree-panel, #gallery-video-tree-panel');
+    treePanels.forEach(function(tp) {
+      tp.onclick = function(e) {
         var target = e.target.closest('.gallery-tree-node');
         if (!target) return;
         var dir = target.getAttribute('data-dir');
@@ -579,7 +581,7 @@
           else setActive(map[dir][0]);
         }
       };
-    }
+    });
   }
 
   // ---------- directory tree & folder navigation helpers -------------
@@ -608,31 +610,43 @@
 
   function toggleTreePanel() {
     state.treeOpen = !state.treeOpen;
-    var panel = document.getElementById('gallery-tree-panel');
-    var btn = document.getElementById('gallery-tree-btn');
+    var isVidActive = (state.viewMode === 'split') ? (state.focus === 'video') : (state.mediaType === 'video');
+    var activeTreeId = isVidActive ? 'gallery-video-tree-panel' : 'gallery-tree-panel';
+    var activeBtnId = isVidActive ? 'gallery-vid-tree-btn' : 'gallery-tree-btn';
+
+    var panel = document.getElementById(activeTreeId);
+    var btn = document.getElementById(activeBtnId);
+
     if (panel) panel.classList.toggle('hidden', !state.treeOpen);
     if (btn) btn.classList.toggle('active', state.treeOpen);
-    if (state.treeOpen) renderTreePanel();
+    renderTreePanel();
   }
 
   function renderTreePanel() {
-    var panel = document.getElementById('gallery-tree-panel');
+    var isVidActive = (state.viewMode === 'split') ? (state.focus === 'video') : (state.mediaType === 'video');
+    var panel = document.getElementById(isVidActive ? 'gallery-video-tree-panel' : 'gallery-tree-panel');
+    if (!panel) panel = document.getElementById('gallery-tree-panel');
     if (!panel) return;
-    if (!state.dirPathList.length) {
+
+    var dirPathList = isVidActive ? state.videoDirPathList : state.dirPathList;
+    var dirMap = isVidActive ? state.videoDirMap : state.dirMap;
+    var curDirPath = isVidActive ? state.videoCurDirPath : state.curDirPath;
+
+    if (!dirPathList || !dirPathList.length) {
       panel.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No Folder</div>';
       return;
     }
 
     var html = '';
-    for (var i = 0; i < state.dirPathList.length; i++) {
-      var dir = state.dirPathList[i];
-      var count = state.dirMap[dir] ? state.dirMap[dir].length : 0;
+    for (var i = 0; i < dirPathList.length; i++) {
+      var dir = dirPathList[i];
+      var count = dirMap[dir] ? dirMap[dir].length : 0;
       var parts = dir.split('/');
       var name = parts[parts.length - 1] || dir;
       var level = Math.max(0, parts.length - 1);
       var indent = level * 10;
-      var isActive = (dir === state.curDirPath) ? ' active' : '';
-      var icon = isZipName(dir) ? '📦' : '📁';
+      var isActive = (dir === curDirPath) ? ' active' : '';
+      var icon = isVidActive ? '🎬' : (isZipName(dir) ? '📦' : '📁');
 
       html += '<div class="gallery-tree-node' + isActive + '" data-dir="' + escapeHtml(dir) + '" style="padding-left:' + (indent + 8) + 'px" title="' + escapeHtml(dir) + '">' +
                 '<span class="tree-icon">' + icon + '</span>' +
