@@ -43,19 +43,7 @@ func NewSession(shellPath string, conn *websocket.Conn, onClose func()) (*Sessio
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := pt.CommandContext(ctx, path)
-	cmd.Env = []string{
-		"TERM=xterm-256color",
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + os.Getenv("HOME"),
-		"USER=" + os.Getenv("USER"),
-		"USERNAME=" + os.Getenv("USERNAME"),
-		"USERPROFILE=" + os.Getenv("USERPROFILE"),
-		"APPDATA=" + os.Getenv("APPDATA"),
-		"LOCALAPPDATA=" + os.Getenv("LOCALAPPDATA"),
-		"SystemRoot=" + os.Getenv("SystemRoot"),
-		"TEMP=" + os.Getenv("TEMP"),
-		"TMP=" + os.Getenv("TMP"),
-	}
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	// NOTE: CREATE_NO_WINDOW is NOT set here even though it would hide the
 	// console window. go-pty uses ConPTY (CreatePseudoConsole) to create a
 	// pseudo console for the shell. Setting CREATE_NO_WINDOW conflicts with
@@ -197,7 +185,11 @@ func (s *Session) cleanup() {
 		killProcessGroup(s.cmd.Process.Pid)
 	}
 	if s.pty != nil {
-		_ = s.pty.Close()
+		// Run Close in a goroutine because ConPTY's ClosePseudoConsole can
+		// deadlock indefinitely on Windows if the child process was force-killed.
+		go func(p pty.Pty) {
+			_ = p.Close()
+		}(s.pty)
 	}
 	if s.conn != nil {
 		_ = s.conn.Close()

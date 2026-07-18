@@ -136,11 +136,13 @@ func (rt *Router) Cleanup() {
 		rt.logger.Warn("monitor cleanup: %v", err)
 	}
 	rt.terminalMu.Lock()
-	if rt.activeTerm != nil {
-		rt.activeTerm.Close()
-		rt.activeTerm = nil
-	}
+	term := rt.activeTerm
+	rt.activeTerm = nil
 	rt.terminalMu.Unlock()
+
+	if term != nil {
+		term.Close()
+	}
 	if rt.downloadMgr != nil {
 		rt.downloadMgr.Stop()
 	}

@@ -86,19 +86,23 @@ function showAddProvider() {
   var overlay = document.getElementById('modal-overlay');
   overlay.innerHTML = '<div class="modal" style="max-width:520px">\
     <div class="modal-title">' + t('newProvider') + '</div>\
-    <div class="form-group"><label for="p-name">' + t('name') + '</label><input id="p-name" placeholder="DeepSeek"></div>\
-    <div class="form-group"><label for="p-prefix">' + t('prefixLabel') + '</label><input id="p-prefix" placeholder="deepseek"></div>\
+    <div class="flex" style="gap:12px">\
+      <div class="form-group" style="flex:1"><label for="p-name">' + t('name') + '</label><input id="p-name" placeholder="DeepSeek"></div>\
+      <div class="form-group" style="flex:1"><label for="p-prefix">' + t('prefixLabel') + '</label><input id="p-prefix" placeholder="deepseek"></div>\
+    </div>\
     <div class="form-group"><label for="p-url">' + t('baseUrlLabel') + '</label><input id="p-url" placeholder="https://api.deepseek.com  或  https://host/v1beta/openai"></div>\
-    <div class="form-hint">' + t('baseUrlHint') + '</div>\
+    <div class="form-hint" style="margin-top:-6px;margin-bottom:12px">' + t('baseUrlHint') + '</div>\
     <div class="form-group"><label for="p-apikey">' + t('apiKeyLabel') + '</label><input type="password" id="p-apikey" placeholder="sk-..."></div>\
     <div class="form-group"><label for="p-modelid">' + t('modelIdLabel') + '</label><input id="p-modelid" placeholder="deepseek-chat"></div>\
-    <div class="form-group">\
-      <label>' + t('useProxy') + '</label>\
-      <label class="toggle-switch" for="p-useproxy">\
+    <div class="form-group" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;margin-bottom:0">\
+      <div>\
+        <label style="margin-bottom:2px;display:block">' + t('useProxy') + '</label>\
+        <div class="form-hint" style="margin-top:2px">' + t('useProxyDesc') + '</div>\
+      </div>\
+      <label class="toggle-switch" for="p-useproxy" style="flex-shrink:0;margin-left:16px">\
         <input type="checkbox" id="p-useproxy">\
         <span class="toggle-slider"></span>\
       </label>\
-      <div class="form-hint">' + t('useProxyDesc') + '</div>\
     </div>\
     <div id="p-check-result" class="mt-12"></div>\
     <div class="modal-footer">\

@@ -268,5 +268,11 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.lockFile.Close()
 		_ = os.Remove(a.lockPath)
 	}
+	
+	// Force the process to exit immediately. On Windows, jchv/go-webview2 or 
+	// fyne.io/systray's message loops can sometimes resist termination, 
+	// leaving a zombie process.
+	os.Exit(0)
+	
 	return nil
 }

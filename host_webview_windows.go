@@ -167,7 +167,8 @@ func openWebviewWindow(hctx *app.HostContext) {
 	}
 
 	// w.Run() pumps Win32 messages for this thread until the window is closed.
-	// On close it returns; the deferred cleanup runs and the goroutine exits, but
-	// the systray host loop keeps the process alive.
+	// On close it returns; the deferred cleanup runs and the goroutine exits.
+	// We call systray.Quit() here so closing the window exits the whole app.
 	w.Run()
+	systray.Quit()
 }

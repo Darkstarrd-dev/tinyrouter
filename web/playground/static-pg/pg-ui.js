@@ -572,7 +572,7 @@ function pgImgParamSelect(key, labelKey, val, options) {
   }).join('');
   return '<div class="pg-param-row">' +
     '<label>' + pgEscapeHtml(pgT(labelKey)) + '</label>' +
-    '<select onchange="pgOnParam(\'' + key + '\', this.value)" style="flex:0 0 auto">' + opts + '</select>' +
+    '<select onchange="pgOnParam(\'' + key + '\', this.value)">' + opts + '</select>' +
   '</div>';
 }
 
@@ -603,7 +603,7 @@ function pgImgSizeOptionsFor(proto, modelId, builtin) {
 
 // pgImgParamSelectWithEdit renders a size select with:
 //  - the options (Default + sizeOpts + a Custom... sentinel)
-//  - an inline "Edit" button that opens the per-model resolutions editor modal
+//  - clickable Size label button that opens the per-model resolutions editor modal
 //  - a Custom Size text input below the select for ad-hoc WxH that bypasses
 //    the saved list (writes directly to w.config.imgSize)
 // `proto` is the image protocol ('gpt' or 'modelscope'); used to seed the
@@ -619,11 +619,11 @@ function pgImgParamSelectWithEdit(key, proto, modelId, cfg, builtinOpts) {
   var opts = arr.map(function(o) {
     return '<option value="' + pgEscapeAttr(o.value) + '"' + (cfg[key] === o.value ? ' selected' : '') + '>' + pgEscapeHtml(o.label) + '</option>';
   }).join('');
-  var editRow = '<div class="pg-param-row"><label></label><button type="button" class="pg-btn pg-img-edit-btn" onclick="pgOpenImgSizesModal()" title="' + pgEscapeAttr(pgT('pgImgEditSizes')) + '">' + pgEscapeHtml(pgT('pgImgEditSizes')) + '</button></div>';
+  var labelBtn = '<button type="button" class="pg-param-label-btn" onclick="pgOpenImgSizesModal()" title="' + pgEscapeAttr(pgT('pgImgEditSizesTitle')) + '">' + sel + '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.65;margin-left:3px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>';
   var html = '<div class="pg-param-row">' +
-    '<label>' + sel + '</label>' +
-    '<select onchange="pgOnImgSizeSelect(this.value)" style="flex:0 0 auto">' + opts + '</select>' +
-  '</div>' + editRow;
+    labelBtn +
+    '<select onchange="pgOnImgSizeSelect(this.value)">' + opts + '</select>' +
+  '</div>';
   var isCustom = cfg[key] && cfg[key] !== '__custom' && !pgImgListContains(sizeOpts, cfg[key]);
   var showCustom = (cfg[key] === '__custom') || isCustom;
   html += '<div class="pg-param-row pg-img-custom-row"' + (showCustom ? '' : ' style="display:none"') + '>' +
@@ -685,7 +685,6 @@ function pgRenderImageParams(cfg) {
       {value: '8k', label: '8k'},
     ]);
     html += pgImgParamNumber('imgN', 'pgImgN', cfg.imgN || 1, 1, 10, 1);
-    html += '<div class="pg-param-row"><label></label><button type="button" class="pg-btn pg-img-edit-btn" onclick="pgOpenImgSizesModal()" title="' + pgEscapeAttr(pgT('pgImgEditSizes')) + '">' + pgEscapeHtml(pgT('pgImgEditSizes')) + '</button></div>';
   } else if (proto === 'modelscope') {
     html += pgImgParamSelectWithEdit('imgSize', 'modelscope', cfg.model, cfg, [
       {value: '1024x1024', label: '1024x1024'},

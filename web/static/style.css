@@ -227,7 +227,7 @@ h3{font-size:var(--font-h3);font-weight:600;color:var(--text-secondary);margin-b
 .btn:hover{background:var(--glass-active);border-color:var(--glass-border-hover);box-shadow:var(--shadow-sm);transform:translateY(-0.5px)}
 .btn:active{opacity:0.85}
 .btn-primary{background:var(--accent-gradient);color:#fff;border:none}
-.btn-primary:hover{box-shadow:0 0 16px var(--accent-glow)}
+.btn-primary:hover{background:var(--accent-gradient);color:#fff;opacity:0.9;box-shadow:0 0 16px var(--accent-glow)}
 .btn-primary:active{box-shadow:none}
 .btn-danger{background:rgba(239,83,80,0.15);color:var(--danger);border:1px solid rgba(239,83,80,0.2)}
 .btn-danger:hover{background:rgba(239,83,80,0.25);border-color:rgba(239,83,80,0.4);box-shadow:0 0 12px var(--danger-glow)}
@@ -472,13 +472,13 @@ tbody tr:last-child td{border-bottom:none}
 .recent-requests-card .card-scroll::-webkit-scrollbar{display:none}
 .recent-count{font-size:var(--font-badge);color:var(--text-muted);font-weight:400;margin-left:8px}
 .usage-table{width:100%;border-collapse:collapse;font-size:var(--font-base)}
-.usage-table thead{position:sticky;top:0;z-index:1;background:var(--bg)}
+.usage-table thead{position:sticky;top:0;z-index:1;background:var(--option-bg)}
 .usage-table th,.usage-table td{padding:6px 10px;text-align:left;border-bottom:1px solid var(--glass-border);white-space:nowrap}
 .usage-table tbody tr:hover{background:var(--table-hover)}
 
 /* Charts Row: quota (left, spans 2 rows) + trend (top right) + recent (bottom right) */
-.usage-body-grid{display:grid;gap:1px;flex:1;min-height:0;grid-template-columns:1fr;grid-template-rows:auto;align-items:stretch;background:var(--glass-border)}
-.usage-body-grid .card{border-radius:0;margin-bottom:0}
+.usage-body-grid{display:grid;gap:14px;flex:1;min-height:0;grid-template-columns:1fr;grid-template-rows:auto;align-items:stretch;background:transparent;padding:14px}
+.usage-body-grid .card{margin-bottom:0}
 @media (min-width:1024px){
   .usage-body-grid{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
   .usage-body-grid .quota-monitor-card{grid-column:1;grid-row:1 / span 2}
@@ -491,7 +491,7 @@ tbody tr:last-child td{border-bottom:none}
    --------------------------------------------------------------------- */
 .recent-requests-scroll{max-height:50vh;overflow-y:auto}
 .recent-requests-scroll thead{position:sticky;top:0;z-index:1}
-.recent-requests-scroll thead th{background:var(--bg)}
+.recent-requests-scroll thead th{background:var(--option-bg)}
 
 /* ---------------------------------------------------------------------
    Quota Bars
@@ -629,7 +629,7 @@ tbody tr:last-child td{border-bottom:none}
 .modal-overlay.show .modal{transform:scale(1) translateY(0)}
 .modal-title{font-size:calc(var(--font-base) + 3.5px);font-weight:700;margin-bottom:12px;color:var(--text)}
 .modal-body{font-size:var(--font-base);color:var(--text-secondary);line-height:1.6;margin-bottom:24px}
-.modal-footer{display:flex;justify-content:flex-end;gap:8px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--glass-border)}
 .import-model-item{color:var(--text-secondary);user-select:none}
 .import-model-item:hover{background:var(--glass-hover);border-color:var(--glass-border-hover)}
 .import-model-item.selected{background:rgba(79,195,247,0.12);border-color:var(--accent);color:var(--accent)}

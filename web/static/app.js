@@ -325,6 +325,9 @@ function toggleTheme() {
     trendChartInstance = null;
     initTrendChart(lastUsageEntries);
   }
+  if (typeof updateTerminalTheme === 'function') {
+    updateTerminalTheme();
+  }
 }
 
 async function shutdownServer() {

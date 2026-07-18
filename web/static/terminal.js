@@ -64,6 +64,7 @@ function initTerminal() {
   var wsUrl = wsProtocol + '//' + window.location.host + '/api/terminal/ws';
 
   terminalWebSocket = new WebSocket(wsUrl);
+  terminalWebSocket.binaryType = 'arraybuffer';
 
   terminalWebSocket.onopen = function() {
     setTimeout(function() {
@@ -74,12 +75,8 @@ function initTerminal() {
   };
 
   terminalWebSocket.onmessage = function(event) {
-    if (event.data instanceof Blob) {
-      var reader = new FileReader();
-      reader.onload = function() {
-        terminalSession.write(new Uint8Array(reader.result));
-      };
-      reader.readAsArrayBuffer(event.data);
+    if (event.data instanceof ArrayBuffer) {
+      terminalSession.write(new Uint8Array(event.data));
     } else if (typeof event.data === 'string') {
       terminalSession.write(event.data);
     }
@@ -161,7 +158,6 @@ function sendTerminalResize() {
   if (!terminalSession) return;
   if (!terminalWebSocket || terminalWebSocket.readyState !== WebSocket.OPEN) return;
 
-  doFit();
   var cols = terminalSession.cols;
   var rows = terminalSession.rows;
 
@@ -187,18 +183,24 @@ function getTerminalTheme() {
   var theme = document.documentElement.getAttribute('data-theme');
   if (theme === 'light') {
     return {
-      background: '#f5f7fa',
-      foreground: '#333333',
-      cursor: '#333333',
-      selection: 'rgba(0,0,255,0.2)'
+      background: '#ffffff',
+      foreground: '#1a1a1a',
+      cursor: '#1a1a1a',
+      selection: 'rgba(0,100,255,0.2)'
     };
   }
   return {
-    background: '#0d0d14',
-    foreground: '#f0f0f0',
-    cursor: '#f0f0f0',
+    background: '#0c0d14',
+    foreground: '#ededf0',
+    cursor: '#ededf0',
     selection: 'rgba(255,255,255,0.2)'
   };
+}
+
+function updateTerminalTheme() {
+  if (terminalSession) {
+    terminalSession.options.theme = getTerminalTheme();
+  }
 }
 
 function clearTerminalOutput() {
