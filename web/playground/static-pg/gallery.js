@@ -153,16 +153,29 @@
     currentSubIndex: -1
   };
 
+  var SVG_ICONS = {
+    tree: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
+    prevFolder: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 19 2 12 11 5 11 19"/><polygon points="22 19 13 12 22 5 22 19"/></svg>',
+    prev: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+    play: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
+    pause: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>',
+    stop: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>',
+    next: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+    nextFolder: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg>',
+    volume: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>',
+    single: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
+    dual: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>',
+    picture: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+    video: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 4v16M17 4v16M2 8h20M2 16h20"/></svg>',
+    fullscreen: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>'
+  };
+
   function trackURL(url) {
     if (url) state.objectURLs.push(url);
     return url;
   }
 
   function clearObjectURLs() {
-    for (var i = 0; i < state.objectURLs.length; i++) {
-      try { URL.revokeObjectURL(state.objectURLs[i]); } catch (e) {}
-    }
-    state.objectURLs = [];
     state.mainURL = null;
   }
 
@@ -315,8 +328,12 @@
 
   // ---------- split / media mode & focus handlers ---------------------
   function toggleSplitMode() {
-    state.viewMode = (state.viewMode === 'single') ? 'split' : 'single';
-    if (state.viewMode === 'split') state.focus = 'image';
+    if (state.viewMode === 'split') {
+      state.viewMode = 'single';
+      state.mediaType = state.focus; // Inherit focus side mode on exit!
+    } else {
+      state.viewMode = 'split';
+    }
     updateLayoutMode();
     flashFocusOverlay(state.focus);
   }
@@ -410,21 +427,25 @@
     var showTree = state.treeOpen && ((state.viewMode === 'split' && state.focus === type) || (state.viewMode === 'single'));
     var treeClass = showTree ? '' : ' hidden';
 
-    var splitBtnText = (state.viewMode === 'split') ? 'S' : 'D';
+    var splitIcon = (state.viewMode === 'split') ? SVG_ICONS.single : SVG_ICONS.dual;
     var splitBtnTitle = (state.viewMode === 'split') ? 'Single View (D)' : 'Dual View (D)';
-    var modeBtnText = (state.mediaType === 'video') ? 'P' : 'V';
+
+    var modeIcon = (state.mediaType === 'video') ? SVG_ICONS.picture : SVG_ICONS.video;
     var modeBtnTitle = (state.mediaType === 'video') ? 'Picture Mode (M)' : 'Video Mode (M)';
 
+    // Mode button is hidden in split mode!
+    var modeBtnHTML = isSplit ? '' : '<button class="gallery-btn gallery-btn-icon" id="gallery-mode-btn" type="button" title="' + modeBtnTitle + '">' + modeIcon + '</button>';
+
     var ctrlCenter = isVid ?
-      '<button class="gallery-btn" id="gallery-vid-prev-btn" type="button" title="Prev Video (‹ / Up)">‹</button>' +
-      '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-play" type="button" title="Play / Pause (Space)">▶</button>' +
-      '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-stop" type="button" title="Stop">■</button>' +
-      '<button class="gallery-btn" id="gallery-vid-next-btn" type="button" title="Next Video (› / Down)">›</button>'
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-prev-btn" type="button" title="Prev Video (‹ / Up)">' + SVG_ICONS.prev + '</button>' +
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-play" type="button" title="Play / Pause (Space)">' + SVG_ICONS.play + '</button>' +
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-stop" type="button" title="Stop">' + SVG_ICONS.stop + '</button>' +
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-next-btn" type="button" title="Next Video (› / Down)">' + SVG_ICONS.next + '</button>'
       :
-      '<button class="gallery-btn" id="gallery-prev-folder-btn" type="button" title="Prev Folder (&lt;| / Up)">&lt;|</button>' +
-      '<button class="gallery-btn" id="gallery-prev-btn" type="button" title="Prev (‹ / Left / PageUp)">‹</button>' +
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-prev-folder-btn" type="button" title="Prev Folder (&lt;| / Up)">' + SVG_ICONS.prevFolder + '</button>' +
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-prev-btn" type="button" title="Prev (‹ / Left / PageUp)">' + SVG_ICONS.prev + '</button>' +
       '<div class="gallery-auto-wrapper" id="gallery-auto-wrapper">' +
-        '<button class="gallery-btn" id="gallery-autoplay-btn" type="button" title="Autoplay (A / ▶)">▶</button>' +
+        '<button class="gallery-btn gallery-btn-icon" id="gallery-autoplay-btn" type="button" title="Autoplay (A / ▶)">' + SVG_ICONS.play + '</button>' +
         '<div class="gallery-interval-dropdown" id="gallery-interval-dropdown">' +
           AUTOPLAY_LABELS.map(function(l, i) {
             var act = (AUTOPLAY_INTERVALS[i] === state.autoplayInterval) ? ' active' : '';
@@ -435,12 +456,12 @@
           }).join('') +
         '</div>' +
       '</div>' +
-      '<button class="gallery-btn" id="gallery-next-btn" type="button" title="Next (› / Right / PageDown / Space)">›</button>' +
-      '<button class="gallery-btn" id="gallery-next-folder-btn" type="button" title="Next Folder (|&gt; / Down)">|&gt;</button>';
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-next-btn" type="button" title="Next (› / Right / PageDown / Space)">' + SVG_ICONS.next + '</button>' +
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-next-folder-btn" type="button" title="Next Folder (|&gt; / Down)">' + SVG_ICONS.nextFolder + '</button>';
 
     var extraRight = isVid ?
       '<div class="gallery-vol-wrapper">' +
-        '<button class="gallery-btn gallery-btn-icon" id="gallery-vol-btn" type="button" title="Volume">🔊</button>' +
+        '<button class="gallery-btn gallery-btn-icon" id="gallery-vol-btn" type="button" title="Volume">' + SVG_ICONS.volume + '</button>' +
         '<div class="gallery-vol-popover">' +
           '<input type="range" class="gallery-vol-slider-vert" id="gallery-vol-slider" value="80" min="0" max="100" title="Volume">' +
         '</div>' +
@@ -448,7 +469,7 @@
       : '';
 
     var mainInner = isVid ?
-      '<video class="gallery-main-video" id="gallery-main-video" autoplay loop></video>' +
+      '<video class="gallery-main-video" id="gallery-main-video" loop></video>' +
       '<div class="gallery-video-hover-ctrl" id="gallery-video-ctrl">' +
         '<input type="range" class="gallery-video-seeker" id="gallery-video-seeker" value="0" min="0" max="100" step="0.1">' +
         '<div class="gallery-video-bar">' +
@@ -456,7 +477,7 @@
             '<span id="gallery-vid-time" style="font-family:monospace">00:00 / 00:00</span>' +
           '</div>' +
           '<div style="display:flex;align-items:center;gap:6px">' +
-            '<span>🔊</span>' +
+            '<span>' + SVG_ICONS.volume + '</span>' +
             '<span id="gallery-vid-info" style="font-family:monospace">-</span>' +
           '</div>' +
         '</div>' +
@@ -483,19 +504,15 @@
                '<div class="gallery-bottom">' +
                  thumbsHTML +
                  '<div class="gallery-controls">' +
-                   '<button class="gallery-btn gallery-btn-icon" id="' + (isVid ? 'gallery-vid-tree-btn' : 'gallery-tree-btn') + '" type="button" title="Directory Tree (T)">☱</button>' +
+                   '<button class="gallery-btn gallery-btn-icon" id="' + (isVid ? 'gallery-vid-tree-btn' : 'gallery-tree-btn') + '" type="button" title="Directory Tree (T)">' + SVG_ICONS.tree + '</button>' +
                    '<div class="gallery-path" id="' + pathId + '" title="">-</div>' +
                    '<div class="gallery-ctrl-center">' + ctrlCenter + '</div>' +
                    '<div class="gallery-ctrl-right">' +
                      extraRight +
                      '<span class="gallery-info" id="' + infoId + '">0 / 0</span>' +
-                     '<button class="gallery-btn gallery-btn-icon" id="gallery-split-btn" type="button" title="' + splitBtnTitle + '">' + splitBtnText + '</button>' +
-                     '<button class="gallery-btn gallery-btn-icon" id="gallery-mode-btn" type="button" title="' + modeBtnTitle + '">' + modeBtnText + '</button>' +
-                     '<button class="gallery-btn gallery-btn-icon" id="gallery-fs-btn" type="button" title="Fullscreen (F)">' +
-                       '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-                         '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>' +
-                       '</svg>' +
-                     '</button>' +
+                     '<button class="gallery-btn gallery-btn-icon" id="gallery-split-btn" type="button" title="' + splitBtnTitle + '">' + splitIcon + '</button>' +
+                     modeBtnHTML +
+                     '<button class="gallery-btn gallery-btn-icon" id="gallery-fs-btn" type="button" title="Fullscreen (F)">' + SVG_ICONS.fullscreen + '</button>' +
                    '</div>' +
                  '</div>' +
                '</div>' +
@@ -1301,7 +1318,7 @@
     state.autoplayOn = false;
     var btn = document.getElementById('gallery-autoplay-btn');
     if (btn) {
-      btn.innerHTML = '▶';
+      btn.innerHTML = SVG_ICONS.play;
       btn.setAttribute('title', 'Autoplay (A / ▶)');
     }
   }
@@ -1313,7 +1330,7 @@
     state.autoplayTimer = setInterval(goNext, state.autoplayInterval);
     var btn = document.getElementById('gallery-autoplay-btn');
     if (btn) {
-      btn.innerHTML = '■';
+      btn.innerHTML = SVG_ICONS.stop;
       btn.setAttribute('title', 'Stop (A / ■)');
     }
   }
@@ -1471,9 +1488,6 @@
         if (vidEl.src !== item.mainURL) {
           vidEl.src = item.mainURL;
         }
-        try {
-          vidEl.play().catch(function(err) { console.warn('video play interrupted:', err); });
-        } catch (e) {}
       }
       if (info) {
         var countStr = (index + 1) + ' / ' + state.videoItems.length;
@@ -1506,8 +1520,8 @@
         vidEl.currentTime = 0;
       };
     }
-    vidEl.onplay = function() { if (playBtn) playBtn.textContent = '⏸'; };
-    vidEl.onpause = function() { if (playBtn) playBtn.textContent = '▶'; };
+    vidEl.onplay = function() { if (playBtn) playBtn.innerHTML = SVG_ICONS.pause; };
+    vidEl.onpause = function() { if (playBtn) playBtn.innerHTML = SVG_ICONS.play; };
 
     vidEl.ontimeupdate = function() {
       if (seeker && vidEl.duration) {
