@@ -477,7 +477,7 @@
       : '';
 
     var mainInner = isVid ?
-      '<video class="gallery-main-video" id="gallery-main-video" loop></video>' +
+      '<video class="gallery-main-video" id="gallery-main-video"></video>' +
       '<div class="gallery-video-hover-ctrl" id="gallery-video-ctrl">' +
         '<input type="range" class="gallery-video-seeker" id="gallery-video-seeker" value="0" min="0" max="100" step="0.1">' +
         '<div class="gallery-video-bar">' +
@@ -1685,6 +1685,10 @@
     vidEl.onpause = function() {
       state.videoPlayingState = false;
       if (playBtn) playBtn.innerHTML = SVG_ICONS.play;
+    };
+    vidEl.onended = function() {
+      state.videoPlayingState = true;
+      setVideoActive(state.videoIndex + 1);
     };
 
     vidEl.ontimeupdate = function() {
