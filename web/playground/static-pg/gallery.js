@@ -4,17 +4,26 @@
   'use strict';
 
   // ---------- helpers ----------------------------------------------
-  var SUPPORTED_EXTS = ['webp', 'png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif'];
+  var SUPPORTED_IMG_EXTS = ['webp', 'png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif', 'avif', 'gif'];
+  var SUPPORTED_VIDEO_EXTS = ['mp4', 'webm', 'ogv'];
   var AUTOPLAY_INTERVALS = [1000, 2000, 3000, 5000, 10000, 15000, 30000, 60000, 120000]; // ms
   var AUTOPLAY_LABELS = ['1s', '2s', '3s', '5s', '10s', '15s', '30s', '60s', '120s'];
   var THUMB_SIZE = 300;
+
+  function isVideoExt(name) {
+    if (!name) return false;
+    var dot = name.lastIndexOf('.');
+    if (dot < 0) return false;
+    var ext = name.slice(dot + 1).toLowerCase();
+    return SUPPORTED_VIDEO_EXTS.indexOf(ext) >= 0;
+  }
 
   function isSupportedExt(name) {
     if (!name) return false;
     var dot = name.lastIndexOf('.');
     if (dot < 0) return false;
     var ext = name.slice(dot + 1).toLowerCase();
-    return SUPPORTED_EXTS.indexOf(ext) >= 0;
+    return SUPPORTED_IMG_EXTS.indexOf(ext) >= 0 || SUPPORTED_VIDEO_EXTS.indexOf(ext) >= 0;
   }
 
   function isZipName(name) {
@@ -50,6 +59,13 @@
       i++;
     } while (n >= 1024 && i < units.length - 1);
     return n.toFixed(n < 10 ? 1 : 0) + ' ' + units[i];
+  }
+
+  function formatTime(secs) {
+    if (isNaN(secs) || secs < 0) return '00:00';
+    var m = Math.floor(secs / 60);
+    var s = Math.floor(secs % 60);
+    return (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
   }
 
   function escapeHtml(s) {
@@ -259,62 +275,13 @@
   function renderInitial(container) {
     state.container = container;
     container.classList.add('gallery-page');
-    container.innerHTML =
-      '<div class="gallery-layout" id="gallery-layout">' +
-        '<div class="gallery-tree-panel hidden" id="gallery-tree-panel"></div>' +
-        '<div class="gallery-main-area" id="gallery-main-area">' +
-          '<div class="gallery-main" id="gallery-main">' +
-            '<img class="gallery-main-img" id="gallery-main-img" alt="">' +
-            '<div class="gallery-empty" id="gallery-empty">' +
-              '<div class="gallery-empty-icon">⬚</div>' +
-              '<div class="gallery-empty-hint">' + escapeHtml(T('Drop/Paste/Open') || 'Drop / Paste / Open') + '</div>' +
-              '<div class="gallery-empty-sub">' + escapeHtml(T('galleryEmpty') || '') + '</div>' +
-            '</div>' +
-            '<span class="gallery-main-msg" id="gallery-toolbar-msg" style="display:none"></span>' +
-          '</div>' +
-          '<div class="gallery-bottom">' +
-            '<div class="gallery-thumbnails" id="gallery-thumbnails"></div>' +
-            '<div class="gallery-controls">' +
-              '<button class="gallery-btn gallery-btn-icon" id="gallery-tree-btn" type="button" title="Directory Tree (T)">☱</button>' +
-              '<div class="gallery-path" id="gallery-path" title="">-</div>' +
-              '<div class="gallery-ctrl-center">' +
-                '<button class="gallery-btn" id="gallery-prev-folder-btn" type="button" title="Prev Folder (&lt;| / Up)">&lt;|</button>' +
-                '<button class="gallery-btn" id="gallery-prev-btn" type="button" title="Prev (‹ / Left / PageUp)">‹</button>' +
-                '<div class="gallery-auto-wrapper" id="gallery-auto-wrapper">' +
-                  '<button class="gallery-btn" id="gallery-autoplay-btn" type="button" title="Autoplay (A / ▶)">▶</button>' +
-                  '<div class="gallery-interval-dropdown" id="gallery-interval-dropdown">' +
-                    AUTOPLAY_LABELS.map(function(l, i) {
-                      var act = (AUTOPLAY_INTERVALS[i] === state.autoplayInterval) ? ' active' : '';
-                      return '<div class="gallery-interval-item' + act + '" data-idx="' + i + '">' +
-                               '<span>' + escapeHtml(l) + '</span>' +
-                               '<span class="gallery-key-hint">' + (i + 1) + '</span>' +
-                             '</div>';
-                    }).join('') +
-                  '</div>' +
-                '</div>' +
-                '<button class="gallery-btn" id="gallery-next-btn" type="button" title="Next (› / Right / PageDown / Space)">›</button>' +
-                '<button class="gallery-btn" id="gallery-next-folder-btn" type="button" title="Next Folder (|&gt; / Down)">|&gt;</button>' +
-              '</div>' +
-              '<div class="gallery-ctrl-right">' +
-                '<span class="gallery-info" id="gallery-info">0 / 0</span>' +
-                '<button class="gallery-btn gallery-btn-icon" id="gallery-split-btn" type="button" title="Split / Single Mode (D)">▍▍</button>' +
-                '<button class="gallery-btn gallery-btn-icon" id="gallery-mode-btn" type="button" title="Image / Video Mode (M)">🖼</button>' +
-                '<button class="gallery-btn gallery-btn-icon" id="gallery-fs-btn" type="button" title="Fullscreen (F)">' +
-                  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-                    '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>' +
-                  '</svg>' +
-                '</button>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
+    updateLayoutMode();
 
     // hidden fallback input
     var input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = 'image/*,.zip';
+    input.accept = 'image/*,video/*,.zip';
     input.style.display = 'none';
     input.id = 'gallery-file-input';
     input.addEventListener('change', function(e) {
@@ -325,49 +292,6 @@
       input.value = '';
     });
     container.appendChild(input);
-
-    var layout = document.getElementById('gallery-layout');
-
-    layout.addEventListener('dragover', onDragOver);
-    layout.addEventListener('dragenter', onDragEnter);
-    layout.addEventListener('dragleave', onDragLeave);
-    layout.addEventListener('drop', onDrop);
-
-    document.getElementById('gallery-empty').addEventListener('click', onOpenClick);
-    document.getElementById('gallery-tree-btn').addEventListener('click', toggleTreePanel);
-    document.getElementById('gallery-prev-folder-btn').addEventListener('click', goPrevFolder);
-    document.getElementById('gallery-prev-btn').addEventListener('click', goPrev);
-    document.getElementById('gallery-next-btn').addEventListener('click', goNext);
-    document.getElementById('gallery-next-folder-btn').addEventListener('click', goNextFolder);
-    document.getElementById('gallery-autoplay-btn').addEventListener('click', toggleAutoplay);
-    document.getElementById('gallery-split-btn').addEventListener('click', toggleSplitMode);
-    document.getElementById('gallery-mode-btn').addEventListener('click', toggleMediaType);
-    document.getElementById('gallery-fs-btn').addEventListener('click', toggleFullscreen);
-
-    var treePanel = document.getElementById('gallery-tree-panel');
-    if (treePanel) {
-      treePanel.addEventListener('click', function(e) {
-        var target = e.target.closest('.gallery-tree-node');
-        if (!target) return;
-        var dir = target.getAttribute('data-dir');
-        var isVid = (state.viewMode === 'split') ? (state.focus === 'video') : (state.mediaType === 'video');
-        var map = isVid ? state.videoDirMap : state.dirMap;
-        if (dir && map[dir] && map[dir].length) {
-          if (isVid) setVideoActive(map[dir][0]);
-          else setActive(map[dir][0]);
-        }
-      });
-    }
-
-    var dropdown = document.getElementById('gallery-interval-dropdown');
-    if (dropdown) {
-      dropdown.addEventListener('click', function(e) {
-        var item = e.target.closest('[data-idx]');
-        if (!item) return;
-        var idx = parseInt(item.dataset.idx, 10);
-        if (!isNaN(idx)) setAutoplayInterval(idx);
-      });
-    }
 
     state.pasteHandler = onPaste;
     document.addEventListener('paste', state.pasteHandler);
@@ -441,85 +365,221 @@
     paneVid.style.flex = (ratioVid * 100) + ' 1 0%';
   }
 
+  function buildPanelHTML(type, isSplit) {
+    var isVid = (type === 'video');
+    var panelId = isVid ? 'gallery-pane-video' : 'gallery-pane-image';
+    var focused = (state.viewMode === 'split' && state.focus === type) ? ' focused' : '';
+    var showTree = state.treeOpen && ((state.viewMode === 'split' && state.focus === type) || (state.viewMode === 'single'));
+    var treeClass = showTree ? '' : ' hidden';
+
+    var splitBtnText = (state.viewMode === 'split') ? 'S' : 'D';
+    var splitBtnTitle = (state.viewMode === 'split') ? 'Single View (D)' : 'Dual View (D)';
+    var modeBtnText = (state.mediaType === 'video') ? 'P' : 'V';
+    var modeBtnTitle = (state.mediaType === 'video') ? 'Picture Mode (M)' : 'Video Mode (M)';
+
+    var ctrlCenter = isVid ?
+      '<button class="gallery-btn" id="gallery-vid-prev-folder-btn" type="button" title="Prev Folder (&lt;| / Up)">&lt;|</button>' +
+      '<button class="gallery-btn" id="gallery-vid-prev-btn" type="button" title="Prev Video (‹ / Up)">‹</button>' +
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-play" type="button" title="Play / Pause (Space)">▶</button>' +
+      '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-stop" type="button" title="Stop">■</button>' +
+      '<button class="gallery-btn" id="gallery-vid-next-btn" type="button" title="Next Video (› / Down)">›</button>' +
+      '<button class="gallery-btn" id="gallery-vid-next-folder-btn" type="button" title="Next Folder (|&gt; / Down)">|&gt;</button>'
+      :
+      '<button class="gallery-btn" id="gallery-prev-folder-btn" type="button" title="Prev Folder (&lt;| / Up)">&lt;|</button>' +
+      '<button class="gallery-btn" id="gallery-prev-btn" type="button" title="Prev (‹ / Left / PageUp)">‹</button>' +
+      '<div class="gallery-auto-wrapper" id="gallery-auto-wrapper">' +
+        '<button class="gallery-btn" id="gallery-autoplay-btn" type="button" title="Autoplay (A / ▶)">▶</button>' +
+        '<div class="gallery-interval-dropdown" id="gallery-interval-dropdown">' +
+          AUTOPLAY_LABELS.map(function(l, i) {
+            var act = (AUTOPLAY_INTERVALS[i] === state.autoplayInterval) ? ' active' : '';
+            return '<div class="gallery-interval-item' + act + '" data-idx="' + i + '">' +
+                     '<span>' + escapeHtml(l) + '</span>' +
+                     '<span class="gallery-key-hint">' + (i + 1) + '</span>' +
+                   '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+      '<button class="gallery-btn" id="gallery-next-btn" type="button" title="Next (› / Right / PageDown / Space)">›</button>' +
+      '<button class="gallery-btn" id="gallery-next-folder-btn" type="button" title="Next Folder (|&gt; / Down)">|&gt;</button>';
+
+    var extraRight = isVid ?
+      '<input type="range" class="gallery-vol-slider" id="gallery-vol-slider" value="80" min="0" max="100" title="Volume">'
+      : '';
+
+    var mainInner = isVid ?
+      '<video class="gallery-main-video" id="gallery-main-video" autoplay loop></video>' +
+      '<div class="gallery-video-hover-ctrl" id="gallery-video-ctrl">' +
+        '<input type="range" class="gallery-video-seeker" id="gallery-video-seeker" value="0" min="0" max="100" step="0.1">' +
+        '<div class="gallery-video-bar">' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<span id="gallery-vid-time" style="font-family:monospace">00:00 / 00:00</span>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<span>🔊</span>' +
+            '<span id="gallery-vid-info" style="font-family:monospace">-</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+      :
+      '<img class="gallery-main-img" id="gallery-main-img" alt="">' +
+      '<div class="gallery-empty" id="gallery-empty" style="display:none">' +
+        '<div class="gallery-empty-icon">⬚</div>' +
+        '<div class="gallery-empty-hint">' + escapeHtml(T('Drop/Paste/Open') || 'Drop / Paste / Open') + '</div>' +
+      '</div>';
+
+    var treeId = isVid ? 'gallery-video-tree-panel' : 'gallery-tree-panel';
+    var thumbsId = isVid ? 'gallery-video-thumbnails' : 'gallery-thumbnails';
+    var pathId = isVid ? 'gallery-video-path' : 'gallery-path';
+    var infoId = isVid ? 'gallery-video-info' : 'gallery-info';
+
+    return '<div class="gallery-pane' + focused + '" id="' + panelId + '">' +
+             '<div class="gallery-tree-panel' + treeClass + '" id="' + treeId + '"></div>' +
+             '<div class="gallery-main-area">' +
+               '<div class="gallery-main" id="gallery-main">' +
+                 mainInner +
+                 '<span class="gallery-main-msg" id="gallery-toolbar-msg" style="display:none"></span>' +
+               '</div>' +
+               '<div class="gallery-bottom">' +
+                 '<div class="gallery-thumbnails" id="' + thumbsId + '"></div>' +
+                 '<div class="gallery-controls">' +
+                   '<button class="gallery-btn gallery-btn-icon" id="' + (isVid ? 'gallery-vid-tree-btn' : 'gallery-tree-btn') + '" type="button" title="Directory Tree (T)">☱</button>' +
+                   '<div class="gallery-path" id="' + pathId + '" title="">-</div>' +
+                   '<div class="gallery-ctrl-center">' + ctrlCenter + '</div>' +
+                   '<div class="gallery-ctrl-right">' +
+                     extraRight +
+                     '<span class="gallery-info" id="' + infoId + '">0 / 0</span>' +
+                     '<button class="gallery-btn gallery-btn-icon" id="gallery-split-btn" type="button" title="' + splitBtnTitle + '">' + splitBtnText + '</button>' +
+                     '<button class="gallery-btn gallery-btn-icon" id="gallery-mode-btn" type="button" title="' + modeBtnTitle + '">' + modeBtnText + '</button>' +
+                     '<button class="gallery-btn gallery-btn-icon" id="gallery-fs-btn" type="button" title="Fullscreen (F)">' +
+                       '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                         '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>' +
+                       '</svg>' +
+                     '</button>' +
+                   '</div>' +
+                 '</div>' +
+               '</div>' +
+             '</div>' +
+           '</div>';
+  }
+
   function updateLayoutMode() {
-    var splitBtn = document.getElementById('gallery-split-btn');
-    var modeBtn = document.getElementById('gallery-mode-btn');
-    if (splitBtn) splitBtn.classList.toggle('active', state.viewMode === 'split');
-    if (modeBtn) modeBtn.textContent = (state.mediaType === 'video') ? '🎬' : '🖼';
-
-    var main = document.getElementById('gallery-main');
-    if (!main) return;
-
-    var activeMediaType = (state.viewMode === 'split') ? state.focus : state.mediaType;
+    var layout = document.getElementById('gallery-layout');
+    if (!layout && state.container) {
+      layout = document.createElement('div');
+      layout.className = 'gallery-layout';
+      layout.id = 'gallery-layout';
+      state.container.appendChild(layout);
+    }
+    if (!layout) return;
 
     if (state.viewMode === 'split') {
-      main.className = 'gallery-main gallery-main-split';
-      main.innerHTML =
-        '<div class="gallery-pane' + (state.focus === 'image' ? ' focused' : '') + '" id="gallery-pane-image">' +
-          '<img class="gallery-main-img" id="gallery-main-img" alt="">' +
-        '</div>' +
-        '<div class="gallery-pane' + (state.focus === 'video' ? ' focused' : '') + '" id="gallery-pane-video">' +
-          '<video class="gallery-main-video" id="gallery-main-video" autoplay loop></video>' +
-          '<div class="gallery-video-hover-ctrl" id="gallery-video-ctrl">' +
-            '<input type="range" class="gallery-video-seeker" id="gallery-video-seeker" value="0" min="0" max="100" step="0.1">' +
-            '<div class="gallery-video-bar">' +
-              '<div style="display:flex;align-items:center;gap:6px">' +
-                '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-play" type="button">▶</button>' +
-                '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-stop" type="button">■</button>' +
-                '<span id="gallery-vid-time" style="font-family:monospace">00:00 / 00:00</span>' +
-              '</div>' +
-              '<div style="display:flex;align-items:center;gap:6px">' +
-                '<span>🔊</span>' +
-                '<input type="range" class="gallery-vol-slider" id="gallery-vol-slider" value="80" min="0" max="100">' +
-                '<span id="gallery-vid-info" style="font-family:monospace">-</span>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>';
-
-      document.getElementById('gallery-pane-image').addEventListener('click', function() {
-        if (state.focus !== 'image') { state.focus = 'image'; updateLayoutMode(); flashFocusOverlay('image'); }
-      });
-      document.getElementById('gallery-pane-video').addEventListener('click', function() {
-        if (state.focus !== 'video') { state.focus = 'video'; updateLayoutMode(); flashFocusOverlay('video'); }
-      });
-      bindVideoControls();
+      layout.className = 'gallery-layout gallery-main-split';
+      layout.innerHTML = buildPanelHTML('image', true) + buildPanelHTML('video', true);
     } else {
-      main.className = 'gallery-main';
-      if (state.mediaType === 'image') {
-        main.innerHTML =
-          '<img class="gallery-main-img" id="gallery-main-img" alt="">' +
-          '<div class="gallery-empty" id="gallery-empty" style="display:none">' +
-            '<div class="gallery-empty-icon">⬚</div>' +
-            '<div class="gallery-empty-hint">' + escapeHtml(T('Drop/Paste/Open') || 'Drop / Paste / Open') + '</div>' +
-          '</div>';
-      } else {
-        main.innerHTML =
-          '<video class="gallery-main-video" id="gallery-main-video" autoplay loop></video>' +
-          '<div class="gallery-video-hover-ctrl" id="gallery-video-ctrl">' +
-            '<input type="range" class="gallery-video-seeker" id="gallery-video-seeker" value="0" min="0" max="100" step="0.1">' +
-            '<div class="gallery-video-bar">' +
-              '<div style="display:flex;align-items:center;gap:6px">' +
-                '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-play" type="button">▶</button>' +
-                '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-stop" type="button">■</button>' +
-                '<span id="gallery-vid-time" style="font-family:monospace">00:00 / 00:00</span>' +
-              '</div>' +
-              '<div style="display:flex;align-items:center;gap:6px">' +
-                '<span>🔊</span>' +
-                '<input type="range" class="gallery-vol-slider" id="gallery-vol-slider" value="80" min="0" max="100">' +
-                '<span id="gallery-vid-info" style="font-family:monospace">-</span>' +
-              '</div>' +
-            '</div>' +
-          '</div>';
-        bindVideoControls();
-      }
+      layout.className = 'gallery-layout';
+      layout.innerHTML = buildPanelHTML(state.mediaType, false);
     }
+
+    layout.addEventListener('dragover', onDragOver);
+    layout.addEventListener('dragenter', onDragEnter);
+    layout.addEventListener('dragleave', onDragLeave);
+    layout.addEventListener('drop', onDrop);
+
+    bindEventsForCurrentLayout();
 
     renderTreePanel();
     renderThumbnails();
     if (state.index >= 0 && state.items.length) renderActive(state.index);
     if (state.videoIndex >= 0 && state.videoItems.length) renderActiveVideo(state.videoIndex);
     autoBalanceFullscreenSplitRatio();
+  }
+
+  function bindEventsForCurrentLayout() {
+    var paneImg = document.getElementById('gallery-pane-image');
+    var paneVid = document.getElementById('gallery-pane-video');
+
+    if (paneImg) {
+      paneImg.addEventListener('click', function(e) {
+        if (state.viewMode === 'split' && state.focus !== 'image') {
+          state.focus = 'image';
+          updateLayoutMode();
+          flashFocusOverlay('image');
+        }
+      });
+    }
+    if (paneVid) {
+      paneVid.addEventListener('click', function(e) {
+        if (state.viewMode === 'split' && state.focus !== 'video') {
+          state.focus = 'video';
+          updateLayoutMode();
+          flashFocusOverlay('video');
+        }
+      });
+    }
+
+    var treeBtn = document.getElementById('gallery-tree-btn') || document.getElementById('gallery-vid-tree-btn');
+    if (treeBtn) treeBtn.onclick = toggleTreePanel;
+
+    var splitBtns = document.querySelectorAll('#gallery-split-btn');
+    splitBtns.forEach(function(b) { b.onclick = toggleSplitMode; });
+
+    var modeBtns = document.querySelectorAll('#gallery-mode-btn');
+    modeBtns.forEach(function(b) { b.onclick = toggleMediaType; });
+
+    var fsBtns = document.querySelectorAll('#gallery-fs-btn');
+    fsBtns.forEach(function(b) { b.onclick = toggleFullscreen; });
+
+    var empty = document.getElementById('gallery-empty');
+    if (empty) empty.onclick = onOpenClick;
+
+    // image controls
+    var prevFolderBtn = document.getElementById('gallery-prev-folder-btn');
+    if (prevFolderBtn) prevFolderBtn.onclick = goPrevFolder;
+    var prevBtn = document.getElementById('gallery-prev-btn');
+    if (prevBtn) prevBtn.onclick = goPrev;
+    var nextBtn = document.getElementById('gallery-next-btn');
+    if (nextBtn) nextBtn.onclick = goNext;
+    var nextFolderBtn = document.getElementById('gallery-next-folder-btn');
+    if (nextFolderBtn) nextFolderBtn.onclick = goNextFolder;
+    var autoBtn = document.getElementById('gallery-autoplay-btn');
+    if (autoBtn) autoBtn.onclick = toggleAutoplay;
+
+    var dropdown = document.getElementById('gallery-interval-dropdown');
+    if (dropdown) {
+      dropdown.onclick = function(e) {
+        var item = e.target.closest('[data-idx]');
+        if (!item) return;
+        var idx = parseInt(item.dataset.idx, 10);
+        if (!isNaN(idx)) setAutoplayInterval(idx);
+      };
+    }
+
+    // video controls
+    var vidPrevFolderBtn = document.getElementById('gallery-vid-prev-folder-btn');
+    if (vidPrevFolderBtn) vidPrevFolderBtn.onclick = goPrevFolder;
+    var vidPrevBtn = document.getElementById('gallery-vid-prev-btn');
+    if (vidPrevBtn) vidPrevBtn.onclick = function() { setVideoActive(state.videoIndex - 1); };
+    var vidNextBtn = document.getElementById('gallery-vid-next-btn');
+    if (vidNextBtn) vidNextBtn.onclick = function() { setVideoActive(state.videoIndex + 1); };
+    var vidNextFolderBtn = document.getElementById('gallery-vid-next-folder-btn');
+    if (vidNextFolderBtn) vidNextFolderBtn.onclick = goNextFolder;
+
+    bindVideoControls();
+
+    var treePanel = document.getElementById('gallery-tree-panel') || document.getElementById('gallery-video-tree-panel');
+    if (treePanel) {
+      treePanel.onclick = function(e) {
+        var target = e.target.closest('.gallery-tree-node');
+        if (!target) return;
+        var dir = target.getAttribute('data-dir');
+        var isVid = (state.viewMode === 'split') ? (state.focus === 'video') : (state.mediaType === 'video');
+        var map = isVid ? state.videoDirMap : state.dirMap;
+        if (dir && map[dir] && map[dir].length) {
+          if (isVid) setVideoActive(map[dir][0]);
+          else setActive(map[dir][0]);
+        }
+      };
+    }
   }
 
   // ---------- directory tree & folder navigation helpers -------------
@@ -659,6 +719,7 @@
     for (var k = 0; k < state.currentFolderIndices.length; k++) {
       (function(idx) {
         var item = state.items[idx];
+        if (!item) return;
         var div = document.createElement('div');
         div.className = 'gallery-thumb' + (idx === state.index ? ' active' : '');
         div.dataset.idx = String(idx);
