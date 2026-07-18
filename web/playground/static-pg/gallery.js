@@ -542,13 +542,28 @@
     if (vidTreeBtn) vidTreeBtn.onclick = toggleTreePanel;
 
     var splitBtns = document.querySelectorAll('#gallery-split-btn');
-    splitBtns.forEach(function(b) { b.onclick = toggleSplitMode; });
+    splitBtns.forEach(function(b) {
+      b.onclick = function(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        toggleSplitMode();
+      };
+    });
 
     var modeBtns = document.querySelectorAll('#gallery-mode-btn');
-    modeBtns.forEach(function(b) { b.onclick = toggleMediaType; });
+    modeBtns.forEach(function(b) {
+      b.onclick = function(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        toggleMediaType();
+      };
+    });
 
     var fsBtns = document.querySelectorAll('#gallery-fs-btn');
-    fsBtns.forEach(function(b) { b.onclick = toggleFullscreen; });
+    fsBtns.forEach(function(b) {
+      b.onclick = function(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        toggleFullscreen();
+      };
+    });
 
     var empty = document.getElementById('gallery-empty');
     if (empty) empty.onclick = onOpenClick;
@@ -1290,9 +1305,14 @@
   }
 
   function enterFullscreen() {
-    var paneImg = document.getElementById('gallery-pane-image');
-    var main = document.getElementById('gallery-main');
-    var target = paneImg || main || document.documentElement;
+    var target;
+    if (state.viewMode === 'split') {
+      target = (state.focus === 'video') ? document.getElementById('gallery-pane-video') : document.getElementById('gallery-pane-image');
+    } else {
+      target = (state.mediaType === 'video') ? document.getElementById('gallery-pane-video') : document.getElementById('gallery-pane-image');
+    }
+    if (!target) target = document.getElementById('gallery-main') || document.documentElement;
+
     var p = target.requestFullscreen ? target.requestFullscreen() : Promise.resolve();
     p.catch(function(e) { console.warn('enterFullscreen failed:', e); });
     var layout = document.getElementById('gallery-layout');
@@ -1397,16 +1417,17 @@
   function renderActiveVideo(index) {
     var item = state.videoItems[index];
     var vidEl = document.getElementById('gallery-main-video');
-    var pathEl = document.getElementById('gallery-path');
-    var info = document.getElementById('gallery-info');
+    var pathEl = document.getElementById('gallery-video-path') || document.getElementById('gallery-path');
+    var info = document.getElementById('gallery-video-info') || document.getElementById('gallery-info');
 
     if (!item) {
       if (vidEl) vidEl.removeAttribute('src');
+      if (pathEl) { pathEl.textContent = '-'; pathEl.title = ''; }
+      if (info) info.textContent = '0 / 0 | Video';
       return;
     }
 
-    var isVidActive = (state.viewMode === 'split') ? (state.focus === 'video') : (state.mediaType === 'video');
-    if (isVidActive && pathEl) {
+    if (pathEl) {
       var displayPath = item.path || item.name || '';
       pathEl.textContent = displayPath;
       pathEl.title = displayPath;
@@ -1415,9 +1436,11 @@
     ensureMainSrc(item).then(function() {
       if (vidEl && item.mainURL) {
         state.videoURL = item.mainURL;
-        vidEl.src = item.mainURL;
+        if (vidEl.src !== item.mainURL) {
+          vidEl.src = item.mainURL;
+        }
       }
-      if (isVidActive && info) {
+      if (info) {
         var countStr = (index + 1) + ' / ' + state.videoItems.length;
         info.textContent = countStr + ' | Video';
       }
