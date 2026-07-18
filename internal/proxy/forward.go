@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tinyrouter/tinyrouter/internal/combo"
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
-func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path string) {
+func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path string, entryFormat combo.EntryFormat) {
 	defer r.Body.Close()
 	// 32 MB 代理请求体上限（LLM prompt 可能很大，32MB 足够）
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
@@ -44,7 +45,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 	}
 
 	if h.comboRes.IsComboName(modelStr) {
-		h.handleCombo(w, r, modelStr, bodyBytes, parsed, isStream, msgCount, path)
+		h.handleCombo(w, r, modelStr, bodyBytes, parsed, isStream, msgCount, path, entryFormat)
 		return
 	}
 
@@ -76,6 +77,14 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 	}
 	providerID = provider.ID
 
+	// NOTE: entry-format ↔ provider protocol matching was removed. TinyRouter
+	// fronts aggregating proxies (e.g. newapi / 2api) that serve multiple
+	// protocols from the same provider, and capabilities are per-model rather
+	// than per-provider. Whatever protocol the client requests, the proxy
+	// forwards it upstream; rejection (if any) is the upstream's call, not ours.
+	// The anthropic vs OpenAI upstream construction is still chosen by
+	// entryFormat (see forwardUpstream), so proto routing continues to work.
+
 	// Resolve alias to real model ID: if the user specified an alias, find
 	// the actual model ID before forwarding to the upstream.
 	if realID, found := h.reg.ResolveModelAlias(provider.Prefix, upstreamModel); found {
@@ -85,13 +94,13 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 	// NIM providers must not participate in Combo routing: the model name
 	// carries a nv/* prefix and never matches a combo name, so no combo
 	// resolution is attempted for them — fall through to the forward path.
-	if ok, _ := h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount, "", provider.Name); !ok {
+	if ok, _ := h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount, "", provider.Name, entryFormat); !ok {
 		writeError(w, http.StatusBadGateway, "all keys exhausted")
 	}
 }
 
-func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, path string) {
-	plan, err := h.comboRes.Resolve(comboName)
+func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, path string, entryFormat combo.EntryFormat) {
+	plan, err := h.comboRes.Resolve(comboName, entryFormat)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -105,19 +114,19 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 	switch plan.Strategy {
 	case "fallback":
 		for _, target := range plan.Targets {
-			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, ""); ok {
+			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "", entryFormat); ok {
 				return
 			}
 		}
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 	case "round-robin":
 		target := plan.Targets[0]
-		if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, ""); !ok {
+		if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "", entryFormat); !ok {
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 		}
 	case "greedy-squirrel":
 		for _, target := range plan.Targets {
-			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, ""); ok {
+			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "", entryFormat); ok {
 				return
 			}
 		}
@@ -127,7 +136,7 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 	}
 }
 
-func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, logLabel, providerName string) (bool, string) {
+func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, logLabel, providerName string, entryFormat combo.EntryFormat) (bool, string) {
 	state := &retryState{maxRetries: h.maxRetries()}
 
 	cfgProvider, _ := h.reg.GetProvider(providerID)
@@ -255,7 +264,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		startTime := time.Now()
-		resp, err := h.forwardUpstream(r.Context(), sel, upstreamBody, r.Header, isStream, path)
+		resp, err := h.forwardUpstream(r.Context(), sel, upstreamBody, r.Header, isStream, path, entryFormat)
 
 		// Stop the keep-alive ticker before writing the real body.
 		if !isStream {
@@ -312,7 +321,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 
 		if isStream {
 			normalize := cfgProvider != nil && cfgProvider.NormalizeStreamChunks
-			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize, reqID, r.Header, upstreamURL)
+			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize, reqID, r.Header, upstreamURL, entryFormat)
 		} else {
 			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, reqID, r.Header, upstreamURL)
 		}

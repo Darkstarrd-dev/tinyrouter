@@ -4,6 +4,8 @@
 >
 > **最后核对：** 2026-07-18，仓库工作区（`main`）。本次新增/核对：(a) 修复了 WebView2 及浏览器对 Playground 与核心静态资产（如 `playground.css`/`vendor/*`/`index.html` 等）的强缓存问题。通过在 `router.go` 的 `serveUI` 与 `noCacheHandler` 中统一注入 `Cache-Control: no-store, no-cache, must-revalidate, max-age=0` 响应头，确保每次编译后 WebView 能够立刻加载最新的静态代码。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
+> **2026-07-18 更新（Anthropic 协议路由 + 软策略 + Responses 路由 + 多协议探测）：** 本轮在 Anthropic 入口基础上进一步：(1) **软策略修正**——proxy 不再因 `provider.APIType` 拒绝请求，客户端用什么协议入口（`/v1/chat/completions` / `/v1/messages` / `/v1/responses`）请求就按该协议转发；已删除 `forward.go` 旧的两处入口协议严格匹配 400 块，同一聚合 provider 可同时被三入口访问；(2) 新增 **OpenAI Responses 入口** `POST /v1/responses`（router.go:207，`proxyHandler.Responses`，`handleProxy(..., EntryFormatOpenAIResponses)`），与 OpenAI Chat / Anthropic Messages **三入口并列、同端口、按路径区分**；`forwardUpstream` 改为按 `entryFormat` 三分支（upstream.go:76-91），Responses 分支 URL 不注入 `/v1` 前缀、鉴权头 `Authorization: Bearer`；(3) **Anthropic usage 提取**——stream.go 新增 `parseAnthropicSSEUsage` 读 `message_start`/`message_delta` 的 input/output tokens 并复用 `recordUsage`，OpenAI `util.ExtractTokens` 加 guard 避免 anthropic `output_tokens` 干扰；(4) **三协议复合探测**——`api/probe_model.go`+`probe_common.go` 对单模型并发探测 OpenAI-compat / OpenAI-Responses / Anthropic 三协议，把成功集合写回 `ModelDef.Protocols`（变化时落 config.yaml）并写 `state.yaml` 的 `probes` map。详见本文第 §1、§3、§3.1、§3.2、§4、§7、§8.8、§13.1、§17、§18 各节。
+
 > **2026-07-14 更新：** `recorder.go`、`forward.go`、`stream.go` 不再以 `debugMode()` 门控 payload/headers 捕获——始终捕获 `ReqPayload`、`RespPayload`、`ReqHeaders`、`RespHeaders`、`UpstreamURL`、`RespStatus` 及 SSE 累积体。`debugMode()` 仅保留对 `parseAndBroadcastChunk`（实时 SSE chunk 广播）的门控。
 
 > **2026-07-14 更新（Image 模式）：** 代理核心新增两个 `/v1/*` 端点：`POST /v1/images/generations`（`ImagesGenerations`，透明转发，复用 `handleProxy`）与 `POST /v1/tasks/{taskId}`（`PollTask`，ModelScope 异步任务轮询），路由总数由 3 个升至 5 个。`normalizeBaseURL` 的 suffix 剥离列表新增 `"/images/generations"`；`forwardUpstream` 新增 `X-Modelscope-Async-Mode` 请求头透传。两端点同样位于 `AuthMiddleware` 之外、CORS preflight 覆盖范围内。
@@ -18,7 +20,7 @@
 
 `internal/proxy/` 是 TinyRouter 的**代理核心包**，承载所有 `/v1/*`（OpenAI-compatible）请求的处理：模型解析、Key 选择、上游转发、SSE 流式透传、重试/故障转移、用量记录、在途跟踪与事件广播。它自身不含任何管理接口、配置加载或 UI 逻辑。
 
-- **谁调用它：** `internal/api/router.go` 在顶层挂载五个路由（`/v1/chat/completions`、`/v1/completions`、`/v1/models`、`/v1/images/generations`、`/v1/tasks/{taskId}`，见 router.go:194-198），把请求派发到 `proxy.Handler`；`internal/app/app.go` 作为组合根构造 `Handler` 并注入依赖（`app/app.go:129`）；`internal/api/sse_events.go` 消费 `Handler` 暴露的 `Broadcaster` / `EntryTracker`，把用量/在途/请求事件以 SSE 推送给管理 UI。
+- **谁调用它：** `internal/api/router.go` 在顶层挂载七个 `/v1/*` 路由（`/v1/chat/completions`、`/v1/completions`、`/v1/models`、`/v1/images/generations`、`/v1/messages`、`/v1/responses`、`/v1/tasks/{taskId}`，见 router.go:196-209），把请求派发到 `proxy.Handler`；`internal/app/app.go` 作为组合根构造 `Handler` 并注入依赖（`app/app.go:129`）；`internal/api/sse_events.go` 消费 `Handler` 暴露的 `Broadcaster` / `EntryTracker`，把用量/在途/请求事件以 SSE 推送给管理 UI。三个协议入口——`/v1/chat/completions`（OpenAI Chat，仅注册 POST，见 §3）、`/v1/messages`（Anthropic Messages，仅注册 POST，见 §3.1）、`/v1/responses`（OpenAI Responses，仅注册 POST，见 §3.2）——并列、同端口、按路径区分。
 - **它调用谁：** `rotation.Selector`（Key 选择、冷却、退避、锁定）、`combo.Resolver`（combo 解析）、`registry.Registry`（provider/quickslot/key 运行时状态）、`usage.RingBuffer` 与 `usage.QuotaTracker`（用量）、`config`（配置与 provider 判定）、`util`（模型名拆分、token 提取、日志截断）。
 
 ```mermaid
@@ -63,17 +65,46 @@ flowchart LR
 
 `internal/api/router.go` 在 `Routes` 中通过 chi 挂载代理路由：
 
-- 五个 `/v1/*` 路由（router.go:194-198）：
+- 七个 `/v1/*` 路由（router.go:196-209）：
   - `r.Post("/v1/chat/completions", proxyHandler.ChatCompletions)`；
   - `r.Post("/v1/completions", proxyHandler.Completions)`；
   - `r.Get("/v1/models", proxyHandler.ListModels)`；
   - `r.Post("/v1/images/generations", proxyHandler.ImagesGenerations)`；
+  - `r.Post("/v1/messages", proxyHandler.Messages)`（**Anthropic 协议入口**，见 §3.1）；
+  - `r.Post("/v1/responses", proxyHandler.Responses)`（**OpenAI Responses 协议入口**，见 §3.2）；
   - `r.Post("/v1/tasks/{taskId}", proxyHandler.PollTask)`。
 
-- **鉴权边界：** `/v1/*` 路由写在 `Routes` 函数顶层（router.go:194-198），而 `AuthMiddleware` 只包裹 `/api` 路由组（router.go:213-215）。因此 `/v1/*` 完全在 `AuthMiddleware` 之外，任意 API Key 或无 Key 均可访问（与 AGENTS.md “纯本地，无对外鉴权”一致）。
-- **CORS preflight（仅 `/v1/*`）：** router.go:181-191 处理 `OPTIONS /v1/*`，设置 `Access-Control-Allow-Origin` 为请求方 `Origin`、`Allow-Methods: GET, POST, OPTIONS`、`Allow-Headers: Content-Type, Authorization`、`Expose-Headers: X-TinyRouter-Provider, X-TinyRouter-Key`，并以 204 响应。管理 `/api/*` 无 CORS（同源管理 UI），外部页面不能跨域读取配置或密钥。
-- **securityHeaders 跳过 `/v1/`：** `securityHeaders` 中间件（router.go:151-164）对 `/v1/` 前缀路径跳过设置 CSP / `X-Content-Type-Options` / `X-Frame-Options` / `X-XSS-Protection`，使上游响应头透传（router.go:154）。
-- **上游 HTTP 代理：** `proxy.Handler.SetProxy`（handler.go:102-142）设置走代理的 `*url.URL`；`provider.UseProxy` 为 true 时，`forwardUpstream` 选择代理 client（upstream.go:84-93）。代理 URL 始终以 `http://host:port` 重建，端口范围 `[1,65535]`，非法则禁用代理并返回错误（handler.go:129-141）。
+- **鉴权边界：** `/v1/*` 路由写在 `Routes` 函数顶层（router.go:196-204），而 `AuthMiddleware` 只包裹 `/api` 路由组（router.go:212-214）。因此 `/v1/*` 完全在 `AuthMiddleware` 之外，任意 API Key 或无 Key 均可访问（与 AGENTS.md “纯本地，无对外鉴权”一致）。
+- **CORS preflight（仅 `/v1/*`）：** router.go:180-192 处理 `OPTIONS /v1/*`，设置 `Access-Control-Allow-Origin` 为请求方 `Origin`、`Allow-Methods: GET, POST, OPTIONS`、`Allow-Headers: Content-Type, Authorization`、`Expose-Headers: X-TinyRouter-Provider, X-TinyRouter-Key`，并以 204 响应。管理 `/api/*` 无 CORS（同源管理 UI），外部页面不能跨域读取配置或密钥。`/v1/messages` 经路径前缀 `/v1/*` 的 OPTIONS 处理自动覆盖，无需额外配置（router.go:200-203 注释）。
+- **securityHeaders 跳过 `/v1/`：** `securityHeaders` 中间件（router.go:151-165）对 `/v1/` 前缀路径跳过设置 CSP / `X-Content-Type-Options` / `X-Frame-Options` / `X-XSS-Protection`，使上游响应头透传（router.go:156）。
+- **上游 HTTP 代理：** `proxy.Handler.SetProxy`（handler.go:102-142）设置走代理的 `*url.URL`；`provider.UseProxy` 为 true 时，`forwardUpstream` 选择代理 client（upstream.go:104-120）。代理 URL 始终以 `http://host:port` 重建，端口范围 `[1,65535]`，非法则禁用代理并返回错误（handler.go:129-141）。
+
+### 3.1 Anthropic 协议入口（`/v1/messages`）
+
+`Messages`（handler.go:179-181）是 Anthropic Messages API 的代理入口，与 OpenAI 系列入口**并行、同端口、按路径区分**——不引入新端口或新路径前缀。
+
+- **注册方式：** 仅注册 `POST` 方法（`r.Post("/v1/messages", proxyHandler.Messages)`，router.go:203）。Anthropic Messages 语义无 GET 形式，故不注册 GET；CORS 仍由 §3 的 `/v1/*` OPTIONS 处理自动覆盖。
+- **调用链：** `Messages`（handler.go:179-181）内部调用 `h.handleProxy(w, r, "/v1/messages", combo.EntryFormatAnthropic)`（handler.go:180），其余 OpenAI 入口调用时传入 `combo.EntryFormatOpenAI`（handler.go:160、164、168、172），Responses 入口传入 `combo.EntryFormatOpenAIResponses`（handler.go:189）。`entryFormat` 从 `handleProxy` 经 `handleCombo`/`forwardWithRetry`/`forwardUpstream`/`streamResponse` 一路下传，用于协议分支（上游构造、SSE usage 提取）。
+- **不做格式翻译：** Anthropic 请求体（含 `model`/`messages`/`system`/`max_tokens` 等）原样转发给上游 provider，代理**不**做 OpenAI↔Anthropic 之间的任何格式转换（设计要点 #2）。上游响应同样原样回传。
+- **软策略（不再做入口协议严格匹配）：** 见 §4 与 §13.1。
+
+### 3.2 OpenAI Responses 协议入口（`/v1/responses`）
+
+`Responses`（handler.go:188-189）是 OpenAI Responses API 的代理入口，与前两者**并行、同端口、按路径区分**。
+
+- **注册方式：** 仅注册 `POST` 方法（`r.Post("/v1/responses", proxyHandler.Responses)`，router.go:207）。CORS 由 §3 的 `/v1/*` OPTIONS 处理自动覆盖。
+- **调用链：** `Responses` 内部调用 `h.handleProxy(w, r, "/v1/responses", combo.EntryFormatOpenAIResponses)`（handler.go:189），`entryFormat == EntryFormatOpenAIResponses` 经调用链下传。
+- **不做格式翻译：** OpenAI Responses 请求体原样转发给上游；代理不解析 Responses 的 event 结构（`response.created`/`response.output_text.delta`/`response.completed` 等），只透传。
+- **上游构造差异：** 见 §7.5。SSE usage 提取复用 OpenAI 兼容路径的 `util.ExtractTokens`（见 §8.9）。
+
+### 3.3 入口协议透传策略（软策略）
+
+三个协议入口（OpenAI Chat / Anthropic Messages / OpenAI Responses）**仅决定转发协议，不做 provider 准入校验**。客户端用哪个入口请求，proxy 就按哪个协议构造上游（`entryFormat` 路由分支在 `forwardUpstream` 内判定，upstream.go:76-91）。
+
+- **同一 provider 可服务三入口：** 因为转发协议由 `entryFormat`（来自入口路径）决定，而不再由 `provider.APIType` 决定，一个聚合 provider（例如同 BaseURL 同时支持多种协议）可被任一入口访问，上游构造分支按 `entryFormat` 选 `buildUpstreamRequest` / `buildAnthropicUpstreamRequest` / `buildResponsesUpstreamRequest`。
+- **已移除入口协议严格匹配：** 旧 `forward.go` 在解析出 provider 后对 `entryFormat` 与 `provider.IsAnthropic()` 做对称 400 校验（原 forward.go:84-91）已被删除；现在 proxy 不再因 `provider.APIType` 拒绝请求（forward.go:80-97 仅做模型解析与上游转发准备，无协议拒收分支）。
+- **combo 不过滤 target：** `combo.Resolver.Resolve(name, entryFormat)` 对所有 `entryFormat` 返回同一 target 集合（已移除 anthropic 入口 `IsAnthropic()` 过滤），见 rotation-architecture.md §4.4。`entryFormat` 参数保留但不再被消费（供未来扩展）。
+- **不做协议协商/翻译：** proxy 仍严格“原样透传”，不臆造 OpenAI↔Anthropic↔Responses 之间的双向翻译或自动协商；客户端须使用与上游匹配的入口。
 
 ## 4. Handler 与依赖注入
 
@@ -190,25 +221,45 @@ flowchart TD
 - **Alias 解析**：`GetProviderByPrefix` 之后调用 `ResolveModelAlias`（forward.go:79-83），将用户可能使用的 alias 解析为真实 model ID。如果该 model 设置了 alias 且用户发送的是 `prefix/alias`，此处将 `upstreamModel` 替换为真实 model ID 再转发给上游。未设置 alias 时行为不变。
 ## 7. 上游转发与 body 改写
 
-### 7.1 forwardUpstream（upstream.go:66-100）
+### 7.1 forwardUpstream（upstream.go:67-121）
 
-`forwardUpstream` 完成实际 HTTP POST：
+`forwardUpstream` 完成实际 HTTP POST。它按 **`entryFormat`（来自入口路径，而非 `provider.APIType`）** 三分支构造请求（upstream.go:76-91）：
 
-- `BuildUpstreamURL(sel.Provider.BaseURL, path)` 构造完整上游 URL（upstream.go:67）。
-- 设置固定头：`Content-Type: application/json`（upstream.go:74）、`Authorization: Bearer <sel.Key.Key>`（upstream.go:75）。
-- 透传客户端 `User-Agent`（若非空，upstream.go:77-79）。
-- 流式请求额外设置 `Accept: text/event-stream`（upstream.go:80-82）。
-- **client 选择：** `sel.Provider.UseProxy` 且代理 URL 非空 → 代理 client；否则直连 client（upstream.go:84-93）。流式用 `proxyStream`/`streamClient`，非流式用 `proxyClient`/`client`（upstream.go:94-100）。
+- **OpenAI Chat 入口（`entryFormat == EntryFormatOpenAI`）：** `BuildUpstreamURL(sel.Provider.BaseURL, path)` 构造完整上游 URL（upstream.go:75），设置固定头 `Content-Type: application/json`（upstream.go:80）、`Authorization: Bearer <sel.Key.Key>`（upstream.go:81）。
+- **Anthropic 入口（`entryFormat == EntryFormatAnthropic`）：** 改走 `buildAnthropicUpstreamRequest`（upstream.go:77、135-164），见 §7.3。
+- **OpenAI Responses 入口（`entryFormat == EntryFormatOpenAIResponses`）：** 改走 `buildResponsesUpstreamRequest`（upstream.go:79-80、185-225），见 §7.5。
+- 透传客户端 `User-Agent`（若非空，upstream.go:91-93）、`X-Modelscope-Async-Mode` / `X-Modelscope-Task-Type`（若非空，upstream.go:94-99）。
+- 流式请求额外设置 `Accept: text/event-stream`（upstream.go:100-102）。
+- **client 选择：** `sel.Provider.UseProxy` 且代理 URL 非空 → 代理 client；否则直连 client（upstream.go:104-113）。流式用 `proxyStream`/`streamClient`，非流式用 `proxyClient`/`client`（upstream.go:114-120）。
+
+  > 注意：上游构造分支改由 `entryFormat` 决定（软策略，见 §3.3）——原先按 `sel.Provider.IsAnthropic()` 分支已改为 `entryFormat == EntryFormatAnthropic`（upstream.go:76）。OpenAI 专用透传头（`User-Agent`/Modelscope 头）对 anthropic 也一并设置（upstream.go:88-99），但是幂等的——Anthropic 上游会忽略它们；关键区别是 anthropic 分支**绝不设置 `Authorization`**，而改用 `x-api-key`（§7.3）。Responses 分支鉴权头与 OpenAI Chat 一致（`Authorization: Bearer`）。
 
 ### 7.2 URL 构造（normalizeBaseURL / BuildUpstreamURL）
 
-- `normalizeBaseURL`（upstream.go:16-25）：去除 `/chat/completions`、`/completions`、`/models` 等已知后缀，使 URL 止于 API root。
-- `BuildUpstreamURL`（upstream.go:37-55）支持三种 base 形式：
-  1. **Raw 模式：** base 以 `*` 结尾 → 去掉 `*` 并 trim 右 `/` 后原样返回，不做归一化或后缀拼接（upstream.go:40-43）。
-  2. **Host root（无路径）：** `isHostRoot` 为真（`u.Path==""` 或 `"/"`）→ 注入 `/v1` 后追加完整 `endpointPath`（upstream.go:49-51、upstream.go:58-64）。
-  3. **Path-bearing：** 去掉 endpointPath 的 `/v1` 前缀，把剩余 suffix 直接拼到归一化 base（upstream.go:46、upstream.go:53-54）。
+- `normalizeBaseURL`（upstream.go:17-26）：去除 `/chat/completions`、`/completions`、`/models`、`/images/generations` 等已知后缀，使 URL 止于 API root。
+- `BuildUpstreamURL`（upstream.go:38-56）支持三种 base 形式：
+  1. **Raw 模式：** base 以 `*` 结尾 → 去掉 `*` 并 trim 右 `/` 后原样返回，不做归一化或后缀拼接（upstream.go:42-44）。
+  2. **Host root（无路径）：** `isHostRoot` 为真（`u.Path==""` 或 `"/"`）→ 注入 `/v1` 后追加完整 `endpointPath`（upstream.go:50-52）。
+  3. **Path-bearing：** 去掉 endpointPath 的 `/v1` 前缀，把剩余 suffix 直接拼到归一化 base（upstream.go:47、upstream.go:55）。
+- **Anthropic URL 构造（不注入 `/v1`）：** 见 §7.3。
 
-### 7.3 Body 改写（在 forwardWithRetry 内，forward.go:130-179）
+### 7.3 Anthropic 上游请求构造（upstream.go:135-179）
+
+`buildAnthropicUpstreamRequest`（upstream.go:135-164）在 `sel.Provider.IsAnthropic()` 为真时由 `forwardUpstream` 调用（upstream.go:72-73），与 OpenAI 路径有两处根本差异：
+
+1. **URL 不注入 `/v1` 前缀：** Anthropic 的 BaseURL 期望本身就是**完整 endpoint**，按以下优先级处理（upstream.go:136-156）：
+   - **Raw 模式：** BaseURL 以 `*` 结尾 → 去掉 `*` 并 trim 右 `/` 后原样作 endpoint（upstream.go:138-146），与 OpenAI raw 模式一致。
+   - **完整 endpoint 形式：** BaseURL 已以 `/v1/messages` 结尾 → 直接用作上游 URL，不做任何拼接（upstream.go:149-152）。推荐配置形如 `https://api.anthropic.com/v1/messages`。
+   - **host-root / path-bearing 形式：** 否则在 trim 尾 `/` 后追加固定路径 `/v1/messages`（upstream.go:153-156）。
+2. **认证头分支（绝不设 `Authorization`）：** `setAnthropicHeaders`（upstream.go:168-179）设置：
+   - `Content-Type: application/json`（upstream.go:169）；
+   - `x-api-key: <key>`（upstream.go:170）——替代 OpenAI 的 `Authorization: Bearer`；
+   - `anthropic-version: <Provider.AnthropicVersion>`，为空时回落默认 `2023-06-01`（upstream.go:171-175）；
+   - 仅当 `Provider.AnthropicBeta != ""` 时设 `anthropic-beta: <value>`（upstream.go:176-178）。
+
+   关键约束：**Anthropic 分支不设置 `Authorization` 头**（upstream.go:167 注释 + 仅 `setAnthropicHeaders` 在构造上游请求时调用），避免把 anthropic key 误放进 `Authorization` 字段。
+
+### 7.4 Body 改写（在 forwardWithRetry 内，forward.go:130-179）
 
 在每次 `forwardUpstream` 之前、选定 key 之后改写 `parsed` map 并重新 `json.Marshal`：
 
@@ -217,6 +268,40 @@ flowchart TD
 - **thought_signature 回填：** 仅当 `cfgProvider.IsGeminiOpenAICompat()` 时调用 `backfillThoughtSignatures(parsed, h.sigCache)`（forward.go:171-173），见第 10 节。
 
 上述改写作用于当前重试迭代的 body；每次循环都基于原始 `parsed`（combo 传入的同一 map）重新执行，因此重试之间不会互相污染。
+
+### 7.5 OpenAI Responses 上游请求构造（upstream.go:185-225）
+
+`buildResponsesUpstreamRequest`（upstream.go:203-225）在 `entryFormat == EntryFormatOpenAIResponses` 时由 `forwardUpstream` 调用（upstream.go:79-80），与 OpenAI Chat 路径的差异只在 URL：
+
+1. **URL 不注入 `/v1` 前缀（同 Anthropic 规则）：** 按以下优先级处理（与 §7.3 同形）：
+   - **Raw 模式：** BaseURL 以 `*` 结尾 → 去掉 `*` 并 trim 右 `/` 后原样作 endpoint（upstream.go:138-146）。
+   - **完整 endpoint 形式：** BaseURL 已以 `/v1/responses` 结尾 → 直接用作上游 URL（upstream.go:149-152）。
+   - **host-root / path-bearing 形式：** 否则在 trim 尾 `/` 后追加固定路径 `/v1/responses`（upstream.go:153-156）。
+2. **鉴权头 `Authorization: Bearer <key>`（与 OpenAI Chat 保持一致）：** Responses 分支不设 `x-api-key`，复用 OpenAI Chat 的 Bearer 鉴权；固定头 `Content-Type: application/json`（upstream.go:81、169 同形）。
+
+> 设计要点：Responses 入口与 Anthropic 入口**仅在 URL 拼接策略上一致（不注入 `/v1` 前缀、按 raw/完整 endpoint/host-root 三类拼 `/v1/responses`）**，但在鉴权上仍走 OpenAI 的 `Authorization: Bearer` 分支。TinyRouter 不解析 Responses 的 SSE event（如 `response.created`/`response.output_text.delta`/`response.completed`），只透传——但 SSE 数据结构与 OpenAI Chat 兼容，故 usage 提取复用 `util.ExtractTokens`（见 §8.9）。
+
+### 7.6 Anthropic Provider 配置示例
+
+`apiType: anthropic` 的 provider 只需指定完整 endpoint 与 key；`AnthropicVersion` 不填时由 `finalizeConfig` 回填默认 `2023-06-01`（config/defaults.go:97-98），`AnthropicBeta` 可选。配置示例（仅作文档示例，不写入仓库 `config.yaml`）：
+
+```yaml
+providers:
+  - id: claude
+    name: Claude (Anthropic)
+    apiType: anthropic                  # 触发 IsAnthropic() == true 的协议分支
+    baseUrl: https://api.anthropic.com/v1/messages   # 必须是完整 endpoint；未以 /v1/messages 或 * 结尾时 validate.go 告警
+    # anthropicVersion: "2023-06-01"    # 可选；缺省由 finalizeConfig 回填默认 "2023-06-01"
+    # anthropicBeta: "prompt-caching-2024-07-31"  # 可选；非空时才发送 anthropic-beta 头
+    keys:
+      - id: k1
+        key: sk-ant-xxxx                # 用作 x-api-key 头，而非 Authorization
+    models:
+      - id: claude-opus-4-...           # 上游 model 名（原样转发，不做翻译）
+```
+
+- 客户端向本机 `POST /v1/messages` 发送 Anthropic 格式 body，`model` 字段填 `claude/<model-id>`（provider prefix + 上游 model id，forward.go:66）。
+- 代理以 `x-api-key` + `anthropic-version`(+ `anthropic-beta`) 转发到 `baseUrl`，不设 `Authorization`（§7.3）。软策略下该 provider 并不被禁止从 `/v1/chat/completions` 或 `/v1/responses` 入口访问（见 §3.3）。
 
 ## 8. SSE 流式透传
 
@@ -276,6 +361,20 @@ flowchart TD
 **为什么必须绕过压缩（见 `Compress` 中间件）：** 若 `compressWriter` 包装该响应，brotli 编码后会向浏览器发送编码后的小帧；brotli 解压器无法从碎片化的小帧还原出输出字节，浏览器视为"无 body 数据"→ body 定时器立即触发→ 2s 断连。`Compress` 对 `/v1/images/generations` 与 `/v1/images/edits` 直接放行后，`\n`/` ` 以原始明文送达浏览器，立即被识为解压后 body 数据。
 
 **最终 body 拼接：** `passThroughResponse` 随后以 `WriteHeader(resp.StatusCode)`（status 与首次隐式 200 同为 200 时无副作用）+ `w.Write(bodyBytes)` 追加上游 JSON。最终响应体 = `\n` + 若干 ` ` + `{"created":...}`，全部为合法 JSON 空白 + JSON 对象，`resp.json()` 可正常解析。
+
+### 8.8 Anthropic 入口的 SSE 透传
+
+Anthropic 流式响应**复用同一份 `streamResponse` 逐 chunk 透传 + `http.Flusher` 逻辑**（forward.go:329 调用 `streamResponse(..., entryFormat)`），不另起实现。唯一协议相关差异在调试态的 chunk 解析与 usage 提取：
+
+- `parseAndBroadcastChunk`（实时 SSE chunk 广播）仅当 `entryFormat == combo.EntryFormatOpenAI` 时被调用（stream.go:207-209、234-236、286-288）。即 **Anthropic 入口（`EntryFormatAnthropic`）跳过 OpenAI 专用的 chunk 解析**，仅做基础 chunk 透传与 http.Flusher 刷新（stream.go:182-241 的 `else` raw/normalize 写出路径对两个协议一致）。
+- **Anthropic usage 提取（`parseAnthropicSSEUsage`）：** Anthropic 入口读取 SSE 流的 `message_start`（→ `data.message.usage.input_tokens`）与 `message_delta`（→ `data.usage.output_tokens`）事件提取 input/output tokens（stream.go:415-450），复用现有 `recordUsage` 机制上报（透传内容不被修改）。**关键 guard：** OpenAI 入口的 `util.ExtractTokens`（stream.go:212、254、318 等）在 anthropic entry 下**不运行**——因为 `util.ExtractTokens` 会误匹配 anthropic `message_delta` 的 `usage.output_tokens` 并把 `input_tokens` 置 0（clobber），故 anthropic 分支先判 `parseAnthropicSSEUsage` 命中后再走 OpenAI 提取的 `else if`（stream.go:199-212、242-254、307-318）。
+- 不臆造 Anthropic SSE 事件解析：`thought_signature` 提取、其他通用 `data:` 行解析对 Anthropic 入口同样不解析 Claude 的 SSE 结构（stream.go:218-239、273-285）。
+
+> 设计要点：代理对 Anthropic 与 OpenAI 流式采用同一套"原样转发"机制，差异只在 (a) OpenAI 专有的实时 chunk 解析（调试广播）被关闭；(b) usage 提取走 `parseAnthropicSSEUsage` 而非 `util.ExtractTokens`，避免 anthropic `output_tokens` 干扰 OpenAI 的数据流。
+
+### 8.9 OpenAI Responses 入口的 SSE 透传
+
+OpenAI Responses 入口（`EntryFormatOpenAIResponses`）**复用 OpenAI 兼容的 `util.ExtractTokens` 提取 usage**（stream.go:212、254、318 的 OpenAI 分支），不需修改代码——Responses 的 SSE 数据结构（`response.created`/`response.output_text.delta`/`response.completed` 等）与 OpenAI Chat 兼容，token 字段（`input_tokens`/`output_tokens`）结构一致，`util.ExtractTokens` 可直接命中。TinyRouter **不解析** Responses 的 event 类型，只透传。
 
 ## 9. 重试与故障转移状态机
 
@@ -398,6 +497,17 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 `broadcastRequestStart`（forward.go:278-288）在每次 `forwardWithRetry` 迭代发出 `request-start` 事件，经 `RequestUpdates.Broadcast`。
 ## 13. 响应契约
 
+### 13.1 客户端协议透传软策略说明
+
+`handleProxy` **不再**在解析出 provider 后、转发前对 `entryFormat` 与 `provider.APIType` 做对称性 400 校验——旧的两处入口协议严格匹配块（原 forward.go:80-91）已删除。客户端用什么协议入口请求，proxy 就按该协议转发（软策略，见 §3.3）：
+
+- **Anthropic 入口（`EntryFormatAnthropic`）：** 不再因选到的 provider `!provider.IsAnthropic()` 而 400；上游构造走 `buildAnthropicUpstreamRequest`，鉴权用 `x-api-key`+`anthropic-version`（§7.3）。
+- **OpenAI 入口（`EntryFormatOpenAI` / `EntryFormatOpenAIResponses`）：** 不再因 provider 是 anthropic 而 400；上游构造走 OpenAI Chat / Responses 分支（§7.1、§7.5），鉴权用 `Authorization: Bearer`。
+- **同一 provider 可服务三入口：** `forwardUpstream` 的上游构造分支由 `entryFormat`（来自入口路径）决定，而非 `provider.APIType`（upstream.go:76-91），故一个聚合 provider 可同时被 `/v1/chat/completions`、`/v1/messages`、`/v1/responses` 访问。
+- **combo 不再过滤 target：** `combo.Resolver.Resolve(name, entryFormat)` 对所有 `entryFormat` 返回同一 target 集合（已移除 anthropic 入口 `IsAnthropic()` 过滤，见 rotation-architecture.md §4.4）。
+
+> 软策略的前提是“客户端须使用与上游匹配的入口”——proxy 仍严格原样透传，不臆造协议间的双向翻译或自动协商；若客户端用错入口，上游会自行返回协议错误（由重试/透传机制处理）。
+
 - **流式成功头**（stream.go:157-163）：`Content-Type: text/event-stream`、`Cache-Control: no-cache`、`Connection: keep-alive`、`X-TinyRouter-Provider`、`X-TinyRouter-Key`；状态码恒为 200（stream.go:164）。
 - **非流式成功头**（stream.go:312-316）：`Content-Type: application/json` + `X-TinyRouter-*`；**状态码原样透传上游**（stream.go:317）。
 - **本地代理错误**：`writeError`（forward.go:290-298）写 `Content-Type: application/json` + 状态码 + `{"error":{"message":...,"type":"proxy_error"}}`。
@@ -481,11 +591,11 @@ go build -o tinyrouter .
 
 后端与集成：
 
-- `internal/proxy/handler.go`：Handler 结构体（15-36）、构造函数 New（43-80）、ChatCompletions/Completions（156-162）、SetProxy（102-142）、SetUpstreamTimeout（147-154）、SetDebugModeProvider（164-173）、ImagesGenerations（164-166）、PollTask（168-170）。
-- `internal/proxy/interfaces.go`：6 个能力接口 Logger/KeyProvider/ModelResolver/ComboResolver/UsageRecorder/QuotaTracker（16-81）。
-- `internal/proxy/forward.go`：handleProxy（14-91）、handleCombo（93-128）、forwardWithRetry（130-276）、broadcastRequestStart（278-288）、writeError（290-298）、backfillThoughtSignatures（314-355）、hasThoughtSignature（357-368）。
-- `internal/proxy/upstream.go`：normalizeBaseURL（16-25，suffix 剥离列表新增 `"/images/generations"`）、BuildUpstreamURL（37-55）、forwardUpstream（66-100，新增 `X-Modelscope-Async-Mode` 请求头转发）。
-- `internal/proxy/stream.go`：SSELineBuffer（15-40）、SSEDataPayloads（49-63）、normalizeSSEChunk（73-109）、streamResponse（138-307）、passThroughResponse（309-341）、parseAndBroadcastChunk（349-368）、chunkDelta/parseSSEChunkDelta（371-418）、extractThoughtSignature（444-490）。
+- `internal/proxy/handler.go`：Handler 结构体（15-36）、构造函数 New（43-80）、ChatCompletions/Completions（159-165）、Messages（179-181，Anthropic 入口，调用 `handleProxy(..., EntryFormatAnthropic)`）、Responses（188-189，OpenAI Responses 入口，调用 `handleProxy(..., EntryFormatOpenAIResponses)`）、SetProxy（102-142）、SetUpstreamTimeout（147-154）、SetDebugModeProvider（215-224）、ImagesGenerations（167-169）、PollTask（171-173）。
+- `internal/proxy/interfaces.go`：6 个能力接口 Logger/KeyProvider/ModelResolver/ComboResolver（`Resolve(name, entryFormat)`，61-64）/UsageRecorder/QuotaTracker（16-81）。
+- `internal/proxy/forward.go`：handleProxy（15-105，软策略：不再做入口协议严格匹配 400 块，仅模型解析 + 透传准备）、handleCombo（102-142，含 `entryFormat` 透传）、forwardWithRetry（139-342，含 `entryFormat` 透传）、broadcastRequestStart（344-354）、writeError（356-365）、backfillThoughtSignatures（380-421）、hasThoughtSignature（423-434）。
+- `internal/proxy/upstream.go`：normalizeBaseURL（17-26，suffix 剥离列表含 `"/images/generations"`）、BuildUpstreamURL（38-56）、forwardUpstream（67-121，按 `entryFormat` 三分支：OpenAI Chat / Anthropic / OpenAI Responses）、buildAnthropicUpstreamRequest（135-164，URL 不注入 `/v1` 前缀）、setAnthropicHeaders（168-179，x-api-key/anthropic-version/anthropic-beta，不设 Authorization）、buildResponsesUpstreamRequest（185-225，URL 不注入 `/v1` 前缀、鉴权 `Authorization: Bearer`）。
+- `internal/proxy/stream.go`：SSELineBuffer（15-41）、SSEDataPayloads（50-64）、normalizeSSEChunk（74-110）、streamResponse（139-305，`entryFormat` 控制 OpenAI 专用 `parseAndBroadcastChunk` 仅 OpenAI 入口调用、anthropic 入口走 `parseAnthropicSSEUsage` 提取 usage）、passThroughResponse（307-341）、parseAndBroadcastChunk（349-368）、chunkDelta/parseSSEChunkDelta（371-418）、extractThoughtSignature（444-490）、parseAnthropicSSEUsage（415-450，读 message_start/message_delta 的 input/output tokens）。
 - `internal/proxy/retry.go`：retryState（14-21）、maxRetries（33-39）、logRequest（42-49）、handleNetworkError（52-59）、handle429（62-235）、handleUpstreamError（241-305）、classifySenseNova429（318-327）、excludeSameAccountKeys（332-342）。
 - `internal/proxy/recorder.go`：recordUsage（16-66）、parseAndUpdateQuota（68-90）。
 - `internal/proxy/request_events.go`：generateRequestID（24-31）、RequestEvent（71-78）、requestIDCounter（14）。
@@ -494,14 +604,14 @@ go build -o tinyrouter .
 - `internal/proxy/broadcaster.go`：Broadcaster（9-80）。
 - `internal/proxy/signature_cache.go`：SignatureCacheProvider（11-14）、sigEntry/SignatureCache（16-104）。
 - `internal/proxy/models.go`：ListModels（8-65）。
-- `internal/api/router.go`：securityHeaders 跳过 /v1/（151-164）、CORS preflight（181-191）、三路由挂载（194-196）、usage/events 路由（266）。
+- `internal/api/router.go`：securityHeaders 跳过 /v1/（151-165）、CORS preflight（180-192）、七路由挂载（196-209，含 Anthropic `POST /v1/messages` 于 203、OpenAI Responses `POST /v1/responses` 于 207）、`PATCH /providers/{id}/models/protocols`（262）、usage/events 路由（266）。
 - `internal/api/sse_events.go`：streamUsageEvents（16-79）。
 - `internal/app/app.go`：组合根构造 Handler（129）、SetProxy（130）、SetDebugModeProvider（173）、SetUpstreamTimeout 注入（216）。
 
 外部依赖：
 
 - `internal/rotation`：`Selector` 实现 KeyProvider（SelectKey/WaitNIMInterval/ClearError/OnNIMRequestSuccess/Settings/OnKeyFailure/MarkNIM429/MarkDailyQuotaLocked/MarkRateLimited/MarkBalanceLocked）；`GetAdapter`/`ParseHeaders`/`BackoffSequence`/`ClassifyError`/`IsDailyQuota429`/`IsBalanceExhausted`/`DefaultTransientCooldownSec`。
-- `internal/combo`：`Resolver` 实现 ComboResolver（`IsComboName`/`Resolve`）；`ComboPlan.Targets` 携带 `ProviderID`/`Model`。
+- `internal/combo`：`Resolver` 实现 ComboResolver（`IsComboName`/`Resolve(name, entryFormat)`）；`EntryFormat`（OpenAI/Anthropic/OpenAI-Responses）保留但 Resolve 不再按它过滤 target（软策略，见 §3.3）；`ComboPlan.Targets` 携带 `ProviderID`/`Model`。
 - `internal/registry`：`Registry` 实现 ModelResolver；`KeyRuntimeState` 承载 per-key 运行时状态（InFlight/Quota）。
 - `internal/usage`：`RingBuffer` 实现 UsageRecorder.Add；`Entry` 为用量记录结构（含 `Source` 来源标记字段）；`QuotaTracker` 实现 QuotaTracker（Update/RemoveKey）。
 - `internal/config`：`Provider`/`QuickSlot`/`Combo`/`RotationConfig`；`Provider.IsNIM`/`IsGeminiOpenAICompat` 决定特殊转发/回填分支。
@@ -511,11 +621,13 @@ go build -o tinyrouter .
 
 | 变更类型 | 必查位置 |
 |---|---|
-| 新增/修改 `/v1/*` 路由 | api/router.go 挂载（194-198）+ CORS preflight（181-191）+ 鉴权边界（auth 组外，213-215）+ securityHeaders 跳过（151-164） |
+| 新增/修改 `/v1/*` 路由 | api/router.go 挂载（196-209）+ CORS preflight（180-192）+ 鉴权边界（auth 组外，212-214）+ securityHeaders 跳过（151-165）；Anthropic 入口仅 `POST /v1/messages`（router.go:203），OpenAI Responses 入口仅 `POST /v1/responses`（router.go:207） |
 | 修改重试策略 | retry.go 三个错误处理器（52-305）+ rotation.ClassifyError / Selector + retryState（14-21） |
 | 修改 body 改写 | forward.go:79-83（alias 解析）+ forward.go:130-179（stream_options / model / backfill）+ upstream.go（头与 URL） |
-| 修改 SSE 改写 | stream.go:138-307 + normalizeSSEChunk（73-109）+ SSELineBuffer（15-40）+ passThroughResponse（309-341） |
+| 修改 SSE 改写 | stream.go:139-305 + normalizeSSEChunk（74-110）+ SSELineBuffer（15-41）+ passThroughResponse（307-341）；Anthropic 入口经 `entryFormat` 跳过 OpenAI 专用 `parseAndBroadcastChunk`（§8.8） |
 | 修改非流式 keep-alive 刷新 | forward.go `forwardWithRetry`（首字节 Write+Flush + 5s ticker goroutine，§8.7）+ compress.go `Compress`（`/v1/images/*` 绕过列表）+ passThroughResponse（最终 body 拼接） |
 | 修改 Gemini 签名 | signature_cache.go（11-104）+ forward.go backfill（314-355）+ stream.go extract（444-490）+ config IsGeminiOpenAICompat（109-117） |
 | 修改用量/在途 | recorder.go（16-90）+ entry_tracker.go（13-82）+ inflight.go（11-88）+ broadcaster.go（9-80）+ api/sse_events.go（16-79）；改 `Entry.Source` 来源标记须同步前端 `X-TinyRouter-Source` 头（pg-stream.js）。改 `RespPayload` 截断策略须同步 §8.7 上方"recorder.go 大响应截断"更新块 |
-| 新增 combo 策略 | combo/resolver + handleCombo 分支（forward.go:93-128） |
+| 新增 combo 策略 | combo/resolver + handleCombo 分支（forward.go:107-142） |
+| 新增/修改 Anthropic 协议路由 | handler.go `Messages`（179-181）+ `handleProxy`/`handleCombo`/`forwardWithRetry`/`forwardUpstream` 的 `entryFormat` 参数 + upstream.go `buildAnthropicUpstreamRequest`/`setAnthropicHeaders`（135-179）+ stream.go `entryFormat` 跳过 OpenAI 解析（§8.8）+ combo/resolver `EntryFormat` 过滤（resolver.go:14-22、103-118）+ api/router.go `POST /v1/messages`（203）+ config/types.go `AnthropicVersion`/`AnthropicBeta`/`IsAnthropic()` + defaults.go 回填（97-98）+ validate.go anthropic BaseURL 告警（33-35） |
+| 软策略修正 / Responses 路由 / 多协议探测 | forward.go 删除入口协议严格匹配 400 块（软策略，§3.3、§13.1）+ handler.go `Responses`（188-189、`EntryFormatOpenAIResponses`）+ upstream.go `forwardUpstream` 三分支（76-91）+ `buildResponsesUpstreamRequest`（185-225）+ stream.go `parseAnthropicSSEUsage`（415-450，anthropic usage 提取 + OpenAI `ExtractTokens` guard，§8.8/§8.9）+ combo/resolver 移除 anthropic `IsAnthropic()` 过滤 + api/router.go `POST /v1/responses`（207）+ `PATCH /providers/{id}/models/protocols`（262）+ api/probe_model.go+probe_common.go 三协议并发复合探测（写回 ModelDef.Protocols + state.yaml probes）+ config/types.go `ModelDef.Protocols` + `Protocol*` 常量 + validate.go `validateModelDef` |

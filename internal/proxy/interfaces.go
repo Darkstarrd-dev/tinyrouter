@@ -62,7 +62,7 @@ type ModelResolver interface {
 // structurally, so the proxy no longer names the concrete type.
 type ComboResolver interface {
 	IsComboName(name string) bool
-	Resolve(name string) (*combo.ComboPlan, error)
+	Resolve(name string, entryFormat combo.EntryFormat) (*combo.ComboPlan, error)
 }
 
 // UsageRecorder abstracts usage recording. It mirrors usage.UsageStore, so the

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
+	"github.com/tinyrouter/tinyrouter/internal/state"
 )
 
 // Registry provides thread-safe access to providers, keys, combos, and runtime key states.
@@ -13,13 +14,17 @@ type Registry struct {
 	config  *config.Config
 	stateMu sync.RWMutex
 	states  map[string]*KeyRuntimeState
+	// probeRecords holds the latest lightweight probe detail per (provider, model).
+	// Key format is "providerID::modelID". Guarded by stateMu.
+	probeRecords map[string]*state.ProbeRecord
 }
 
 // New creates a Registry from the given config.
 func New(cfg *config.Config) *Registry {
 	r := &Registry{
-		config: cfg,
-		states: make(map[string]*KeyRuntimeState),
+		config:       cfg,
+		states:       make(map[string]*KeyRuntimeState),
+		probeRecords: make(map[string]*state.ProbeRecord),
 	}
 	r.reloadStatesLocked()
 	return r

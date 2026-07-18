@@ -474,6 +474,7 @@ function buildModelRowMainInner(p, m) {
   return '<div class="model-row-main" onclick="' + rowOnclick + '">' +
     chevronDown +
     '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midJs + '\'))">' + t('test') + '</button>' +
+    buildMiniProtocolBadges(ts) +
     '<button type="button" class="btn btn-sm btn-info"' + (ts ? '' : ' disabled') + ' onclick="event.stopPropagation(); showModelInfo(\'' + midJs + '\')">' + t('info') + '</button>' +
     '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
       '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
@@ -868,18 +869,75 @@ async function doTestModel(pid, modelId) {
   try {
     const result = await apiPost('/providers/' + pid + '/models/test', { model: modelId });
     modelTestStatus[modelId] = result;
-    if (resultEl) {
-      if (result.ok) {
-        resultEl.innerHTML = '<span class="badge badge-valid">' + t('testOk', [modelId, result.latencyMs]) + '</span>';
-      } else {
-        var msg = result.error || 'failed';
-        var extra = result.latencyMs != null ? ' (' + result.latencyMs + 'ms)' : '';
-        resultEl.innerHTML = '<span class="badge badge-invalid">' + t('testFail', [modelId, msg]) + extra + '</span>';
-      }
-    }
+    if (resultEl) renderMultiProtocolBadge(resultEl, result, modelId);
   } catch (e) {
     if (resultEl) resultEl.innerHTML = '<span class="badge badge-invalid">' + t('failed', [e.message]) + '</span>';
   }
+}
+
+// renderMultiProtocolBadge renders the top #m-test-result badge for the new
+// three-protocol composite test response. It shows a summary badge plus one
+// badge per protocol (openaiCompat / openaiResponses / anthropic).
+function renderMultiProtocolBadge(el, result, modelId) {
+  if (!result) {
+    el.innerHTML = '<span class="badge badge-invalid">' + t('failed', [t('noData')]) + '</span>';
+    return;
+  }
+  var summary;
+  if (result.ok === false) {
+    summary = '<span class="badge badge-invalid">' + t('mptestAllFailed') + '</span>';
+  } else {
+    var n = Array.isArray(result.protocols) ? result.protocols.length : 0;
+    summary = '<span class="badge badge-valid">' + t('mptestSummary', [n]) + '</span>';
+  }
+  var protoHtml = '<span class="mp-summary-badges">';
+  [['openaiCompat', 'O', t('protoOpenAICompat')],
+   ['openaiResponses', 'R', t('protoOpenAIResponses')],
+   ['anthropic', 'A', t('protoAnthropic')]].forEach(function(p) {
+    var r = result[p[0]];
+    var cls = 'mp-skip';
+    var label = t('mptestStatusSkip');
+    if (r) {
+      if (r.ok) { cls = 'mp-ok'; label = t('mptestStatusOk'); }
+      else if (r.skipped) { cls = 'mp-skip'; label = t('mptestStatusSkip'); }
+      else { cls = 'mp-err'; label = t('mptestStatusFail'); }
+    }
+    var title = p[2] + ': ' + label + (r && r.latencyMs != null ? ' (' + r.latencyMs + 'ms)' : '');
+    protoHtml += '<span class="mp-proto-badge ' + cls + '" title="' + escapeAttr(title) + '">' + escapeAttr(p[1]) + '</span>';
+  });
+  protoHtml += '</span>';
+  el.innerHTML = summary + protoHtml;
+}
+
+// buildMiniProtocolBadges returns the inline 3-dot mini badge HTML for a model
+// row, mirroring the per-protocol status from modelTestStatus.
+function buildMiniProtocolBadges(ts) {
+  var letters = [
+    ['openaiCompat', 'O', t('protoOpenAICompat')],
+    ['openaiResponses', 'R', t('protoOpenAIResponses')],
+    ['anthropic', 'A', t('protoAnthropic')]
+  ];
+  var html = '<span class="mp-mini-badges">';
+  letters.forEach(function(p) {
+    var r = ts ? ts[p[0]] : null;
+    var cls = 'mp-skip';
+    var title = p[2] + ': ' + t('untested');
+    if (r) {
+      if (r.ok) {
+        cls = 'mp-ok';
+        title = p[2] + ': ' + t('mptestStatusOk') + (r.latencyMs != null ? ' (' + r.latencyMs + 'ms)' : '');
+      } else if (r.skipped) {
+        cls = 'mp-skip';
+        title = p[2] + ': ' + t('mptestStatusSkip');
+      } else {
+        cls = 'mp-err';
+        title = p[2] + ': ' + (r.status || r.error || t('mptestStatusFail'));
+      }
+    }
+    html += '<span class="mp-mini-badge ' + cls + '" title="' + escapeAttr(title) + '">' + escapeAttr(p[1]) + '</span>';
+  });
+  html += '</span>';
+  return html;
 }
 
 // ===================== Info Modal =====================
@@ -897,24 +955,69 @@ function showModelInfo(modelId) {
   __infoModalSections = [];
   var html = '';
 
-  if (ts.request) {
-    var reqRawOverrides = {};
-    if (ts.request.bodyRaw != null) reqRawOverrides.body = ts.request.bodyRaw;
-    html += renderInfoSection(t('requestInfo'), ts.request, reqRawOverrides);
+  // Summary overview section
+  if (ts.protocols) {
+    html += renderInfoSection(t('mptestSummaryTitle'), {
+      protocols: ts.protocols.join(', '),
+      ok: ts.ok
+    });
   }
-  if (ts.responseHeaders) {
-    html += renderInfoSection(t('responseHeaders'), ts.responseHeaders);
-  }
-  if (ts.responseBody != null) {
-    var respRawOverrides = {};
-    if (ts.responseBodyRaw != null) respRawOverrides.responseBody = ts.responseBodyRaw;
-    html += renderInfoSection(t('responseBody'), ts.responseBody, respRawOverrides);
-  }
+
+  // One section per protocol
+  ['openaiCompat', 'openaiResponses', 'anthropic'].forEach(function(key) {
+    var r = ts[key];
+    if (!r) return;
+    html += renderProtocolSection(key, r);
+  });
 
   bodyEl.innerHTML = html;
   overlay.classList.add('show');
 
   document.addEventListener('keydown', infoModalEscapeHandler);
+}
+
+// renderProtocolSection renders a single-protocol block for the Info modal:
+// a header (protocol display name + OK/FAIL/SKIP badge) and the protocol's
+// status / latency / error fields plus Request / ResponseHeaders / ResponseBody
+// sub-sections when present.
+function renderProtocolSection(key, r) {
+  var nameKey = {
+    openaiCompat: 'protoOpenAICompat',
+    openaiResponses: 'protoOpenAIResponses',
+    anthropic: 'protoAnthropic'
+  }[key] || key;
+  var statusKey, statusCls;
+  if (r.ok) { statusKey = 'mptestStatusOk'; statusCls = 'mp-ok'; }
+  else if (r.skipped) { statusKey = 'mptestStatusSkip'; statusCls = 'mp-skip'; }
+  else { statusKey = 'mptestStatusFail'; statusCls = 'mp-err'; }
+
+  var header =
+    '<div class="info-modal-proto-header">' +
+      '<span>' + escapeHtml(t(nameKey)) + '</span>' +
+      '<span class="info-modal-proto-status ' + statusCls + '">' + escapeHtml(t(statusKey)) + '</span>' +
+    '</div>';
+
+  var metaHtml = '';
+  metaHtml += renderInfoSection(t('status'), { status: r.status });
+  metaHtml += renderInfoSection(t('latency'), { latencyMs: r.latencyMs });
+  metaHtml += renderInfoSection(t('error'), { error: r.error });
+
+  var detailHtml = '';
+  if (r.request) {
+    var reqRawOverrides = {};
+    if (r.request.bodyRaw != null) reqRawOverrides.body = r.request.bodyRaw;
+    detailHtml += renderInfoSection(t('requestInfo'), r.request, reqRawOverrides);
+  }
+  if (r.responseHeaders) {
+    detailHtml += renderInfoSection(t('responseHeaders'), r.responseHeaders);
+  }
+  if (r.responseBody != null) {
+    var respRawOverrides = {};
+    if (r.responseBodyRaw != null) respRawOverrides.responseBody = r.responseBodyRaw;
+    detailHtml += renderInfoSection(t('responseBody'), r.responseBody, respRawOverrides);
+  }
+
+  return '<div class="info-modal-proto-section">' + header + metaHtml + detailHtml + '</div>';
 }
 
 function closeInfoModal() {

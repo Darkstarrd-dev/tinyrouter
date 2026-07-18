@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tinyrouter/tinyrouter/internal/combo"
 	"github.com/tinyrouter/tinyrouter/internal/config"
 	"github.com/tinyrouter/tinyrouter/internal/util"
 )
@@ -156,19 +157,36 @@ func (h *Handler) SetUpstreamTimeout(sec int) {
 }
 
 func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
-	h.handleProxy(w, r, "/v1/chat/completions")
+	h.handleProxy(w, r, "/v1/chat/completions", combo.EntryFormatOpenAI)
 }
 
 func (h *Handler) Completions(w http.ResponseWriter, r *http.Request) {
-	h.handleProxy(w, r, "/v1/completions")
+	h.handleProxy(w, r, "/v1/completions", combo.EntryFormatOpenAI)
 }
 
 func (h *Handler) ImagesGenerations(w http.ResponseWriter, r *http.Request) {
-	h.handleProxy(w, r, "/v1/images/generations")
+	h.handleProxy(w, r, "/v1/images/generations", combo.EntryFormatOpenAI)
 }
 
 func (h *Handler) PollTask(w http.ResponseWriter, r *http.Request) {
-	h.handleProxy(w, r, r.URL.Path)
+	h.handleProxy(w, r, r.URL.Path, combo.EntryFormatOpenAI)
+}
+
+// Messages handles Anthropic-format requests at the /v1/messages entry.
+// It transparently proxies to an apiType=anthropic upstream provider, switching
+// the auth header (x-api-key + anthropic-version) and upstream URL construction
+// accordingly. No OpenAI<->Anthropic format translation is performed.
+func (h *Handler) Messages(w http.ResponseWriter, r *http.Request) {
+	h.handleProxy(w, r, "/v1/messages", combo.EntryFormatAnthropic)
+}
+
+// Responses handles OpenAI Responses API requests at the /v1/responses entry.
+// It is transparently proxied to the upstream (BaseURL + /v1/responses) using the
+// standard Authorization: Bearer header — no x-api-key is used. The request body
+// is forwarded unchanged; no OpenAI Chat <-> Responses format translation is
+// performed.
+func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
+	h.handleProxy(w, r, "/v1/responses", combo.EntryFormatOpenAIResponses)
 }
 
 func (h *Handler) TaskGet(w http.ResponseWriter, r *http.Request, taskID, modelStr string) {

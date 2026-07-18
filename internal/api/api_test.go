@@ -352,6 +352,53 @@ func TestModels_List(t *testing.T) {
 	}
 }
 
+// TestProxyRoutes_AnthropicMessages verifies the Anthropic /v1/messages POST
+// route is registered (non-404) and that GET is intentionally NOT registered
+// (Anthropic has no GET semantics for this endpoint).
+func TestProxyRoutes_AnthropicMessages(t *testing.T) {
+	srv, _, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	// POST must be registered (non-404). It may return 400/500 because no
+	// matching provider is selected, but it must not be 404 (unmatched route).
+	resp := requestJSON(t, "POST", srv.URL+"/v1/messages", `{}`)
+	if resp.StatusCode == http.StatusNotFound {
+		t.Fatalf("expected /v1/messages POST to be registered, got 404: %s", readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	// GET must NOT be registered for this endpoint (405 Method Not Allowed)
+	resp = requestJSON(t, "GET", srv.URL+"/v1/messages", "")
+	if resp.StatusCode == http.StatusOK {
+		t.Errorf("expected /v1/messages GET to be unregistered, got 200")
+	}
+	resp.Body.Close()
+}
+
+// TestProxyRoutes_OPTIONSCORS verifies the CORS preflight handler answers for
+// the /v1/messages path via the path-prefix `/v1/*` OPTIONS route.
+func TestProxyRoutes_OPTIONSCORS(t *testing.T) {
+	srv, _, _, _ := setupTestServer(t)
+	defer srv.Close()
+
+	req, err := http.NewRequest("OPTIONS", srv.URL+"/v1/messages", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Origin", "http://example.com")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 from OPTIONS preflight, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Access-Control-Allow-Origin") == "" {
+		t.Error("expected Access-Control-Allow-Origin header on /v1/messages preflight")
+	}
+}
+
 func TestProvider_NotFound(t *testing.T) {
 	srv, _, _, _ := setupTestServer(t)
 	defer srv.Close()

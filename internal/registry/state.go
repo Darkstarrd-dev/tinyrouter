@@ -72,6 +72,48 @@ func (r *Registry) GetKeyState(providerID, keyID string) *KeyRuntimeState {
 	return r.states[stateKey(providerID, keyID)]
 }
 
+// probeRecordKey builds the in-memory probe record map key "providerID::modelID".
+func probeRecordKey(providerID, modelID string) string {
+	return providerID + "::" + modelID
+}
+
+// UpdateProbeRecord stores (or replaces) the latest probe record for a model.
+// The record is keyed by "providerID::modelID". It is safe to call concurrently.
+func (r *Registry) UpdateProbeRecord(providerID, modelID string, rec state.ProbeRecord) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	r.probeRecords[probeRecordKey(providerID, modelID)] = &rec
+}
+
+// GetProbeRecord returns the latest probe record for a model, or nil if none.
+func (r *Registry) GetProbeRecord(providerID, modelID string) *state.ProbeRecord {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return r.probeRecords[probeRecordKey(providerID, modelID)]
+}
+
+// SnapshotProbeRecords returns a copy of all known probe records keyed by
+// "providerID::modelID", suitable for persistence into state.yaml.
+func (r *Registry) SnapshotProbeRecords() map[string]*state.ProbeRecord {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	out := make(map[string]*state.ProbeRecord, len(r.probeRecords))
+	for k, v := range r.probeRecords {
+		cp := *v
+		out[k] = &cp
+	}
+	return out
+}
+
+// RestoreProbeRecord restores a probe record from a snapshot. Errors (e.g. the
+// provider/model no longer existing) are returned so the caller can skip it.
+func (r *Registry) RestoreProbeRecord(providerID, modelID string, rec state.ProbeRecord) error {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	r.probeRecords[probeRecordKey(providerID, modelID)] = &rec
+	return nil
+}
+
 // SnapshotKeyStates returns a map of key snapshot data for all known keys.
 // The map key is "providerID::keyID".
 func (r *Registry) SnapshotKeyStates() map[string]state.KeySnapshot {

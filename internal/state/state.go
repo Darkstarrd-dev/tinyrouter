@@ -19,6 +19,32 @@ type Snapshot struct {
 	SavedAt time.Time                 `yaml:"saved_at"`
 	Keys    map[string]*KeySnapshot   `yaml:"keys"`
 	Combos  map[string]*ComboSnapshot `yaml:"combos"`
+	// Probes holds the latest lightweight probe detail per (provider, model).
+	// Map key format is "providerID::modelID". Only status/latency/error/ok and
+	// timestamps are persisted here — full request/response bodies are NOT kept
+	// in state.yaml to avoid bloating the file.
+	Probes map[string]*ProbeRecord `yaml:"probes,omitempty"`
+}
+
+// ProbeDetail is the persistable subset of a single protocol probe outcome.
+type ProbeDetail struct {
+	Ok        bool      `yaml:"ok"`
+	Status    int       `yaml:"status"`
+	LatencyMs int64     `yaml:"latency_ms"`
+	Error     string    `yaml:"error,omitempty"`
+	LastAt    time.Time `yaml:"last_at,omitempty"`
+}
+
+// ProbeRecord aggregates the probe outcome for a single model across all three
+// protocols plus the derived supported-protocol set.
+type ProbeRecord struct {
+	ProviderID      string      `yaml:"provider_id"`
+	ModelID         string      `yaml:"model_id"`
+	OpenAICompat    ProbeDetail `yaml:"openai_compat"`
+	OpenAIResponses ProbeDetail `yaml:"openai_responses"`
+	Anthropic       ProbeDetail `yaml:"anthropic"`
+	Protocols       []string    `yaml:"protocols,omitempty"`
+	LastProbeAt     time.Time   `yaml:"last_probe_at,omitempty"`
 }
 
 // KeySnapshot holds the persistable subset of a key's runtime state.
@@ -66,6 +92,9 @@ func Load(path string) (*Snapshot, error) {
 	}
 	if s.Combos == nil {
 		s.Combos = make(map[string]*ComboSnapshot)
+	}
+	if s.Probes == nil {
+		s.Probes = make(map[string]*ProbeRecord)
 	}
 	return &s, nil
 }

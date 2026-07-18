@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinyrouter/tinyrouter/internal/combo"
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
 	"github.com/tinyrouter/tinyrouter/internal/util"
 )
@@ -135,7 +136,7 @@ func sseContentLength(payload []byte) int {
 	return length
 }
 
-func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool, reqID string, reqHeaders http.Header, upstreamURL string) {
+func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool, reqID string, reqHeaders http.Header, upstreamURL string, entryFormat combo.EntryFormat) {
 	defer resp.Body.Close()
 
 	streamStart := time.Now()
@@ -193,7 +194,22 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					if strings.HasPrefix(strings.TrimSpace(line), "data:") {
 						payload := strings.TrimSpace(strings.TrimSpace(line)[5:])
 						if payload != "[DONE]" {
-							if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
+							if entryFormat == combo.EntryFormatAnthropic {
+								// Anthropic streams usage across two events
+								// (message_start → input_tokens, message_delta →
+								// output_tokens). The OpenAI extractor must NOT
+								// run here: it matches anthropic's
+								// usage.output_tokens in message_delta and would
+								// clobber input_tokens to 0.
+								if in, out, ok := parseAnthropicSSEUsage([]byte(payload)); ok {
+									if in > 0 {
+										inputTokens = in
+									}
+									if out > 0 {
+										outputTokens = out
+									}
+								}
+							} else if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
 								inputTokens = in
 								outputTokens = out
 							}
@@ -203,7 +219,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 							contentChars += sseContentLength([]byte(payload))
 						}
 					}
-					if h.debugMode() && reqID != "" {
+					if h.debugMode() && reqID != "" && entryFormat == combo.EntryFormatOpenAI {
 						h.parseAndBroadcastChunk(reqID, line, sb)
 					}
 					sseBuf.WriteString(line)
@@ -221,7 +237,21 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 						if payload == "[DONE]" {
 							continue
 						}
-						if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
+						if entryFormat == combo.EntryFormatAnthropic {
+							// Anthropic streams usage across two events
+							// (message_start → input_tokens, message_delta →
+							// output_tokens). The OpenAI extractor must NOT run
+							// here: it matches anthropic's usage.output_tokens in
+							// message_delta and would clobber input_tokens to 0.
+							if ain, aout, aok := parseAnthropicSSEUsage([]byte(payload)); aok {
+								if ain > 0 {
+									inputTokens = ain
+								}
+								if aout > 0 {
+									outputTokens = aout
+								}
+							}
+						} else if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
 							inputTokens = in
 							outputTokens = out
 						}
@@ -230,7 +260,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 						}
 						contentChars += sseContentLength([]byte(payload))
 					}
-					if h.debugMode() && reqID != "" {
+					if h.debugMode() && reqID != "" && entryFormat == combo.EntryFormatOpenAI {
 						h.parseAndBroadcastChunk(reqID, line, sb)
 					}
 					sseBuf.WriteString(line)
@@ -268,12 +298,24 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					// 非 normalize 路径：remaining 已经在循环中通过 w.Write(buf[:n]) 原样发出，
 					// 不应重复写出。仅提取 token 计入 totalOutput/usage。
 				}
-				// 统一提取 token（两个路径都需要）
-				line := strings.TrimSpace(remaining)
+			// 统一提取 token（两个路径都需要）
+			line := strings.TrimSpace(remaining)
 				if strings.HasPrefix(line, "data:") {
 					payload := strings.TrimSpace(line[5:])
 					if payload != "[DONE]" {
-						if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
+						if entryFormat == combo.EntryFormatAnthropic {
+							// Anthropic usage spans message_start +
+							// message_delta; skip the OpenAI extractor (see
+							// the per-line branch above for the rationale).
+							if in, out, ok := parseAnthropicSSEUsage([]byte(payload)); ok {
+								if in > 0 {
+									inputTokens = in
+								}
+								if out > 0 {
+									outputTokens = out
+								}
+							}
+						} else if in, out := util.ExtractTokens([]byte(payload)); in > 0 || out > 0 {
 							inputTokens = in
 							outputTokens = out
 						}
@@ -282,7 +324,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 						}
 					}
 				}
-				if h.debugMode() && reqID != "" {
+				if h.debugMode() && reqID != "" && entryFormat == combo.EntryFormatOpenAI {
 					h.parseAndBroadcastChunk(reqID, line, sb)
 				}
 				sseBuf.WriteString(line)
@@ -368,6 +410,46 @@ func (h *Handler) parseAndBroadcastChunk(reqID, line string, sb *SSELineBuffer) 
 type chunkDelta struct {
 	section string // "reasoning" | "assistant" | "usage"
 	delta   string
+}
+
+// parseAnthropicSSEUsage extracts token usage from a single Anthropic-format
+// SSE data payload. Anthropic streams usage in two events:
+//
+//   - event: message_start → data.message.usage.input_tokens
+//   - event: message_delta → data.usage.output_tokens
+//
+// It returns the token counts and ok=true only when the payload carries a
+// recognized usage field; other event types return ok=false. Parse failures
+// are treated as ok=false (best-effort, never an error).
+func parseAnthropicSSEUsage(payload []byte) (inputTokens, outputTokens int, ok bool) {
+	var obj map[string]any
+	if err := json.Unmarshal(payload, &obj); err != nil {
+		return 0, 0, false
+	}
+	eventType, _ := obj["type"].(string)
+	switch eventType {
+	case "message_start":
+		msg, ok := obj["message"].(map[string]any)
+		if !ok {
+			return 0, 0, false
+		}
+		usage, ok := msg["usage"].(map[string]any)
+		if !ok {
+			return 0, 0, false
+		}
+		if in, ok := usage["input_tokens"].(float64); ok {
+			return int(in), 0, true
+		}
+	case "message_delta":
+		usage, ok := obj["usage"].(map[string]any)
+		if !ok {
+			return 0, 0, false
+		}
+		if out, ok := usage["output_tokens"].(float64); ok {
+			return 0, int(out), true
+		}
+	}
+	return 0, 0, false
 }
 
 // parseSSEChunkDelta extracts incremental delta fields from an OpenAI-format

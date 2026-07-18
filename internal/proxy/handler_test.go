@@ -94,7 +94,7 @@ func TestForwardUpstream_Success(t *testing.T) {
 	body := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`)
 	headers := http.Header{"User-Agent": {"test-agent"}}
 
-	resp, err := h.forwardUpstream(context.Background(), sel, body, headers, false, "/v1/chat/completions")
+	resp, err := h.forwardUpstream(context.Background(), sel, body, headers, false, "/v1/chat/completions", combo.EntryFormatOpenAI)
 	if err != nil {
 		t.Fatalf("forwardUpstream failed: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestForwardUpstream_NetworkError(t *testing.T) {
 	}
 
 	body := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`)
-	_, err := h.forwardUpstream(context.Background(), sel, body, nil, false, "/v1/chat/completions")
+	_, err := h.forwardUpstream(context.Background(), sel, body, nil, false, "/v1/chat/completions", combo.EntryFormatOpenAI)
 	if err == nil {
 		t.Fatal("expected network error, got nil")
 	}
@@ -154,7 +154,7 @@ func TestForwardUpstream_UserAgentForwarded(t *testing.T) {
 	body := []byte(`{"model":"gpt-4"}`)
 	headers := http.Header{"User-Agent": {"custom-agent/1.0"}}
 
-	_, err := h.forwardUpstream(context.Background(), sel, body, headers, false, "/v1/chat/completions")
+	_, err := h.forwardUpstream(context.Background(), sel, body, headers, false, "/v1/chat/completions", combo.EntryFormatOpenAI)
 	if err != nil {
 		t.Fatalf("forwardUpstream failed: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestForwardUpstream_StreamingSetsAcceptHeader(t *testing.T) {
 	}
 
 	body := []byte(`{"model":"gpt-4"}`)
-	_, err := h.forwardUpstream(context.Background(), sel, body, nil, true, "/v1/chat/completions")
+	_, err := h.forwardUpstream(context.Background(), sel, body, nil, true, "/v1/chat/completions", combo.EntryFormatOpenAI)
 	if err != nil {
 		t.Fatalf("forwardUpstream failed: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestForwardWithRetry_NetworkError(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	h.handleProxy(w, req, "/v1/chat/completions")
+	h.handleProxy(w, req, "/v1/chat/completions", combo.EntryFormatOpenAI)
 
 	resp := w.Result()
 	defer resp.Body.Close()
@@ -318,7 +318,7 @@ func TestHandleProxy_InvalidModel(t *testing.T) {
 	body := `{"model":"unknown/model"}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	w := httptest.NewRecorder()
-	h.handleProxy(w, req, "/v1/chat/completions")
+	h.handleProxy(w, req, "/v1/chat/completions", combo.EntryFormatOpenAI)
 
 	resp := w.Result()
 	defer resp.Body.Close()
@@ -332,7 +332,7 @@ func TestHandleProxy_MissingModel(t *testing.T) {
 	body := `{"messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	w := httptest.NewRecorder()
-	h.handleProxy(w, req, "/v1/chat/completions")
+	h.handleProxy(w, req, "/v1/chat/completions", combo.EntryFormatOpenAI)
 
 	resp := w.Result()
 	defer resp.Body.Close()
@@ -345,7 +345,7 @@ func TestHandleProxy_InvalidJSON(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader("not json"))
 	w := httptest.NewRecorder()
-	h.handleProxy(w, req, "/v1/chat/completions")
+	h.handleProxy(w, req, "/v1/chat/completions", combo.EntryFormatOpenAI)
 
 	resp := w.Result()
 	defer resp.Body.Close()
@@ -359,7 +359,7 @@ func TestHandleProxy_BadModelFormat(t *testing.T) {
 	body := `{"model":"no-slash"}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	w := httptest.NewRecorder()
-	h.handleProxy(w, req, "/v1/chat/completions")
+	h.handleProxy(w, req, "/v1/chat/completions", combo.EntryFormatOpenAI)
 
 	resp := w.Result()
 	defer resp.Body.Close()
@@ -693,7 +693,7 @@ func TestHandleProxy_StreamRequest(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Since upstream doesn't exist, should return 502
-	h.handleProxy(w, req, "/v1/chat/completions")
+	h.handleProxy(w, req, "/v1/chat/completions", combo.EntryFormatOpenAI)
 
 	resp := w.Result()
 	defer resp.Body.Close()
@@ -1046,7 +1046,7 @@ func TestForwardUpstream_UseProxy(t *testing.T) {
 		Key:     config.Key{ID: "key1", Key: "sk-test-key", Name: "Key Main", IsActive: true, Priority: 1},
 		KeyName: "Key Main",
 	}
-	resp, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions")
+	resp, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions", combo.EntryFormatOpenAI)
 	if err != nil {
 		t.Fatalf("forwardUpstream failed: %v", err)
 	}
@@ -1064,7 +1064,7 @@ func TestForwardUpstream_UseProxy(t *testing.T) {
 		t.Fatalf("SetProxy: %v", err)
 	}
 	sel.Provider.UseProxy = true
-	resp2, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions")
+	resp2, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions", combo.EntryFormatOpenAI)
 	if err != nil {
 		t.Fatalf("forwardUpstream (proxy) failed: %v", err)
 	}
@@ -1097,7 +1097,7 @@ func TestForwardUpstream_UseProxyDisabledStillDirect(t *testing.T) {
 		Key:     config.Key{ID: "key1", Key: "sk-test-key", Name: "Key Main", IsActive: true, Priority: 1},
 		KeyName: "Key Main",
 	}
-	resp, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions")
+	resp, err := h.forwardUpstream(context.Background(), sel, []byte(`{"model":"gpt-4"}`), nil, false, "/v1/chat/completions", combo.EntryFormatOpenAI)
 	if err != nil {
 		t.Fatalf("forwardUpstream failed: %v", err)
 	}

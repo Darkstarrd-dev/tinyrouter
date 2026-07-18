@@ -28,6 +28,15 @@ type Key struct {
 	Account  string `yaml:"account,omitempty" json:"account,omitempty"`
 }
 
+// Protocol values identify the upstream API protocols that a model is known
+// to support, as determined by probing (Step 3b). They are persisted on
+// ModelDef.Protocols and consumed by the multi-protocol composite detection UI.
+const (
+	ProtocolOpenAICompat    = "openai-compat"    // OpenAI Chat Completions compatible
+	ProtocolOpenAIResponses = "openai-responses" // OpenAI Responses API
+	ProtocolAnthropic       = "anthropic"        // Anthropic Messages API
+)
+
 // ModelDef represents one upstream model with its quota type tag.
 type ModelDef struct {
 	ID          string             `yaml:"id" json:"id"`
@@ -38,6 +47,12 @@ type ModelDef struct {
 	ImgProtocol string             `yaml:"imgProtocol,omitempty" json:"imgProtocol,omitempty"` // "gpt" | "xai" | "modelscope" (only when kind=image)
 	ImgSizes    []string           `yaml:"imgSizes,omitempty" json:"imgSizes,omitempty"`     // custom size option list (e.g. "1024x1024") for Playground image mode; empty = built-in defaults
 	NIMOver     *ModelNIMOverride  `yaml:"nim,omitempty" json:"nim,omitempty"`
+	// Protocols records the set of protocols this model was probed to support
+	// (legal values: ProtocolOpenAICompat, ProtocolOpenAIResponses,
+	// ProtocolAnthropic). An empty/nil slice means "not yet probed" OR "probed
+	// and found to support no known protocol". Absent in older config files
+	// (backward compatible: defaults to nil).
+	Protocols []string `yaml:"protocols,omitempty" json:"protocols,omitempty"`
 }
 
 // ModelNIMOverride enables per-model NIM-style rate limiting (per-key request
@@ -93,6 +108,8 @@ type Provider struct {
 	Prefix           string     `yaml:"prefix" json:"prefix"`
 	BaseURL          string     `yaml:"baseUrl" json:"baseUrl"`
 	APIType          string     `yaml:"apiType" json:"apiType"`
+	AnthropicVersion string     `yaml:"anthropicVersion,omitempty" json:"anthropicVersion,omitempty"`
+	AnthropicBeta    string     `yaml:"anthropicBeta,omitempty" json:"anthropicBeta,omitempty"`
 	IsActive         bool       `yaml:"isActive" json:"isActive"`
 	Keys             []Key      `yaml:"keys" json:"keys"`
 	Models           []ModelDef `yaml:"models,omitempty" json:"models,omitempty"`
@@ -130,6 +147,12 @@ func (p Provider) IsGeminiOpenAICompat() bool {
 	u := strings.ToLower(p.BaseURL)
 	return strings.Contains(u, "generativelanguage.googleapis.com") &&
 		strings.Contains(u, "/openai")
+}
+
+// IsAnthropic reports whether this provider speaks the Anthropic Messages API
+// (used to switch auth header, upstream URL construction and entry-format filtering).
+func (p Provider) IsAnthropic() bool {
+	return p.APIType == "anthropic"
 }
 
 // NIMSettings holds NVIDIA NIM-specific key rotation and throttling config.

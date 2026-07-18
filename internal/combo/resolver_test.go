@@ -23,7 +23,7 @@ func testRegistryWithProviders(providers []config.Provider, combos ...config.Com
 
 func TestResolve_NotFound(t *testing.T) {
 	r := New(testRegistry())
-	plan, err := r.Resolve("nonexistent")
+	plan, err := r.Resolve("nonexistent", EntryFormatOpenAI)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestResolve_Fallback(t *testing.T) {
 	}
 	r := New(testRegistryWithProviders(providers, c))
 
-	plan, err := r.Resolve("fb")
+	plan, err := r.Resolve("fb", EntryFormatOpenAI)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestResolve_RoundRobin_Sticky(t *testing.T) {
 	r := New(testRegistryWithProviders(providers, c))
 
 	for i := 0; i < 3; i++ {
-		plan, _ := r.Resolve("rr")
+		plan, _ := r.Resolve("rr", EntryFormatOpenAI)
 		if plan.Targets[0].ProviderID != "p1" {
 			t.Errorf("call %d: expected p1 first, got %s", i, plan.Targets[0].ProviderID)
 		}
@@ -97,9 +97,9 @@ func TestResolve_RoundRobin_Rotate(t *testing.T) {
 	r := New(testRegistryWithProviders(providers, c))
 
 	for i := 0; i < 3; i++ {
-		r.Resolve("rr")
+		r.Resolve("rr", EntryFormatOpenAI)
 	}
-	plan, _ := r.Resolve("rr")
+	plan, _ := r.Resolve("rr", EntryFormatOpenAI)
 	if plan.Targets[0].ProviderID != "p2" {
 		t.Errorf("after 3 calls, expected p2 first, got %s", plan.Targets[0].ProviderID)
 	}
@@ -112,7 +112,7 @@ func TestResolve_EmptyModels(t *testing.T) {
 	}
 	r := New(testRegistry(c))
 
-	plan, _ := r.Resolve("empty")
+	plan, _ := r.Resolve("empty", EntryFormatOpenAI)
 	if plan != nil {
 		t.Fatalf("expected nil for empty models, got %+v", plan)
 	}
@@ -125,7 +125,7 @@ func TestResolve_InvalidModelFormat(t *testing.T) {
 	}
 	r := New(testRegistry(c))
 
-	plan, _ := r.Resolve("bad")
+	plan, _ := r.Resolve("bad", EntryFormatOpenAI)
 	if plan != nil {
 		t.Fatalf("expected nil for invalid model, got %+v", plan)
 	}
@@ -149,7 +149,7 @@ func TestResolve_GreedySquirrel_TierOrdering(t *testing.T) {
 	}
 	r := New(testRegistryWithProviders(providers, c))
 
-	plan, err := r.Resolve("gs")
+	plan, err := r.Resolve("gs", EntryFormatOpenAI)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestResolve_GreedySquirrel_UnknownQuotaDefaultsLimited(t *testing.T) {
 	}
 	r := New(testRegistryWithProviders(providers, c))
 
-	plan, _ := r.Resolve("gs2")
+	plan, _ := r.Resolve("gs2", EntryFormatOpenAI)
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
 	}
@@ -233,5 +233,55 @@ func TestSplitModel(t *testing.T) {
 	provider, model = util.SplitModel("a/b/c")
 	if provider != "a" || model != "b/c" {
 		t.Errorf("expected a/b/c, got %s/%s", provider, model)
+	}
+}
+
+// anthropicProviders returns a provider set mixing anthropic and openai types.
+func anthropicOpenaiProviders() []config.Provider {
+	return []config.Provider{
+		{ID: "a1", Prefix: "anthA", Name: "AnthA", APIType: "anthropic"},
+		{ID: "a2", Prefix: "anthB", Name: "AnthB", APIType: "anthropic"},
+		{ID: "o1", Prefix: "openA", Name: "OpenA", APIType: "openai"},
+		{ID: "o2", Prefix: "openB", Name: "OpenB"},
+	}
+}
+
+func mixedCombo() config.Combo {
+	return config.Combo{
+		ID: "c1", Name: "mx", Strategy: "fallback",
+		Models: []string{"anthA/model-a", "openA/model-o", "anthB/model-b", "openB/model-ob"},
+	}
+}
+
+func TestResolve_DoesNotFilterByEntryFormat(t *testing.T) {
+	r := New(testRegistryWithProviders(anthropicOpenaiProviders(), mixedCombo()))
+
+	plan, err := r.Resolve("mx", EntryFormatOpenAI)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("expected non-nil plan")
+	}
+	if len(plan.Targets) != 4 {
+		t.Fatalf("expected 4 unfiltered targets, got %d: %+v", len(plan.Targets), plan.Targets)
+	}
+}
+
+func TestResolve_AnthropicEntryDoesNotFilter(t *testing.T) {
+	r := New(testRegistryWithProviders(anthropicOpenaiProviders(), mixedCombo()))
+
+	plan, err := r.Resolve("mx", EntryFormatAnthropic)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("expected non-nil plan")
+	}
+	// Anthropic entry no longer filters by provider.APIType: all 4 mixed
+	// targets (anthropic + openai providers) must be available, identical to
+	// the OpenAI entry behavior.
+	if len(plan.Targets) != 4 {
+		t.Fatalf("expected 4 unfiltered targets for anthropic entry, got %d: %+v", len(plan.Targets), plan.Targets)
 	}
 }

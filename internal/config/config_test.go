@@ -1,6 +1,7 @@
 package config
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -408,6 +409,119 @@ func TestSave_ReturnsNilAndLeavesTmpWhenPathLocked(t *testing.T) {
 	// After successful Load, .tmp should be gone (either renamed or removed).
 	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
 		t.Fatalf(".tmp file should be cleaned up after successful Load: %v", err)
+	}
+}
+
+// captureStderr runs fn while capturing everything written to os.Stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stderr
+	pipeR, pipeW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = pipeW
+	fn()
+	pipeW.Close()
+	os.Stderr = orig
+	var buf strings.Builder
+	if _, err := io.Copy(&buf, pipeR); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
+}
+
+func TestValidate_ProviderModelProtocols_UnknownValue(t *testing.T) {
+	cfg := &Config{
+		Providers: []Provider{
+			{
+				ID: "p1", Name: "P1", Prefix: "p1", BaseURL: "https://example.com", IsActive: true,
+				Models: []ModelDef{{ID: "m1", QuotaType: "limited", Protocols: []string{"openai-compat", "bogus-proto"}}},
+			},
+		},
+	}
+	out := captureStderr(t, func() { validateProviders(cfg) })
+	if !strings.Contains(out, "unknown protocol") {
+		t.Fatalf("expected warning about unknown protocol, got: %q", out)
+	}
+	if !strings.Contains(out, "bogus-proto") {
+		t.Fatalf("warning should name the offending value bogus-proto, got: %q", out)
+	}
+}
+
+func TestValidate_ProviderModelProtocols_LegalValues(t *testing.T) {
+	cfg := &Config{
+		Providers: []Provider{
+			{
+				ID: "p1", Name: "P1", Prefix: "p1", BaseURL: "https://example.com", IsActive: true,
+				Models: []ModelDef{{
+					ID: "m1", QuotaType: "limited",
+					Protocols: []string{ProtocolOpenAICompat, ProtocolOpenAIResponses, ProtocolAnthropic},
+				}},
+			},
+		},
+	}
+	out := captureStderr(t, func() { validateProviders(cfg) })
+	if strings.Contains(out, "unknown protocol") {
+		t.Fatalf("legal protocol values should not warn, got: %q", out)
+	}
+}
+
+func TestLoad_ModelDefProtocolsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	yamlContent := []byte(`
+providers:
+  - id: test
+    name: Test
+    baseUrl: https://api.test.com
+    isActive: true
+    keys:
+      - id: k1
+        key: sk-test
+    models:
+      - id: test-model
+        protocols:
+          - openai-compat
+          - anthropic
+`)
+	if err := os.WriteFile(path, yamlContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := cfg.Providers[0].Models[0].Protocols
+	if len(got) != 2 || got[0] != "openai-compat" || got[1] != "anthropic" {
+		t.Fatalf("Protocols = %v, want [openai-compat anthropic]", got)
+	}
+
+	// Backward compatibility: a model without the protocols key loads with nil.
+	legacy := []byte(`
+providers:
+  - id: test
+    name: Test
+    baseUrl: https://api.test.com
+    isActive: true
+    keys:
+      - id: k1
+        key: sk-test
+    models:
+      - id: legacy-model
+`)
+	path2 := filepath.Join(dir, "legacy.yaml")
+	if err := os.WriteFile(path2, legacy, 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg2, err := Load(path2)
+	if err != nil {
+		t.Fatalf("Load legacy: %v", err)
+	}
+	if cfg2.Providers[0].Models[0].Protocols != nil {
+		t.Fatalf("legacy model Protocols = %v, want nil", cfg2.Providers[0].Models[0].Protocols)
 	}
 }
 

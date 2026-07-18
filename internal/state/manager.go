@@ -19,6 +19,8 @@ type Manager struct {
 	keyRestoreFn    func(providerID, keyID string, s KeySnapshot) error
 	comboSnapshotFn func() map[string]ComboSnapshot
 	comboRestoreFn  func(id string, s ComboSnapshot) error
+	probeSnapshotFn func() map[string]*ProbeRecord
+	probeRestoreFn  func(providerID, modelID string, rec ProbeRecord) error
 
 	mu      sync.Mutex
 	writeMu sync.Mutex
@@ -45,6 +47,14 @@ func WithComboStateProvider(snapshotFn func() map[string]ComboSnapshot, restoreF
 	return func(m *Manager) {
 		m.comboSnapshotFn = snapshotFn
 		m.comboRestoreFn = restoreFn
+	}
+}
+
+// WithProbeStateProvider sets the model-probe snapshot and restore callbacks.
+func WithProbeStateProvider(snapshotFn func() map[string]*ProbeRecord, restoreFn func(providerID, modelID string, rec ProbeRecord) error) ManagerOption {
+	return func(m *Manager) {
+		m.probeSnapshotFn = snapshotFn
+		m.probeRestoreFn = restoreFn
 	}
 }
 
@@ -110,6 +120,14 @@ func (m *Manager) flushNow() {
 			snapshot.Combos[k] = &cs
 		}
 	}
+	if m.probeSnapshotFn != nil {
+		if probes := m.probeSnapshotFn(); len(probes) > 0 {
+			snapshot.Probes = make(map[string]*ProbeRecord, len(probes))
+			for k, v := range probes {
+				snapshot.Probes[k] = v
+			}
+		}
+	}
 
 	m.writeMu.Lock()
 	if err := Save(m.path, snapshot); err != nil {
@@ -137,6 +155,14 @@ func (m *Manager) flushNowLocked() {
 		for k, v := range m.comboSnapshotFn() {
 			cs := v
 			snapshot.Combos[k] = &cs
+		}
+	}
+	if m.probeSnapshotFn != nil {
+		if probes := m.probeSnapshotFn(); len(probes) > 0 {
+			snapshot.Probes = make(map[string]*ProbeRecord, len(probes))
+			for k, v := range probes {
+				snapshot.Probes[k] = v
+			}
 		}
 	}
 
@@ -192,6 +218,19 @@ func (m *Manager) Restore(snapshot *Snapshot) error {
 		if m.comboRestoreFn != nil {
 			if err := m.comboRestoreFn(id, *cs); err != nil {
 				m.logger.Debug("skip restoring combo %s: %v", id, err)
+			}
+		}
+	}
+
+	for key, pr := range snapshot.Probes {
+		parts := strings.SplitN(key, "::", 2)
+		if len(parts) != 2 {
+			m.logger.Debug("invalid probe snapshot key (expected 'providerID::modelID'): %s", key)
+			continue
+		}
+		if m.probeRestoreFn != nil {
+			if err := m.probeRestoreFn(parts[0], parts[1], *pr); err != nil {
+				m.logger.Debug("skip restoring probe %s: %v", key, err)
 			}
 		}
 	}

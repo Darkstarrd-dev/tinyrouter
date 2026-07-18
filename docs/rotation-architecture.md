@@ -2,7 +2,9 @@
 
 > **文档定位：** `internal/rotation/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-14，当前 HEAD。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-18，仓库工作区（`main`）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+
+> **2026-07-18 更新（软策略修正 + Responses 路由 + 多协议探测）：** (1) **移除 anthropic 入口的 target 过滤**——`Resolver.Resolve(name, entryFormat)` 不再对 `entryFormat == EntryFormatAnthropic` 做 `IsAnthropic()` 过滤（resolver.go:103-118 已删除），现对所有 `entryFormat` 返回同一 target 集合；`entryFormat` 参数保留但不再被消费（供未来扩展）。(2) **新增 OpenAI Responses 入口** `EntryFormatOpenAIResponses`（resolver.go:22-25），与 OpenAI Chat / Anthropic 并列。(3) **协议感知 usage 提取**——OpenAI Chat / Responses 入口走 `util.ExtractTokens`；Anthropic 入口走 `parseAnthropicSSEUsage`（`internal/proxy/stream.go:415-450`）提取 `message_start`/`message_delta` 的 input/output tokens 并复用 `recordUsage`。(4) **多协议探测**——`api/probe_model.go`+`probe_common.go` 三协议并发探测，结果写回 `config.ModelDef.Protocols` 与 `state.yaml` 的 `probes` map。rotation 仍对协议无感知，Key 轮询/冷却/退避对三入口完全复用同一套机制。详见 §4.4、§5（usage）、§17、§18。
 
 ## 1. 范围与结论
 
@@ -111,6 +113,25 @@ type SelectedKey struct {
     KeyName  string
 }
 ```
+
+### 4.4 Combo 解析的入口协议过滤（entryFormat，已移除）
+
+rotation 模块本身**不感知协议**，combo 解析入口原本因 Anthropic 协议路由而有一层协议过滤，现**已移除**：
+
+- **`entryFormat` 不再过滤 target：** `combo.Resolver.Resolve(name, entryFormat)` 对所有 `entryFormat`（OpenAI / Anthropic / OpenAI-Responses）返回同一 target 集合（resolver.go:70-135，旧 `entryFormat == EntryFormatAnthropic` 的 `IsAnthropic()` 过滤分支已删除，原 resolver.go:103-118）。`entryFormat` 参数保留但不再被消费（见 `Resolve` doc comment，供未来扩展）。
+- **软策略下不做 provider 准入：** proxy 层也已删除入口协议严格匹配（见 proxy-architecture.md §3.3、§13.1），故 combo 不需要按协议预筛 target；同一 combo 可同时被三入口访问，上游构造由 `entryFormat` 在 `forwardUpstream` 内分支决定（proxy-architecture.md §7.1）。
+- `EntryFormat` 类型与常量定义于 resolver.go:14-25（`EntryFormatOpenAI` / `EntryFormatAnthropic` / `EntryFormatOpenAIResponses`），经 `handleCombo` → `forwardWithRetry` 一路下传（forward.go:102-142 的 `entryFormat` 参数）。
+
+> 关键点：protocol filtering **已不在 combo 解析层发生**；rotation 的 `SelectKey` / 冷却 / 退避 / 配额锁对 combo 解析出的全部 target **完全复用同一套机制**，不因协议不同而分支。
+
+### 4.5 协议感知 usage 提取
+
+rotation 模块不负责 usage 提取，但本协议相关的提取路径如下（由 `internal/proxy` 承担，详见 proxy-architecture.md §8.8/§8.9）：
+
+- **OpenAI Chat / OpenAI Responses 入口（`EntryFormatOpenAI` / `EntryFormatOpenAIResponses`）：** 走 `util.ExtractTokens` 提取 `input_tokens`/`output_tokens`（SSE 与结构兼容）。
+- **Anthropic 入口（`EntryFormatAnthropic`）：** 走 `parseAnthropicSSEUsage`（`internal/proxy/stream.go:415-450`）读取 `message_start`（`data.message.usage.input_tokens`）与 `message_delta`（`data.usage.output_tokens`）事件提取 token，并复用 `recordUsage` 机制上报；OpenAI `util.ExtractTokens` 在 anthropic 入口被 guard 跳过（避免 anthropic `output_tokens` 把 `input_tokens` 误置 0）。
+
+> 无论哪个入口，usage 上报都进入同一 `recordUsage` → `usage.RingBuffer` 通道，rotation 仅按 `provider`/key 维度消费用量展示（`QuotaTracker`），与协议无关。
 
 ## 5. SelectKey 选择算法
 
@@ -488,7 +509,8 @@ go build -o tinyrouter .
 外部依赖：
 
 - `internal/registry/state.go`：KeyRuntimeState 承载 per-key 运行时状态（21-45）、QuotaInfo（12-18）、GetKeyState（69-73）、Inc/Dec/GetInFlight（48-60）、UpdateQuota/GetQuota（166-186）。
-- `internal/config/types.go`：RotationConfig（11-19）、Provider（74-96，含 RotationStrategy 83、StickyLimit 84、NIMConfig 92）、ModelDef（32-38，含 Alias 35、Note 36、NIMOver 37）、ModelNIMOverride（44-48）、IsNIM（102-107）、NIMSettings（121-126）、Config.Rotation（208）。
+- `internal/config/types.go`：RotationConfig（11-19）、Provider（74-96，含 RotationStrategy 83、StickyLimit 84、NIMConfig 92、AnthropicVersion 96、AnthropicBeta 97、IsAnthropic 139-141）、ModelDef（32-38，含 Alias 35、Note 36、NIMOver 37、Protocols 50）、ModelNIMOverride（44-48）、IsNIM（102-107）、NIMSettings（121-126）、Config.Rotation（208）、Protocol 合法值常量 `ProtocolOpenAICompat`/`ProtocolOpenAIResponses`/`ProtocolAnthropic`（types.go:31-37）。
+- `internal/combo/resolver.go`：EntryFormat 类型与常量（14-25，含新增 `EntryFormatOpenAIResponses` 22-25）、Resolve（60-135，**不再按 entryFormat 过滤 target**，原 103-118 的 anthropic `IsAnthropic()` 过滤已移除）、rotateTargets（139-165）、sortTargetsByTier（210-227）。
 - `internal/config/defaults.go`：DefaultConfig 的 Rotation 默认（44-52，含 Strategy 45、StickyLimit 46、MaxRetries 47、RetryDelaySec 48、BackoffMaxSec 49）。
 - `internal/proxy/interfaces.go`：KeyProvider（xx-xx，含 IsNIMEnabled、WaitNIMInterval 带 model 参数，省略 MarkUnavailable 的 KeySelector 子集）。
 
@@ -503,3 +525,5 @@ go build -o tinyrouter .
 | 修改 NIM | nim.go（getNIMSettings/getModelNIMOverride/getEffectiveNIMSettings/WaitNIMInterval/OnNIMRequestSuccess/MarkNIM429/filterNIMCandidates）+ config NIMSettings（121-126）+ ModelNIMOverride（40-48）+ IsNIM（102-107）+ selector.go IsNIMEnabled + OnKeyFailure NIM 分支 + proxy 层 IsNIMEnabled 门控（forward.go、retry.go） |
 | 修改速率限制头 | ratelimit.go 各 Adapter（36-56）+ adapterRegistry（59-64）+ GetAdapter（71-80） |
 | 修改运行时状态字段 | registry/state.go KeyRuntimeState（21-45）+ state.yaml 快照/恢复（SnapshotKeyState 90-116、RestoreKeyState 130-163） |
+| 新增/修改 Anthropic 协议路由（combo 入口过滤，已移除） | combo/resolver.go `Resolve(name, entryFormat)` **不再**做 `entryFormat==EntryFormatAnthropic` 的 `IsAnthropic()` 过滤（原 103-118 已删除，现 resolver.go:70-135 对所有 entryFormat 返回同一 target 集合）；EntryFormat 类型（14-25，新增 `EntryFormatOpenAIResponses` 22-25）；rotation 的 SelectKey / 冷却 / 退避 / 配额锁对三入口 provider 复用同一套机制（selector.go:47-108、cooldown.go、error_rules.go，不按协议分支） |
+| 软策略修正 / Responses 路由 / 多协议探测 | combo/resolver.go 移除 anthropic `IsAnthropic()` 过滤 + 保留 `entryFormat` 参数（供未来扩展）；config/types.go `ModelDef.Protocols`（50）+ `Protocol*` 常量（31-37）+ validate.go `validateModelDef`；proxy/forward.go 删除入口协议严格匹配（§13.1）+ upstream.go 三分支 + stream.go `parseAnthropicSSEUsage`（415-450）；api/probe_model.go+probe_common.go 三协议并发复合探测（写回 ModelDef.Protocols + state.yaml probes）；registry `UpdateModelProtocols` + `UpdateProbeRecord`/`GetProbeRecord`/`SnapshotProbeRecords`/`RestoreProbeRecord` + `WithProbeStateProvider`（app.go:166） |

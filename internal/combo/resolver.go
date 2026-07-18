@@ -11,6 +11,20 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
+// EntryFormat identifies the upstream protocol of the incoming request.
+type EntryFormat string
+
+const (
+	// EntryFormatOpenAI is the OpenAI-compatible /v1/chat/completions entry.
+	EntryFormatOpenAI EntryFormat = "openai"
+	// EntryFormatAnthropic is the Anthropic Messages /v1/messages entry.
+	EntryFormatAnthropic EntryFormat = "anthropic"
+	// EntryFormatOpenAIResponses is the OpenAI Responses /v1/responses entry.
+	// Like the OpenAI chat entry it transparently proxies using the standard
+	// Authorization: Bearer scheme; no x-api-key is used.
+	EntryFormatOpenAIResponses EntryFormat = "openai-responses"
+)
+
 // ModelTarget is a resolved provider+model pair within a combo.
 type ModelTarget struct {
 	ProviderID string
@@ -44,7 +58,16 @@ func New(reg *registry.Registry) *Resolver {
 }
 
 // Resolve returns a ComboPlan for the given combo name, or nil if not found.
-func (r *Resolver) Resolve(comboName string) (*ComboPlan, error) {
+//
+// entryFormat is the protocol of the incoming request (OpenAI vs Anthropic).
+// It is retained as a parameter because it identifies the routing protocol and
+// may drive protocol-specific behavior in the future. Historically it controlled
+// target filtering (anthropic entries kept only anthropic-typed providers), but
+// that filtering was removed: providers are aggregating proxies that serve
+// multiple protocols from the same backend, so capabilities are per-model and
+// not per-provider. Targets are therefore never filtered by entryFormat here;
+// protocol acceptance is decided by the upstream.
+func (r *Resolver) Resolve(comboName string, entryFormat EntryFormat) (*ComboPlan, error) {
 	combo, ok := r.reg.GetComboByName(comboName)
 	if !ok {
 		return nil, nil
@@ -86,6 +109,9 @@ func (r *Resolver) Resolve(comboName string) (*ComboPlan, error) {
 		}
 		targets = append(targets, mt)
 	}
+
+	// entryFormat is intentionally not consumed here (see Resolve doc comment):
+	// no protocol-based target filtering is performed.
 
 	if len(targets) == 0 {
 		return nil, nil

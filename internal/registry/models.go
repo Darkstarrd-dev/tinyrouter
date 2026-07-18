@@ -1,6 +1,10 @@
 package registry
 
-import "github.com/tinyrouter/tinyrouter/internal/config"
+import (
+	"fmt"
+
+	"github.com/tinyrouter/tinyrouter/internal/config"
+)
 
 // ListModels returns the custom model definitions for a provider.
 func (r *Registry) ListModels(providerID string) []config.ModelDef {
@@ -168,6 +172,29 @@ func (r *Registry) UpdateModelKind(providerID, modelID, kind string) bool {
 		return false
 	}
 	return false
+}
+
+// UpdateModelProtocols sets the probed protocol set for a specific model on a
+// provider. It performs no value validation (legal-value checks live in
+// config/validate.go); it only assigns the given slice. Pass an empty or nil
+// slice to clear the protocol set (meaning: probed, supports no known
+// protocol). Returns an error if the provider or model is not found.
+func (r *Registry) UpdateModelProtocols(providerID, modelID string, protocols []string) error {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].ID != providerID {
+			continue
+		}
+		for j := range r.config.Providers[i].Models {
+			if r.config.Providers[i].Models[j].ID == modelID {
+				r.config.Providers[i].Models[j].Protocols = protocols
+				return nil
+			}
+		}
+		return fmt.Errorf("model %q not found on provider %q", modelID, providerID)
+	}
+	return fmt.Errorf("provider %q not found", providerID)
 }
 
 // UpdateModelImgProtocol sets the image protocol for a specific model on a provider.

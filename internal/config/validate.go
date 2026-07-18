@@ -6,6 +6,24 @@ import (
 	"strings"
 )
 
+// validProtocols is the set of legal ModelDef.Protocols values.
+var validProtocols = map[string]bool{
+	ProtocolOpenAICompat:    true,
+	ProtocolOpenAIResponses: true,
+	ProtocolAnthropic:       true,
+}
+
+// validateModelDef logs warnings for best-effort validation of a single model.
+// It checks that any Protocols values are within the known legal set. Unknown
+// values are reported but do not block startup (warning only).
+func validateModelDef(p *Provider, m *ModelDef) {
+	for _, proto := range m.Protocols {
+		if !validProtocols[proto] {
+			fmt.Fprintf(os.Stderr, "[config] warning: provider %q model %q has unknown protocol %q (legal: openai-compat, openai-responses, anthropic)\n", p.ID, m.ID, proto)
+		}
+	}
+}
+
 // validateProviders logs warnings for best-effort validation of provider config.
 func validateProviders(cfg *Config) {
 	prefixes := make(map[string]bool)
@@ -29,6 +47,12 @@ func validateProviders(cfg *Config) {
 		}
 		if !validAPITypes[p.APIType] {
 			fmt.Fprintf(os.Stderr, "[config] warning: provider %q has unknown apiType %q\n", p.ID, p.APIType)
+		}
+		if p.APIType == "anthropic" && !strings.HasSuffix(p.BaseURL, "/v1/messages") && !strings.HasSuffix(p.BaseURL, "*") {
+			fmt.Fprintf(os.Stderr, "[config] warning: anthropic provider %q BaseURL should typically end with /v1/messages or use raw mode (*) suffix\n", p.ID)
+		}
+		for j := range p.Models {
+			validateModelDef(&p, &p.Models[j])
 		}
 	}
 	for _, c := range cfg.Combos {

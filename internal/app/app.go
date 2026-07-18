@@ -163,6 +163,7 @@ func (a *App) buildComponents() error {
 		a.stateManager = state.NewManager(a.statePath, a.logger,
 			state.WithKeyStateProvider(a.reg.SnapshotKeyStates, a.reg.RestoreKeyState),
 			state.WithComboStateProvider(a.comboRes.SnapshotComboStates, a.comboRes.RestoreComboState),
+			state.WithProbeStateProvider(a.reg.SnapshotProbeRecords, a.reg.RestoreProbeRecord),
 		)
 		a.selector.SetStateHook(a.stateManager.ScheduleWrite)
 		a.comboRes.SetStateHook(a.stateManager.ScheduleWrite)

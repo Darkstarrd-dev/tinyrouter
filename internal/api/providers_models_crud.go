@@ -257,7 +257,43 @@ func (rt *Router) updateModelImgSizes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// updateModelNIM updates the NIM override of a single model on a provider.
+// updateModelProtocols sets the probed protocol set for a single model on a
+// provider. Request: {"model": "model-id", "protocols": ["openai-compat",
+// "openai-responses", "anthropic"]}. An empty array is valid and clears the
+// protocol set (meaning: probed, supports no known protocol). This is a pure
+// metadata update, so only saveConfig (no reload) is used.
+func (rt *Router) updateModelProtocols(w http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "id")
+	var req struct {
+		Model     string   `json:"model"`
+		Protocols []string `json:"protocols"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.Model == "" {
+		writeAPIError(w, http.StatusBadRequest, "model required")
+		return
+	}
+	if err := rt.reg.UpdateModelProtocols(providerID, req.Model, req.Protocols); err != nil {
+		writeAPIError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	cfg := rt.reg.Config()
+	if err := rt.saveConfig(&cfg); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+		return
+	}
+	// Read back the persisted value so the response reflects what is stored
+	// (e.g. nil vs empty slice normalization).
+	updated := req.Protocols
+	if m, ok := rt.reg.GetModelByAliasOrID(providerID, req.Model); ok {
+		updated = m.Protocols
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "protocols": updated})
+}
 // Request: {"model": "model-id", "nim": {"enabled": true, "request_count_per_key": 30, "min_interval_ms": 2000}}
 func (rt *Router) updateModelNIM(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "id")

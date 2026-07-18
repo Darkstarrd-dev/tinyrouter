@@ -35,6 +35,17 @@ func TestLoadSaveRoundtrip(t *testing.T) {
 		Combos: map[string]*ComboSnapshot{
 			"fast": {Index: 1, ConsecCount: 3},
 		},
+		Probes: map[string]*ProbeRecord{
+			"provA::gpt-4": {
+				ProviderID:      "provA",
+				ModelID:         "gpt-4",
+				OpenAICompat:    ProbeDetail{Ok: true, Status: 200, LatencyMs: 12, LastAt: time.Now()},
+				OpenAIResponses: ProbeDetail{Ok: false, Status: 404, Error: "not found", LastAt: time.Now()},
+				Anthropic:       ProbeDetail{Ok: false, Status: 401, Error: "unauthorized", LastAt: time.Now()},
+				Protocols:       []string{"openai-compat", "anthropic"},
+				LastProbeAt:     time.Now(),
+			},
+		},
 	}
 	if err := Save(path, snap); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -63,6 +74,25 @@ func TestLoadSaveRoundtrip(t *testing.T) {
 	}
 	if len(loaded.Combos) != 1 || loaded.Combos["fast"].Index != 1 {
 		t.Fatalf("combo mismatch: %+v", loaded.Combos["fast"])
+	}
+	if len(loaded.Probes) != 1 {
+		t.Fatalf("len(Probes) = %d, want 1", len(loaded.Probes))
+	}
+	p := loaded.Probes["provA::gpt-4"]
+	if p == nil {
+		t.Fatal("probe record missing")
+	}
+	if p.ProviderID != "provA" || p.ModelID != "gpt-4" {
+		t.Fatalf("probe identity mismatch: %+v", p)
+	}
+	if !p.OpenAICompat.Ok || p.OpenAICompat.Status != 200 || p.OpenAICompat.LatencyMs != 12 {
+		t.Fatalf("openai-compat detail mismatch: %+v", p.OpenAICompat)
+	}
+	if p.Anthropic.Status != 401 {
+		t.Fatalf("anthropic detail mismatch: %+v", p.Anthropic)
+	}
+	if len(p.Protocols) != 2 || p.Protocols[0] != "openai-compat" || p.Protocols[1] != "anthropic" {
+		t.Fatalf("protocols mismatch: %+v", p.Protocols)
 	}
 }
 
@@ -215,5 +245,63 @@ func TestRestoreRoundtrip(t *testing.T) {
 
 	if len(restored) != 1 || restored["restore::test"].ConsecCount != 7 {
 		t.Fatalf("restored data mismatch: %+v", restored)
+	}
+}
+
+func TestManagerProbeStateRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.yaml")
+	logger := console.New(100)
+
+	restored := make(map[string]ProbeRecord)
+	m := NewManager(path, logger,
+		WithKeyStateProvider(
+			func() map[string]KeySnapshot { return nil },
+			func(providerID, keyID string, s KeySnapshot) error { return nil },
+		),
+		WithComboStateProvider(
+			func() map[string]ComboSnapshot { return nil },
+			func(id string, s ComboSnapshot) error { return nil },
+		),
+		WithProbeStateProvider(
+			func() map[string]*ProbeRecord {
+				return map[string]*ProbeRecord{
+					"prov::model": {
+						ProviderID:   "prov",
+						ModelID:      "model",
+						OpenAICompat: ProbeDetail{Ok: true, Status: 200, LatencyMs: 9},
+						Protocols:    []string{"openai-compat"},
+						LastProbeAt:  time.Now(),
+					},
+				}
+			},
+			func(providerID, modelID string, rec ProbeRecord) error {
+				restored[providerID+"::"+modelID] = rec
+				return nil
+			},
+		),
+	)
+
+	if err := m.FlushSync(); err != nil {
+		t.Fatalf("FlushSync: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	p := loaded.Probes["prov::model"]
+	if p == nil || !p.OpenAICompat.Ok || p.OpenAICompat.LatencyMs != 9 {
+		t.Fatalf("probe not persisted: %+v", p)
+	}
+	if len(p.Protocols) != 1 || p.Protocols[0] != "openai-compat" {
+		t.Fatalf("protocols mismatch: %+v", p.Protocols)
+	}
+
+	if err := m.Restore(loaded); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if len(restored) != 1 || restored["prov::model"].ProviderID != "prov" {
+		t.Fatalf("probe not restored: %+v", restored)
 	}
 }

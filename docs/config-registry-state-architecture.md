@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/config/`、`internal/registry/`、`internal/state/` 三个包共同构成的 **配置定义 + 内存注册表 + 运行时状态持久化** 基础设施的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-15，仓库工作区（`main`）。新增 `ModelDef.ImgSizes`（图片模型自定义尺寸列表，`[]string`，omitempty），`PATCH /api/providers/{id}/models/imgSizes` 端点，`UpdateModelImgSizes` registry 方法；`/api/models` 响应 `modelInfo` 新增 `realModelId`/`providerId`/`imgSizes` 字段。行号随 `ModelDef` 扩展整体下移。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-18，仓库工作区（`main`）。本轮新增：`ModelDef.Protocols`（`[]string`，`yaml/json:"protocols,omitempty"`，记录多协议探测结果，types.go:50-55）+ `ProtocolOpenAICompat`/`ProtocolOpenAIResponses`/`ProtocolAnthropic` 合法值常量（types.go:31-37）+ `validate.go` 的 `validateModelDef`（合法值告警）；`registry.UpdateModelProtocols`（models.go:182）+ `PATCH /providers/{id}/models/protocols`（api/router.go:262）；`state.yaml` 新增 `probes` map（`ProbeRecord`/`ProbeDetail`，state.go:22-49）+ `registry` 的 `probeRecords` 与 `UpdateProbeRecord`/`GetProbeRecord`/`SnapshotProbeRecords`/`RestoreProbeRecord` + `state.Manager` 的 `WithProbeStateProvider` + `app.go:166` 注入。行号随 `ModelDef`/`state.Snapshot` 扩展整体下移。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -92,7 +92,7 @@ flowchart TD
 |---|---|---|
 | `RotationConfig` | types.go:11-19 | `Strategy` / `StickyLimit` / `MaxRetries` / `RetryDelaySec` / `BackoffMaxSec` / `StatePersist` / `StatePath` |
 | `Key` | types.go:22-29 | `ID` / `Key` / `Name` / `Priority` / `IsActive` / `Account`（omitempty） |
-| `ModelDef` | types.go:32-39 | `ID` / `QuotaType`（"unlimited"|"limited"|"paid"） / `Alias`（可选别名）/ `Note`（可选备注）/ `Kind`（"text"|"image"，模型能力类型） / `ImgProtocol`（"gpt"|"xai"|"modelscope"，图片生成协议分支，仅 Image 模式使用） / `ImgSizes`（`[]string`，图片模型自定义尺寸列表如 `"1024x1024"`，omitempty，空=回退内置默认） / `NIMOver`（per-model NIM 限速覆盖，指针类型） |
+| `ModelDef` | types.go:32-55 | `ID` / `QuotaType`（"unlimited"|"limited"|"paid"） / `Alias`（可选别名）/ `Note`（可选备注）/ `Kind`（"text"|"image"，模型能力类型） / `ImgProtocol`（"gpt"|"xai"|"modelscope"，图片生成协议分支，仅 Image 模式使用） / `ImgSizes`（`[]string`，图片模型自定义尺寸列表如 `"1024x1024"`，omitempty，空=回退内置默认） / `NIMOver`（per-model NIM 限速覆盖，指针类型） / `Protocols`（`[]string`，`yaml/json:"protocols,omitempty"`，记录该模型经多协议探测证实支持的协议集合；合法值 `ProtocolOpenAICompat`="openai-compat" / `ProtocolOpenAIResponses`="openai-responses" / `ProtocolAnthropic`="anthropic"；空/nil 表示未探测或探测全失败） |
 | `Provider` | types.go:74-96 | `ID`/`Name`/`Prefix`/`BaseURL`/`APIType`/`IsActive`/`Keys`/`Models`/`RotationStrategy`/`StickyLimit`/`InjectStreamOpts`/`NormalizeStreamChunks`/`NIMConfig`/`UseProxy` 等 |
 | `ModelNIMOverride` | types.go:44-48 | per-model NIM 限速覆盖（`Enabled`、`RequestCountPerKey`、`MinIntervalMs`），为 nil 时使用标准轮转 |
 | `NIMSettings` | types.go:121-126 | `RequestCountPerKey` / `MinIntervalMs` / `CooldownLadderMin` / `MaxConcurrent` |
@@ -111,6 +111,8 @@ flowchart TD
 
 - `IsNIM()`（types.go:102-107）：`APIType=="nim"` 或 `BaseURL` 含 “nvidia”（小写）时为真——保证 misconfigured apiType 不会静默绕过 NIM 节流。
 - `IsGeminiOpenAICompat()`（types.go:113-117）：`BaseURL` 含 “generativelanguage.googleapis.com” **且** 含 “/openai” 时为真，用于判定需要 thought_signature 处理的 Gemini OpenAI 兼容端点。
+
+**协议合法值常量与探测校验：** `config` 包定义三协议合法值常量 `ProtocolOpenAICompat`="openai-compat" / `ProtocolOpenAIResponses`="openai-responses" / `ProtocolAnthropic`="anthropic"（types.go:31-37），供多协议复合探测（`api/probe_common.go`+`probe_model.go`）与 `ModelDef.Protocols` 字段使用。`validate.go` 新增 `validateModelDef(p, m)`（10-42 区）+ `validProtocols` 集合（9），在 `validateProviders` 遍历 `p.Models` 时对每个模型的 `Protocols` 值做合法性告警（未知协议值仅 `os.Stderr` 告警，不阻断 Save）。
 
 `config.go` 为本包文档注释文件（config.go:1-11），说明各文件职责，无导出符号。
 
@@ -261,9 +263,11 @@ type KeyRuntimeState struct {
 ## 13. internal/state — Snapshot 格式与版本（state.go）
 
 - **`CurrentVersion=1`（state.go:11-14）：** 快照格式版本常量。
-- **`Snapshot`（state.go:17-22）：** 顶层结构 `Version`/`SavedAt`/`Keys map[string]*KeySnapshot`/`Combos map[string]*ComboSnapshot`。
+- **`Snapshot`（state.go:17-26）：** 顶层结构 `Version`/`SavedAt`/`Keys map[string]*KeySnapshot`/`Combos map[string]*ComboSnapshot`/`Probes map[string]*ProbeRecord`（`probes` 为本次新增，yaml tag `probes,omitempty`，记录每 (provider,model) 的最近多协议探测明细）。
 - **`KeySnapshot`（state.go:25-38）：** 持久化子集——`BackoffLevel`/`ModelLocks`/`ModelStatus`/`RotatedAt`/`ConsecCount`/`LastUsedAt`/NIM 四字段；**不含** `ModelErrors`/`InFlight`/`ModelQuotas`（与 `snapshotKeyState` 排除项一致）。
 - **`ComboSnapshot`（state.go:41-44）：** `Index`/`ConsecCount`。
+- **`ProbeDetail`（state.go:29-37）：** 单协议探测结果的持久化子集——`Ok`/`Status`/`LatencyMs`/`Error`/`LastAt`。
+- **`ProbeRecord`（state.go:38-49）：** 单模型跨三协议的探测聚合——`ProviderID`/`ModelID` + 三段 `ProbeDetail`（`OpenAICompat`/`OpenAIResponses`/`Anthropic`，yaml tag `openai_compat`/`openai_responses`/`anthropic`）+ `Protocols`（`[]string` 汇总）+ `LastProbeAt`。`state.yaml` 中的 `probes` map **只持久化精简明细**（不含请求/响应 body）。
 - **`Load`（state.go:48-71）：** 文件不存在返回空快照（`CurrentVersion` + 空 map，不报错）；存在则**宽松** `yaml.Unmarshal`（61），缺 `Keys`/`Combos` 时补空 map（64-69）。
 - **`Save`（state.go:79-96）：** `yaml.Marshal` → 写 `.tmp`（0600）→ `os.Rename` → 失败回退直写 → 再失败返回 error 但保留 `.tmp`（90）。与 config.Save 同契约。
 
@@ -380,9 +384,11 @@ flowchart LR
 | `Registry` | registry/registry.go:11-16 | `cfgMu`+`config`+`stateMu`+`states` |
 | `QuotaInfo` | registry/state.go:12-18 | per-model 配额快照 |
 | `KeyRuntimeState` | registry/state.go:21-45 | per-key 运行时状态（rotation 可变） |
-| `Snapshot` | state/state.go:17-22 | 顶层持久化快照 |
+| `Snapshot` | state/state.go:17-26 | 顶层持久化快照（含 `Probes map[string]*ProbeRecord`） |
 | `KeySnapshot` | state/state.go:25-38 | key 持久化子集 |
 | `ComboSnapshot` | state/state.go:41-44 | combo 持久化子集 |
+| `ProbeDetail` | state/state.go:29-37 | 单协议探测明细：Ok/Status/LatencyMs/Error/LastAt |
+| `ProbeRecord` | state/state.go:38-49 | 单模型三协议探测聚合：OpenAICompat/OpenAIResponses/Anthropic 三段 + Protocols + LastProbeAt |
 | `Manager` | state/manager.go:14-30 | 去抖 + 回调 + 双锁 |
 | `ManagerOption` | state/manager.go:33 | `func(*Manager)` 配置项 |
 
@@ -478,10 +484,10 @@ go build -o tinyrouter .
 **internal/config：**
 
 - `config.go`：包文档（1-11），说明 types/defaults/persistence/validate/crypto 分工。
-- `types.go`：RotationConfig(11-19)、Key(22-29)、ModelDef(32-38)+ModelNIMOverride(44-48)+UnmarshalYAML(38-51)+UnmarshalJSON(54-71)、Provider(74-96)、IsNIM(102-107)、IsGeminiOpenAICompat(113-117)、NIMSettings(121-126)、Combo(129-136)、QuickSlot(139-147)、SecurityConfig(150-154)、MonitorConfig(157-161)、ServerConfig(175-180)、ProxyConfig(184-188)、DownloadConfig(191-201)、Config(204-218)。
+- `types.go`：RotationConfig(11-19)、Key(22-29)、ModelDef(32-55，含 Protocols 50)+ModelNIMOverride(44-48)+UnmarshalYAML(38-51)+UnmarshalJSON(54-71)、Protocol 合法值常量(31-37)、Provider(74-96)、IsNIM(102-107)、IsGeminiOpenAICompat(113-117)、NIMSettings(121-126)、Combo(129-136)、QuickSlot(139-147)、SecurityConfig(150-154)、MonitorConfig(157-161)、ServerConfig(175-180)、ProxyConfig(184-188)、DownloadConfig(191-201)、Config(204-218)。
 - `defaults.go`：DefaultServerConfig(11-18)、FinalizeServerConfig(22-36)、DefaultConfig(39-64)、finalizeConfig(69-146：enablePlayground 探测 82-84、state_persist 探测 87-89、quota 默认 96-102、monitor 104-109、download 段探测 114-117、key 解密 130-144)。
 - `persistence.go`：Load(21-70，.tmp 恢复 22-51、首跑 54-60、严格解析 65)、Save(79-107，加密副本 80-83、rename 回退 92-104)。
-- `validate.go`：validateProviders(10-42)、splitModel(44-52)。
+- `validate.go`：validateProviders(10-42)、validateModelDef(16-42，Protocols 合法值告警)、validProtocols(9-14)、splitModel(44-52)。
 - `crypto.go`：GenerateKey(13-19)、Encrypt(21-40)、Decrypt(42-69)、encryptKeysCopy(74-91)。
 
 **internal/registry：**
@@ -489,15 +495,15 @@ go build -o tinyrouter .
 - `registry.go`：Registry(11-16)、New(19-26)、reloadStatesLocked(28-54)、stateKey(56-58)、Config(61-65)、Reload(68-73)。
 - `providers.go`：ListProviders/HasProvider/GetProvider/GetProviderByPrefix(11-54)、AddProvider(56-70)、UpdateProvider(72-94)、DeleteProvider(96-113)、UpdateProviderStrategy(116-127)。
 - `keys.go`：HasKey(12-26)、AddKey(28-48)、DeleteKey(50-71)、UpdateKey(73-93)。
-- `models.go`：ListModels(6-17)、AddModel(20-36)、DeleteModel(39-56)、UpdateModelQuotaType(59-75)、UpdateModelKind、UpdateModelImgProtocol。
+- `models.go`：ListModels(6-17)、AddModel(20-36)、DeleteModel(39-56)、UpdateModelQuotaType(59-75)、UpdateModelKind、UpdateModelImgProtocol、UpdateModelProtocols(177-194，写回 ModelDef.Protocols)。
 - `combos.go`：ListCombos/GetComboByName/HasCombo(7-37)、AddCombo(39-43)、UpdateCombo(45-59)、DeleteCombo(61-71)。
 - `quickslots.go`：ListQuickSlots/GetQuickSlotByName/GetQuickSlot/HasQuickSlot(7-51)、AddQuickSlot(53-57)、UpdateQuickSlot(59-74)、DeleteQuickSlot(76-86)。
-- `state.go`：QuotaInfo(12-18)、KeyRuntimeState(21-45)、Inc/Dec/GetInFlight(48-60)、Lock/Unlock(63-66)、GetKeyState(69-73)、SnapshotKeyStates(77-88)、snapshotKeyState(90-116)、convertKey(118-126)、RestoreKeyState(130-163)、UpdateQuota/GetQuota(166-186)、ResetAllCooldowns(191-204)。
+- `state.go`：QuotaInfo(12-18)、KeyRuntimeState(21-45)、Inc/Dec/GetInFlight(48-60)、Lock/Unlock(63-66)、GetKeyState(69-73)、SnapshotKeyStates(77-88)、snapshotKeyState(90-116)、convertKey(118-126)、RestoreKeyState(130-163)、UpdateQuota/GetQuota(166-186)、ResetAllCooldowns(191-204)、UpdateProbeRecord(80-86)、GetProbeRecord(88-93)、SnapshotProbeRecords(95-106)、RestoreProbeRecord(108-114)。
 
 **internal/state：**
 
-- `state.go`：CurrentVersion(11-14)、Snapshot(17-22)、KeySnapshot(25-38)、ComboSnapshot(41-44)、Load(48-71)、Save(79-96)。
-- `manager.go`：Manager(14-30)、ManagerOption(33)、WithKeyStateProvider/WithComboStateProvider(36-49)、NewManager(53-63)、ScheduleWrite(67-82)、flushNow(85-119)、flushNowLocked(122-148)、FlushSync(152-170)、Restore(173-200)。
+- `state.go`：CurrentVersion(11-14)、Snapshot(17-26，含 Probes map)、KeySnapshot(25-38)、ComboSnapshot(41-44)、ProbeDetail(29-37)、ProbeRecord(38-49)、Load(48-71)、Save(79-96)。
+- `manager.go`：Manager(14-30)、ManagerOption(33)、WithKeyStateProvider/WithComboStateProvider(36-49)、WithProbeStateProvider(53-55，注入 probe 快照/恢复回调，flushNow 纳入 Probes 125/162)、NewManager(53-63)、ScheduleWrite(67-82)、flushNow(85-119)、flushNowLocked(122-148)、FlushSync(152-170)、Restore(173-200)、probeSnapshotFn/probeRestoreFn(22-23)。
 
 ## 23. 变更维护清单
 
@@ -512,3 +518,4 @@ go build -o tinyrouter .
 | 修改去抖 | `manager.go` ScheduleWrite(67-82)/flushNow(85-119)/FlushSync(152-170) |
 | 修改回调接线 | `app.go` WithKeyStateProvider/WithComboStateProvider(164-165) 与 registry/combo 的 Snapshot*/Restore* 实现 |
 | 修改校验 | `validate.go` validateProviders(10-42)（仅告警，注意重复 prefix 不阻断，第 20 节 #9） |
+| 新增 `ModelDef.Protocols` / 多协议探测 | `config/types.go` 新增 `Protocols` 字段(50-55)+`Protocol*` 常量(31-37)+`validate.go` `validateModelDef`(16-42)、`registry/models.go` `UpdateModelProtocols`(177-194)+`api/providers_models_crud.go` `updateModelProtocols`+`api/router.go` `PATCH /providers/{id}/models/protocols`(262)；运行态探测明细入 `state`：`state.go` `ProbeRecord`/`ProbeDetail`(29-49)+`Snapshot.Probes`(22)、`registry/state.go` `UpdateProbeRecord`/`GetProbeRecord`/`SnapshotProbeRecords`/`RestoreProbeRecord`(80-114)、`state/manager.go` `WithProbeStateProvider`(53-55)+`app.go` 注入(166) |

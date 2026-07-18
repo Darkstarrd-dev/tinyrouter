@@ -197,6 +197,14 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	r.Post("/v1/completions", proxyHandler.Completions)
 	r.Get("/v1/models", proxyHandler.ListModels)
 	r.Post("/v1/images/generations", proxyHandler.ImagesGenerations)
+	// Proxy route (Anthropic protocol). Anthropic /v1/messages has no GET
+	// semantics, so only POST is registered. CORS is handled by the
+	// path-prefix `/v1/*` OPTIONS handler below — no extra config needed.
+	r.Post("/v1/messages", proxyHandler.Messages)
+	// Proxy route (OpenAI Responses protocol). POST only; CORS is handled by the
+	// path-prefix `/v1/*` OPTIONS handler below — no extra config needed. Transparent
+	// passthrough using the standard Authorization: Bearer header.
+	r.Post("/v1/responses", proxyHandler.Responses)
 	r.Post("/v1/tasks/{taskId}", proxyHandler.PollTask)
 	r.Get("/v1/tasks/{taskId}", func(w http.ResponseWriter, r *http.Request) {
 		taskID := chi.URLParam(r, "taskId")
@@ -251,6 +259,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 		r.Patch("/providers/{id}/models/kind", rt.updateModelKind)
 		r.Patch("/providers/{id}/models/imgProtocol", rt.updateModelImgProtocol)
 		r.Patch("/providers/{id}/models/imgSizes", rt.updateModelImgSizes)
+		r.Patch("/providers/{id}/models/protocols", rt.updateModelProtocols)
 			r.Delete("/providers/{id}/models", rt.deleteProviderModel)
 
 			// Keys

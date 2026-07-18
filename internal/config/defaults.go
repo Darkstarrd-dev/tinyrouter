@@ -94,6 +94,9 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 	// block in config.yaml keeps sane values for the unspecified fields.
 	FinalizeServerConfig(&cfg.Server)
 	for i := range cfg.Providers {
+		if cfg.Providers[i].APIType == "anthropic" && cfg.Providers[i].AnthropicVersion == "" {
+			cfg.Providers[i].AnthropicVersion = "2023-06-01"
+		}
 		for j := range cfg.Providers[i].Models {
 			if cfg.Providers[i].Models[j].QuotaType == "" {
 				cfg.Providers[i].Models[j].QuotaType = "limited"
