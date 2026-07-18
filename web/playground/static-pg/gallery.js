@@ -119,6 +119,7 @@
     index: -1,
     videoItems: [],
     videoIndex: -1,
+    videoPlayingState: false,
     viewMode: 'single',
     mediaType: 'image',
     focus: 'image',
@@ -192,7 +193,8 @@
       }
       if (item.kind === 'zip') {
         var sid = item.sessionId || state.zipSessionId;
-        var identifier = (typeof item.index === 'number' && item.index >= 0) ? String(item.index) : (item.path || '').split('/').map(encodeURIComponent).join('/');
+        var zPath = item.zipPath || item.path || '';
+        var identifier = (typeof item.index === 'number' && item.index >= 0) ? String(item.index) : zPath.split('/').map(encodeURIComponent).join('/');
         var url = '/api/gallery/zip/' + encodeURIComponent(sid) + '/' + identifier;
         return fetch(url).then(function(r) {
           if (!r.ok) throw new Error('zip entry http ' + r.status);
@@ -823,6 +825,7 @@
       var segs = itemPath.split('/');
       if (segs.length > 1) {
         segs.pop(); // Remove filename
+        var fullDir = segs.join('/');
         var acc = '';
         for (var s = 0; s < segs.length; s++) {
           var seg = segs[s];
@@ -831,7 +834,9 @@
             treeMap[acc] = { key: acc, name: seg, count: 0, firstIndex: idx, level: s };
             treeOrder.push(acc);
           }
-          treeMap[acc].count++;
+        }
+        if (treeMap[fullDir]) {
+          treeMap[fullDir].count++;
         }
       } else {
         // Direct root images
@@ -1250,6 +1255,7 @@
   async function processCollectedEntries(collected) {
     state.pendingZipQueue = [];
     state.loadingZip = false;
+    state.videoPlayingState = false;
     var outImg = [];
     var outVid = [];
     var zipFiles = [];
@@ -1403,6 +1409,7 @@
           path: displayPath,
           kind: 'zip',
           index: (typeof e.index === 'number' ? e.index : i),
+          zipPath: e.path,
           sessionId: sessionId,
           size: e.size || 0,
           getBlob: null
@@ -1623,12 +1630,9 @@
           vidEl.src = item.mainURL;
         }
         var restoreVidState = function() {
-          if (typeof state.videoCurrentTime === 'number' && state.videoCurrentTime > 0) {
-            try { vidEl.currentTime = state.videoCurrentTime; } catch (e) {}
-          }
-          if (state.videoPaused === false) {
+          if (state.videoPlayingState === true) {
             try { vidEl.play().catch(function() {}); } catch (e) {}
-          } else if (state.videoPaused === true) {
+          } else {
             try { vidEl.pause(); } catch (e) {}
           }
         };
@@ -1667,10 +1671,17 @@
       stopBtn.onclick = function() {
         vidEl.pause();
         vidEl.currentTime = 0;
+        state.videoPlayingState = false;
       };
     }
-    vidEl.onplay = function() { if (playBtn) playBtn.innerHTML = SVG_ICONS.pause; };
-    vidEl.onpause = function() { if (playBtn) playBtn.innerHTML = SVG_ICONS.play; };
+    vidEl.onplay = function() {
+      state.videoPlayingState = true;
+      if (playBtn) playBtn.innerHTML = SVG_ICONS.pause;
+    };
+    vidEl.onpause = function() {
+      state.videoPlayingState = false;
+      if (playBtn) playBtn.innerHTML = SVG_ICONS.play;
+    };
 
     vidEl.ontimeupdate = function() {
       if (seeker && vidEl.duration) {
