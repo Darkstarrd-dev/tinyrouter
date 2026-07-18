@@ -1305,17 +1305,11 @@
   }
 
   function enterFullscreen() {
-    var target;
-    if (state.viewMode === 'split') {
-      target = (state.focus === 'video') ? document.getElementById('gallery-pane-video') : document.getElementById('gallery-pane-image');
-    } else {
-      target = (state.mediaType === 'video') ? document.getElementById('gallery-pane-video') : document.getElementById('gallery-pane-image');
-    }
-    if (!target) target = document.getElementById('gallery-main') || document.documentElement;
+    var layout = document.getElementById('gallery-layout');
+    var target = layout || document.documentElement;
 
     var p = target.requestFullscreen ? target.requestFullscreen() : Promise.resolve();
     p.catch(function(e) { console.warn('enterFullscreen failed:', e); });
-    var layout = document.getElementById('gallery-layout');
     if (layout) layout.classList.add('gallery-layout-fullscreen');
     document.body.classList.add('gallery-fullscreen-active');
     state.fullscreenEl = target;
