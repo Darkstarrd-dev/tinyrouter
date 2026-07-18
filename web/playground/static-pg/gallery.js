@@ -414,6 +414,33 @@
     }, 360);
   }
 
+  function autoBalanceFullscreenSplitRatio() {
+    var paneImg = document.getElementById('gallery-pane-image');
+    var paneVid = document.getElementById('gallery-pane-video');
+    if (!paneImg || !paneVid) return;
+
+    if (!isFullscreen() || state.viewMode !== 'split') {
+      paneImg.style.flex = '1 1 50%';
+      paneVid.style.flex = '1 1 50%';
+      return;
+    }
+
+    var imgEl = document.getElementById('gallery-main-img');
+    var vidEl = document.getElementById('gallery-main-video');
+
+    var rImg = (imgEl && imgEl.naturalWidth && imgEl.naturalHeight)
+      ? (imgEl.naturalWidth / imgEl.naturalHeight) : 1.0;
+    var rVid = (vidEl && vidEl.videoWidth && vidEl.videoHeight)
+      ? (vidEl.videoWidth / vidEl.videoHeight) : 1.0;
+
+    var ratioImg = rImg / (rImg + rVid);
+    ratioImg = Math.max(0.20, Math.min(0.80, ratioImg));
+    var ratioVid = 1 - ratioImg;
+
+    paneImg.style.flex = (ratioImg * 100) + ' 1 0%';
+    paneVid.style.flex = (ratioVid * 100) + ' 1 0%';
+  }
+
   function updateLayoutMode() {
     var splitBtn = document.getElementById('gallery-split-btn');
     var modeBtn = document.getElementById('gallery-mode-btn');
@@ -492,6 +519,7 @@
     renderThumbnails();
     if (state.index >= 0 && state.items.length) renderActive(state.index);
     if (state.videoIndex >= 0 && state.videoItems.length) renderActiveVideo(state.videoIndex);
+    autoBalanceFullscreenSplitRatio();
   }
 
   // ---------- directory tree & folder navigation helpers -------------
@@ -687,6 +715,7 @@
     ensureMainSrc(item).then(function() {
       if (imgEl && item.mainURL) {
         state.mainURL = item.mainURL;
+        imgEl.onload = function() { autoBalanceFullscreenSplitRatio(); };
         imgEl.src = item.mainURL;
         if (empty) empty.style.display = 'none';
       }
@@ -695,6 +724,7 @@
       var countStr = subIdx + ' / ' + totalFolder;
       if (info) info.textContent = countStr + ' | Loading...';
       updateInfo(item, info, countStr);
+      autoBalanceFullscreenSplitRatio();
     }).catch(function(e) { console.warn('renderActive failed:', e); });
   }
 
@@ -1179,6 +1209,7 @@
     if (typeof window.toggleNativeFullscreen === 'function') {
       try { window.toggleNativeFullscreen(true); } catch (e) {}
     }
+    setTimeout(autoBalanceFullscreenSplitRatio, 50);
   }
 
   function exitFullscreen() {
@@ -1193,6 +1224,7 @@
     if (typeof window.toggleNativeFullscreen === 'function') {
       try { window.toggleNativeFullscreen(false); } catch (e) {}
     }
+    setTimeout(autoBalanceFullscreenSplitRatio, 50);
   }
 
   function isFullscreen() {
@@ -1216,6 +1248,7 @@
           if (layout) layout.classList.remove('gallery-layout-fullscreen');
           unbindFullscreen();
         }
+        autoBalanceFullscreenSplitRatio();
       };
       document.addEventListener('fullscreenchange', state.fsChangeHandler);
     }
@@ -1338,6 +1371,7 @@
       if (timeTxt) {
         timeTxt.textContent = formatTime(vidEl.currentTime) + ' / ' + formatTime(vidEl.duration);
       }
+      autoBalanceFullscreenSplitRatio();
     };
 
     if (seeker) {

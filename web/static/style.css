@@ -1662,7 +1662,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 .gallery-main-area{flex:1 1 auto;display:flex;flex-direction:column;height:100%;min-width:0;gap:8px}
 .gallery-main{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;background:var(--bg-card);border:1px solid var(--glass-border);border-radius:var(--radius-md);overflow:hidden;position:relative}
 .gallery-main-split{display:flex;flex-direction:row;gap:8px}
-.gallery-pane{flex:1 1 50%;height:100%;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;background:var(--bg-card);border:1px solid var(--glass-border);border-radius:var(--radius-md);overflow:hidden}
+.gallery-pane{flex:1 1 50%;height:100%;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;background:var(--bg-card);border:1px solid var(--glass-border);border-radius:var(--radius-md);overflow:hidden;transition:flex 0.35s cubic-bezier(0.4, 0, 0.2, 1)}
 .gallery-pane.focused{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-glow)}
 .gallery-focus-flash{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--accent-glow);opacity:0.35;pointer-events:none;z-index:10;animation:focusFlash 0.35s ease-out forwards}
 @keyframes focusFlash{0%{opacity:0.45}100%{opacity:0}}
