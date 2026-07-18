@@ -376,7 +376,7 @@
     pane.appendChild(flash);
     setTimeout(function() {
       if (flash.parentNode) flash.parentNode.removeChild(flash);
-    }, 250);
+    }, 750);
   }
 
   function autoBalanceFullscreenSplitRatio() {
