@@ -726,33 +726,155 @@
     if (!panel) panel = document.getElementById('gallery-tree-panel');
     if (!panel) return;
 
-    var dirPathList = isVidActive ? state.videoDirPathList : state.dirPathList;
-    var dirMap = isVidActive ? state.videoDirMap : state.dirMap;
-    var curDirPath = isVidActive ? state.videoCurDirPath : state.curDirPath;
+    if (isVidActive) {
+      if (!state.videoItems || !state.videoItems.length) {
+        panel.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No Videos</div>';
+        return;
+      }
 
-    if (!dirPathList || !dirPathList.length) {
-      panel.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No Folder</div>';
+      // Check if all videos are in root
+      var hasDirs = false;
+      for (var v = 0; v < state.videoItems.length; v++) {
+        if ((state.videoItems[v].path || '').indexOf('/') !== -1) {
+          hasDirs = true;
+          break;
+        }
+      }
+
+      var html = '';
+      if (!hasDirs) {
+        // Flat list of individual video files
+        for (var i = 0; i < state.videoItems.length; i++) {
+          var item = state.videoItems[i];
+          var vName = item.name || item.path || ('Video ' + (i + 1));
+          var isAct = (i === state.videoIndex) ? ' active' : '';
+          html += '<div class="gallery-tree-node' + isAct + '" data-vid-idx="' + i + '" style="padding-left:8px" title="' + escapeHtml(vName) + '">' +
+                    '<span class="tree-icon">🎬</span>' +
+                    '<span class="tree-name">' + escapeHtml(vName) + '</span>' +
+                  '</div>';
+        }
+      } else {
+        // Grouped by directory with individual video items
+        var vDirMap = {};
+        var vDirList = [];
+        for (var j = 0; j < state.videoItems.length; j++) {
+          var vp = state.videoItems[j].path || '';
+          var parts = vp.split('/');
+          var dPath = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+          if (!vDirMap[dPath]) {
+            vDirMap[dPath] = [];
+            vDirList.push(dPath);
+          }
+          vDirMap[dPath].push(j);
+        }
+
+        for (var d = 0; d < vDirList.length; d++) {
+          var dirKey = vDirList[d];
+          var vIndices = vDirMap[dirKey];
+          if (dirKey) {
+            var dParts = dirKey.split('/');
+            var dName = dParts[dParts.length - 1];
+            var dIndent = (dParts.length - 1) * 12 + 8;
+            html += '<div class="gallery-tree-node tree-folder-node" style="padding-left:' + dIndent + 'px;font-weight:600" title="' + escapeHtml(dirKey) + '">' +
+                      '<span class="tree-icon">📁</span>' +
+                      '<span class="tree-name">' + escapeHtml(dName) + '</span>' +
+                      '<span class="tree-count">' + vIndices.length + '</span>' +
+                    '</div>';
+          }
+          var fileIndent = (dirKey ? dirKey.split('/').length * 12 : 0) + 8;
+          for (var k = 0; k < vIndices.length; k++) {
+            var vIdx = vIndices[k];
+            var vItem = state.videoItems[vIdx];
+            var fName = vItem.name || (vItem.path ? vItem.path.split('/').pop() : ('Video ' + (vIdx + 1)));
+            var vAct = (vIdx === state.videoIndex) ? ' active' : '';
+            html += '<div class="gallery-tree-node' + vAct + '" data-vid-idx="' + vIdx + '" style="padding-left:' + fileIndent + 'px" title="' + escapeHtml(fName) + '">' +
+                      '<span class="tree-icon">🎬</span>' +
+                      '<span class="tree-name">' + escapeHtml(fName) + '</span>' +
+                    '</div>';
+          }
+        }
+      }
+      panel.innerHTML = html;
+
+      // Bind video item clicks
+      var vNodes = panel.querySelectorAll('[data-vid-idx]');
+      vNodes.forEach(function(node) {
+        node.onclick = function(e) {
+          if (e) { e.preventDefault(); e.stopPropagation(); }
+          var idx = parseInt(node.getAttribute('data-vid-idx'), 10);
+          if (!isNaN(idx)) setVideoActive(idx);
+        };
+      });
       return;
     }
 
-    var html = '';
-    for (var i = 0; i < dirPathList.length; i++) {
-      var dir = dirPathList[i];
-      var count = dirMap[dir] ? dirMap[dir].length : 0;
-      var parts = dir.split('/');
-      var name = parts[parts.length - 1] || dir;
-      var level = Math.max(0, parts.length - 1);
-      var indent = level * 10;
-      var isActive = (dir === curDirPath) ? ' active' : '';
-      var icon = isVidActive ? '🎬' : (isZipName(dir) ? '📦' : '📁');
-
-      html += '<div class="gallery-tree-node' + isActive + '" data-dir="' + escapeHtml(dir) + '" style="padding-left:' + (indent + 8) + 'px" title="' + escapeHtml(dir) + '">' +
-                '<span class="tree-icon">' + icon + '</span>' +
-                '<span class="tree-name">' + escapeHtml(name) + '</span>' +
-                '<span class="tree-count">' + count + '</span>' +
-              '</div>';
+    // Image & Zip Tree rendering
+    if (!state.items || !state.items.length) {
+      panel.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No Images</div>';
+      return;
     }
-    panel.innerHTML = html;
+
+    // Build hierarchical tree structure for images & zips
+    var treeMap = {};
+    var treeOrder = [];
+
+    for (var idx = 0; idx < state.items.length; idx++) {
+      var itemPath = state.items[idx].path || '';
+      var segs = itemPath.split('/');
+      if (segs.length > 1) {
+        segs.pop(); // Remove filename
+        var acc = '';
+        for (var s = 0; s < segs.length; s++) {
+          var seg = segs[s];
+          acc = acc ? (acc + '/' + seg) : seg;
+          if (!treeMap[acc]) {
+            treeMap[acc] = { key: acc, name: seg, count: 0, firstIndex: idx, level: s };
+            treeOrder.push(acc);
+          }
+          treeMap[acc].count++;
+        }
+      } else {
+        // Direct root images
+        if (!treeMap['']) {
+          treeMap[''] = { key: '', name: 'Root', count: 0, firstIndex: idx, level: 0 };
+          treeOrder.unshift('');
+        }
+        treeMap[''].count++;
+      }
+    }
+
+    var htmlImg = '';
+    for (var t = 0; t < treeOrder.length; t++) {
+      var tKey = treeOrder[t];
+      var node = treeMap[tKey];
+      var indent = node.level * 12 + 8;
+      var isActive = (tKey === state.curDirPath) ? ' active' : '';
+      var icon = '📁';
+      if (isZipName(node.name) || tKey.indexOf('.zip/') !== -1 || isZipName(tKey)) {
+        icon = '📦';
+      } else if (tKey === '') {
+        icon = '🖼';
+      }
+
+      htmlImg += '<div class="gallery-tree-node' + isActive + '" data-dir="' + escapeHtml(tKey) + '" data-first-idx="' + node.firstIndex + '" style="padding-left:' + indent + 'px" title="' + escapeHtml(tKey || 'Root') + '">' +
+                   '<span class="tree-icon">' + icon + '</span>' +
+                   '<span class="tree-name">' + escapeHtml(node.name) + '</span>' +
+                   '<span class="tree-count">' + node.count + '</span>' +
+                 '</div>';
+    }
+    panel.innerHTML = htmlImg;
+
+    // Bind image tree node clicks
+    var imgNodes = panel.querySelectorAll('[data-first-idx]');
+    imgNodes.forEach(function(node) {
+      node.onclick = function(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        var fIdx = parseInt(node.getAttribute('data-first-idx'), 10);
+        var dir = node.getAttribute('data-dir');
+        if (typeof dir === 'string') state.curDirPath = dir;
+        if (!isNaN(fIdx)) setActive(fIdx);
+      };
+    });
   }
 
   function updateCurrentFolderItems(index) {
@@ -1151,14 +1273,16 @@
       }
     }
 
-    // Sort zip files by name
+    // Parallel process all zip files
     zipFiles.sort(function(a, b) {
       return (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
     });
 
     if (zipFiles.length > 0) {
-      await addZipBlob(zipFiles[0], outImg);
-      state.pendingZipQueue = zipFiles.slice(1);
+      var zipPromises = zipFiles.map(function(zf) {
+        return addZipBlob(zf, outImg);
+      });
+      await Promise.all(zipPromises);
     }
 
     if (outVid.length) {
@@ -1269,7 +1393,7 @@
       state.zipSessionId = sessionId;
       state.zipEntriesCache = data.manifest;
       var entries = (data.manifest && data.manifest.entries) || [];
-      var zipName = file.name || 'archive.zip';
+      var zipName = file.path || file.name || 'archive.zip';
       for (var i = 0; i < entries.length; i++) {
         var e = entries[i];
         var nm = e.path.split('/').pop();
@@ -1470,6 +1594,7 @@
     if (index >= state.videoItems.length) index = 0;
     state.videoIndex = index;
     renderActiveVideo(index);
+    renderTreePanel();
   }
 
   function renderActiveVideo(index) {
