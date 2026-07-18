@@ -378,12 +378,10 @@
     var modeBtnTitle = (state.mediaType === 'video') ? 'Picture Mode (M)' : 'Video Mode (M)';
 
     var ctrlCenter = isVid ?
-      '<button class="gallery-btn" id="gallery-vid-prev-folder-btn" type="button" title="Prev Folder (&lt;| / Up)">&lt;|</button>' +
       '<button class="gallery-btn" id="gallery-vid-prev-btn" type="button" title="Prev Video (‹ / Up)">‹</button>' +
       '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-play" type="button" title="Play / Pause (Space)">▶</button>' +
       '<button class="gallery-btn gallery-btn-icon" id="gallery-vid-stop" type="button" title="Stop">■</button>' +
-      '<button class="gallery-btn" id="gallery-vid-next-btn" type="button" title="Next Video (› / Down)">›</button>' +
-      '<button class="gallery-btn" id="gallery-vid-next-folder-btn" type="button" title="Next Folder (|&gt; / Down)">|&gt;</button>'
+      '<button class="gallery-btn" id="gallery-vid-next-btn" type="button" title="Next Video (› / Down)">›</button>'
       :
       '<button class="gallery-btn" id="gallery-prev-folder-btn" type="button" title="Prev Folder (&lt;| / Up)">&lt;|</button>' +
       '<button class="gallery-btn" id="gallery-prev-btn" type="button" title="Prev (‹ / Left / PageUp)">‹</button>' +
@@ -403,7 +401,12 @@
       '<button class="gallery-btn" id="gallery-next-folder-btn" type="button" title="Next Folder (|&gt; / Down)">|&gt;</button>';
 
     var extraRight = isVid ?
-      '<input type="range" class="gallery-vol-slider" id="gallery-vol-slider" value="80" min="0" max="100" title="Volume">'
+      '<div class="gallery-vol-wrapper">' +
+        '<button class="gallery-btn gallery-btn-icon" id="gallery-vol-btn" type="button" title="Volume">🔊</button>' +
+        '<div class="gallery-vol-popover">' +
+          '<input type="range" class="gallery-vol-slider-vert" id="gallery-vol-slider" value="80" min="0" max="100" title="Volume">' +
+        '</div>' +
+      '</div>'
       : '';
 
     var mainInner = isVid ?
@@ -494,6 +497,22 @@
     autoBalanceFullscreenSplitRatio();
   }
 
+  function updateFocusUIOnly() {
+    var paneImg = document.getElementById('gallery-pane-image');
+    var paneVid = document.getElementById('gallery-pane-video');
+    if (paneImg) paneImg.classList.toggle('focused', state.focus === 'image');
+    if (paneVid) paneVid.classList.toggle('focused', state.focus === 'video');
+
+    if (state.treeOpen) renderTreePanel();
+  }
+
+  function switchFocus() {
+    if (state.viewMode !== 'split') return;
+    state.focus = (state.focus === 'image') ? 'video' : 'image';
+    updateFocusUIOnly();
+    flashFocusOverlay(state.focus);
+  }
+
   function bindEventsForCurrentLayout() {
     var paneImg = document.getElementById('gallery-pane-image');
     var paneVid = document.getElementById('gallery-pane-video');
@@ -502,7 +521,7 @@
       paneImg.addEventListener('click', function(e) {
         if (state.viewMode === 'split' && state.focus !== 'image') {
           state.focus = 'image';
-          updateLayoutMode();
+          updateFocusUIOnly();
           flashFocusOverlay('image');
         }
       });
@@ -511,7 +530,7 @@
       paneVid.addEventListener('click', function(e) {
         if (state.viewMode === 'split' && state.focus !== 'video') {
           state.focus = 'video';
-          updateLayoutMode();
+          updateFocusUIOnly();
           flashFocusOverlay('video');
         }
       });
@@ -1271,8 +1290,9 @@
   }
 
   function enterFullscreen() {
+    var paneImg = document.getElementById('gallery-pane-image');
     var main = document.getElementById('gallery-main');
-    var target = main || document.documentElement;
+    var target = paneImg || main || document.documentElement;
     var p = target.requestFullscreen ? target.requestFullscreen() : Promise.resolve();
     p.catch(function(e) { console.warn('enterFullscreen failed:', e); });
     var layout = document.getElementById('gallery-layout');

@@ -1675,9 +1675,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 .gallery-video-seeker:hover{height:7px}
 .gallery-video-seeker::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--accent);cursor:pointer}
 .gallery-video-seeker::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--accent);cursor:pointer;border:none}
-.gallery-video-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--text);user-select:none}
-.gallery-vol-slider{width:60px;height:4px;appearance:none;-webkit-appearance:none;background:rgba(255,255,255,0.2);outline:none;border-radius:2px;cursor:pointer}
-.gallery-vol-slider::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:10px;height:10px;border-radius:50%;background:var(--text);cursor:pointer}
+.gallery-vol-wrapper{position:relative;display:inline-flex;align-items:center}
+.gallery-vol-popover{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:8px;background:var(--modal-bg);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--glass-border);border-radius:var(--radius-sm);padding:10px 6px;display:flex;flex-direction:column;align-items:center;opacity:0;visibility:hidden;transition:all var(--transition-fast);box-shadow:0 4px 16px rgba(0,0,0,0.5);z-index:30}
+.gallery-vol-wrapper:hover .gallery-vol-popover,.gallery-vol-popover:hover{opacity:1;visibility:visible}
+.gallery-vol-slider-vert{width:4px;height:80px;-webkit-appearance:slider-vertical;appearance:slider-vertical;cursor:pointer;background:rgba(255,255,255,0.2);border-radius:2px;outline:none}
 .gallery-empty{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;color:var(--text-muted);text-align:center;padding:20px}
 .gallery-empty .gallery-empty-icon{font-size:44px;color:var(--text-muted);opacity:0.4;margin-bottom:12px;font-family:monospace}
 .gallery-empty .gallery-empty-hint{font-size:15px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;pointer-events:auto;cursor:pointer}
