@@ -17,7 +17,7 @@ import (
 var skipTypes = []string{
 	"text/event-stream",
 	"font/woff2", "font/woff", "application/font-woff",
-	"image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",
+	"image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "image/tiff",
 	"application/zip", "application/gzip",
 }
 

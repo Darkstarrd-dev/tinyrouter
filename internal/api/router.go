@@ -328,6 +328,11 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Get("/downloads/{id}/log", rt.getDownloadLog)
 			r.Post("/downloads/{id}/cancel", rt.cancelDownload)
 			r.Delete("/downloads/{id}", rt.removeDownload)
+
+			// Gallery (zip preview + TIFF transcoding)
+			r.Post("/gallery/zip", rt.galleryListZip)
+			r.Get("/gallery/zip/{sessionId}/{entryPath:*}", rt.galleryGetZipEntry)
+			r.Post("/gallery/tiff", rt.galleryConvertTiff)
 		})
 	})
 
@@ -351,6 +356,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 				"pg-ui.js", "pg-modal.js", "pg-lifecycle.js",
 				"pg-autochat.js",
 				"pg-setup.js", "pg-director.js",
+				"gallery.js",
 			}
 			for _, f := range pgJSFiles {
 				r.Get("/"+f, noCacheHandler)

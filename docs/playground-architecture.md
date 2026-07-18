@@ -132,8 +132,9 @@ Playground 后端相关职责只有三类：
 | 资源编译 | `web/embed*.go` | build tag 决定是否嵌入 |
 | UI 入口与静态路由 | `internal/api/router.go` | 选择 index、挂载静态文件 |
 | 运行时配置 | `internal/config/*`、`internal/api/settings.go` | 保存 `enablePlayground` |
+| Gallery 图片查看器后端 | `internal/api/gallery*.go`、`internal/gallery/*` | 仅随 `-tags playground` 编译可用；zip/tiff 解析与转码，会话驻内存 LRU |
 
-聊天、模型解析、轮转、冷却、重试、用量统计等均属于通用代理能力，不是 Playground 私有实现。
+聊天、模型解析、轮转、冷却、重试、用量统计等均属于通用代理能力，不是 Playground 私有实现。Gallery（图片查看器分页）同理：仅在 `-tags playground` 编译时随 Playground 资产一起嵌入，无 tag 的二进制不含此功能。
 
 ### 4.2 Playground 使用的 HTTP 接口
 
@@ -635,4 +636,56 @@ go build -tags playground -o tinyrouter-pg.exe .
 | 修改图片请求超时兜底 | `pg-stream.js` 的 `pgSendImage` 的 `imgTimer`（300s fetch 兜底 `pgFail`）、`pg-render.js` 的 `pgTickWaiting` 的 `pgSafetyNetMs`（300s loading 安全网）；改兜底阈值须同时调两侧并覆盖 4k 实际耗时上限；代理侧 keep-alive 见 `proxy-architecture.md` §8.7 的 `forward.go` keep-alive ticker 与 `compress.go` 绕过列表 |
 | 修改模式切换或左侧面板 | `pgSetMode`、`pgAutoChatToggle`、`pgRenderPanes` 布局类、`pgRenderReqLeft*`、`pgShowReqDetail`、`info-modal-overlay`/`info_common.js`（详情弹窗基础设施）、`.pg-req-left-mode` CSS；改来源过滤须同步 `pg-stream.js` 的 `X-TinyRouter-Source` 头与 `recordUsage` 的 `Entry.Source` 回填；改详情弹窗须同步 `app.js` 的 `topOpenModal`/`dismissTopModal` 对 `pg-modal-overlay` 的 ESC 处理；改 Recent Requests 实时性须同步 SSE 事件处理与 `/api/usage/events` 后端 |
 | 发布 Playground 变体 | 无 tag/tag 测试、资源 200、完整首页手测 |
+
+## 16. Gallery 模块（图片查看器分页）
+
+Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器分页，绑定 F6 快捷键，UI 由 `web/playground/static-pg/gallery.js` 实现（约 827 行 vanilla JS，IIFE + `window.renderGallery`/`window.cleanupGallery` 入口）。
+
+### 交互方式
+- **拖拽**：drop 事件读 `DataTransferItem.getAsFileSystemHandle()` 拿 `FileSystemDirectoryHandle`/`FileSystemFileHandle`，递归 BFS 遍历目录；不支持 FS Access API 时降级 `DataTransfer.files` blob。
+- **粘贴**：document 级 `paste` 监听器读 `clipboardData.items` 的 file blob（剪贴板 API 不暴露原路径，仅二进制 blob）。
+- **"打开"**：`window.showDirectoryPicker()` / `window.showOpenFilePicker({multiple:true})`，无 FS Access API 时降级 `<input type=file multiple webkitdirectory>`。
+
+### 支持格式
+`webp png jpg jpeg bmp tiff`（`tif` 同 tiff）。目录/单图/多图全部前端 `createObjectURL(blob)` + `<img>` 显示（浏览器原生 GPU 加速）。TIFF 因 Chromium/WebView2 原生不支持 `<img>` 显示，走后端 `POST /api/gallery/tiff` 解码转 JPEG 后再显示。
+
+### 后端协作
+仅 zip 与 tiff 需后端参与：
+- **POST `/api/gallery/zip`**：上 zip 二进制（500MB 上限覆盖 `/api` 1MB 组级限制），返回 `{sessionId, manifest:{entries:[{path,size,kind}], total}}`；zip bytes 缓存于进程内 LRU 会话（上限 8 个、5 分钟空闲过期，`internal/api/gallery_session.go`）。
+- **GET `/api/gallery/zip/{sessionId}/{entryPath:*}`**：从会话取 zip 内单张图二进制。`{entryPath:*}` 是 chi 通配匹配含 `/` 的路径；前端 `encodeURIComponent` 拼接。
+- **POST `/api/gallery/tiff`**：上 TIFF 二进制（50MB 上限），后端用 `golang.org/x/image/tiff` 解码后重编码为 JPEG 返回。
+
+### 全屏交互
+进入全屏后**仅**键盘操作：`←` 前一张 / `→` 或 `Space` 下一张 / `Esc` / `Enter` 退出全屏 / `1`-`9` 设置 9 档间隔时间（按序映射到 1/2/3/5/10/15/30/60/120 秒）/ `a` 切换自动播放。capture 阶段绑定 keydown 以拦截 app.js 全局 F1-F6。
+
+### 缩略图
+前端懒生成：IntersectionObserver 触发 → `createImageBitmap(blob)` + `OffscreenCanvas(96,96)` letterbox → `convertToBlob('image/jpeg',0.7)` → createObjectURL；失败回退原 blob。
+
+### 配套改动
+- `internal/api/compress.go` `skipTypes` 追加 `image/tiff`
+- `internal/api/router.go` `pgJSFiles` 数组追加 `gallery.js`
+- `web/static/index.html` 增加 Gallery nav-item + `<script src="/gallery.js">`
+- `web/static/app.js` 加 `case 'gallery'` / F6 快捷键 / `cleanupGallery` 钩子
+- `web/static/i18n.js` 加 `gallery` 与 14 个 gallery 专用 key（en/cn）
+- `web/static/style.css` 末尾追加 `.gallery-*` 段（约 35 行）
+- `go.mod` 新增直接依赖 `golang.org/x/image v0.44.0`
+
+### 源码锚点
+- `web/playground/static-pg/gallery.js`（playground 静态资源，由 embed_playground.go 注入）
+- `internal/gallery/{gallery,zip,tiff}.go` + 测试
+- `internal/api/gallery.go` + `gallery_session.go`
+- `internal/api/router.go::Gallery` 路由块与 `pgJSFiles`
+- `internal/api/compress.go::skipTypes`
+
+### 变更维护清单
+| 触发变更 | 涉及源码 |
+|---|---|
+| 修改拖拽/粘贴/打开交互 | `web/playground/static-pg/gallery.js` |
+| 修改 zip 解压格式或上传限制 | `internal/gallery/zip.go`、`internal/api/gallery.go::galleryListZip`（500MB 上限） |
+| 修改 TIFF 转码质量或格式 | `internal/gallery/tiff.go`、`internal/api/gallery.go::galleryConvertTiff` |
+| 修改 zip 会话 LRU 容量/过期 | `internal/api/gallery_session.go` |
+| 修改自动播放档位 | `web/playground/static-pg/gallery.js::AUTOPLAY_INTERVALS` |
+| 修改全屏快捷键集 | `web/playground/static-pg/gallery.js::onFullscreenKey` |
+| 修改 Gallery i18n 文案 | `web/static/i18n.js` (`gallery*` 键) |
+| Gallery 不再随 playground 编译 | `internal/api/router.go::pgJSFiles` 移除 `gallery.js`、`web/embed_playground.go`、`web/static/index.html` |
 

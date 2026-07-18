@@ -29,6 +29,10 @@ function navigateTo(page) {
   if (currentPage !== 'playground' && typeof cleanupPlayground === 'function') {
     cleanupPlayground();
   }
+  // Cleanup gallery resources when leaving the page.
+  if (currentPage !== 'gallery' && typeof cleanupGallery === 'function') {
+    cleanupGallery();
+  }
   // Close the download SSE stream when leaving the download page.
   if (page !== 'download' && typeof downloadEventSource !== 'undefined' && downloadEventSource) {
     downloadEventSource.close();
@@ -55,6 +59,7 @@ function navigateTo(page) {
       case 'usage': return renderUsage(container);
       case 'console': return renderConsole(container);
       case 'download': return renderDownload(container);
+      case 'gallery': return renderGallery(container);
     }
   })();
   if (page === 'playground' || page === 'endpoint' && mainEl) mainEl.classList.add('main-no-scroll');
@@ -426,6 +431,7 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'F3') { e.preventDefault(); navigateTo('console'); return; }
   if (e.key === 'F4') { e.preventDefault(); var pgNav = document.querySelector('.nav-item[data-page="playground"]'); if (pgNav) navigateTo('playground'); return; }
   if (e.key === 'F5') { e.preventDefault(); navigateTo('download'); return; }
+  if (e.key === 'F6') { e.preventDefault(); var galNav = document.querySelector('.nav-item[data-page="gallery"]'); if (galNav) navigateTo('gallery'); return; }
 
   // Number keys 1-9: cycle quickslot models (only when not in input)
   if (!isInput && e.key >= '1' && e.key <= '9') {
