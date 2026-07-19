@@ -23,4 +23,5 @@ require (
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/u-root/u-root v0.16.0 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 )

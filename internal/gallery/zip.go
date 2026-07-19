@@ -46,7 +46,7 @@ func ListZipEntries(reader io.ReaderAt, size int64) (manifest Manifest, err erro
 		if f.FileInfo().IsDir() {
 			continue
 		}
-		cleanName := cleanZipPath(f.Name)
+		cleanName := cleanZipPath(decodeZipName(f.Name))
 		if !IsSupportedExt(cleanName) {
 			continue
 		}
@@ -158,7 +158,7 @@ func GetZipEntry(reader io.ReaderAt, size int64, identifier string) (data []byte
 	} else {
 		targetName := cleanZipPath(identifier)
 		for _, f := range z.File {
-			if cleanZipPath(f.Name) == targetName {
+			if cleanZipPath(decodeZipName(f.Name)) == targetName {
 				target = f
 				break
 			}
