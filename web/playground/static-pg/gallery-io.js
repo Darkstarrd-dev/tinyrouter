@@ -373,3 +373,135 @@ function finalizeItems(out) {
   renderThumbnails();
   setActive(0);
 }
+
+// ---------- event handlers ---------------------------------------
+function onDragOver(e) {
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+}
+
+function onDragEnter(e) {
+  e.preventDefault();
+  var zone = document.getElementById('gallery-layout');
+  if (zone) zone.classList.add('drag-active');
+}
+
+function onDragLeave(e) {
+  var zone = document.getElementById('gallery-layout');
+  if (zone) zone.classList.remove('drag-active');
+}
+
+function onDrop(e) {
+  e.preventDefault();
+  var zone = document.getElementById('gallery-layout');
+  if (zone) zone.classList.remove('drag-active');
+  var dt = e.dataTransfer;
+  if (!dt || !dt.items) {
+    if (dt && dt.files && dt.files.length) {
+      processFiles(Array.prototype.slice.call(dt.files));
+    }
+    return;
+  }
+
+  var promises = [];
+  for (var i = 0; i < dt.items.length; i++) {
+    var item = dt.items[i];
+    if (item.kind !== 'file') continue;
+    if (typeof item.webkitGetAsEntry === 'function') {
+      var entry = item.webkitGetAsEntry();
+      if (entry) {
+        promises.push(readEntryRecursive(entry, ''));
+        continue;
+      }
+    }
+    var f = item.getAsFile();
+    if (f && f.size > 0) {
+      if (isZipName(f.name)) promises.push(Promise.resolve([{ kind: 'zipfile', file: f, path: f.name }]));
+      else if (isSupportedExt(f.name)) promises.push(Promise.resolve([{ kind: 'plain', file: f, path: f.name }]));
+    }
+  }
+
+  if (promises.length) {
+    Promise.all(promises).then(function(results) {
+      var flat = [];
+      for (var r = 0; r < results.length; r++) {
+        flat = flat.concat(results[r]);
+      }
+      processCollectedEntries(flat);
+    }).catch(function(err) { console.warn('drop parse failed:', err); });
+  }
+}
+
+function onPaste(e) {
+  var cd = e.clipboardData;
+  if (!cd || !cd.items) return;
+  var promises = [];
+  for (var i = 0; i < cd.items.length; i++) {
+    var it = cd.items[i];
+    if (it.kind !== 'file') continue;
+    if (typeof it.webkitGetAsEntry === 'function') {
+      var entry = it.webkitGetAsEntry();
+      if (entry) {
+        promises.push(readEntryRecursive(entry, ''));
+        continue;
+      }
+    }
+    var blob = it.getAsFile();
+    if (blob && blob.size > 0) {
+      var nm = blob.name || '';
+      if (isZipName(nm)) promises.push(Promise.resolve([{ kind: 'zipfile', file: blob, path: nm }]));
+      else if (isSupportedExt(nm) || (blob.type && blob.type.startsWith('image/'))) {
+        promises.push(Promise.resolve([{ kind: 'plain', file: blob, path: nm || ('paste' + extOf(blob.type)) }]));
+      }
+    }
+  }
+  if (!promises.length) return;
+  e.preventDefault();
+  Promise.all(promises).then(function(results) {
+    var flat = [];
+    for (var r = 0; r < results.length; r++) {
+      flat = flat.concat(results[r]);
+    }
+    processCollectedEntries(flat);
+  }).catch(function(err) { console.warn('paste parse failed:', err); });
+}
+
+function onOpenClick() {
+  var input = document.getElementById('gallery-file-input');
+  try {
+    if (typeof window.showDirectoryPicker === 'function') {
+      onOpenDir().catch(function(err) { console.warn('showDirectoryPicker failed:', err); });
+      return;
+    }
+    if (typeof window.showOpenFilePicker === 'function') {
+      onOpenFiles().catch(function(err) { console.warn('showOpenFilePicker failed:', err); });
+      return;
+    }
+  } catch (err) {
+    console.warn('picker unavailable:', err);
+  }
+  if (input) input.click();
+}
+
+async function onOpenDir() {
+  var dirHandle = await window.showDirectoryPicker();
+  var out = [];
+  await walkDir(dirHandle, '', out);
+  finalizeItems(out);
+}
+
+async function onOpenFiles() {
+  var handles = await window.showOpenFilePicker({ multiple: true });
+  var fsHandles = [];
+  var blobs = [];
+  for (var i = 0; i < handles.length; i++) {
+    var h = handles[i];
+    if (h.kind === 'directory') {
+      await walkDir(h.handle, '', fsHandles);
+    } else {
+      if (isZipName(h.name)) blobs.push({ kind: 'ziphandle', handle: h });
+      else fsHandles.push({ kind: 'file', handle: h });
+    }
+  }
+  await processHandles(fsHandles, blobs);
+}
