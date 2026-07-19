@@ -151,6 +151,10 @@ var galleryState = {
   pageKeyHandler: null,
   zipSessionId: null,
   zipEntriesCache: null,
+  // zip item fields (constructed in gallery-io.js):
+  //   zipFileHandle: FileSystemFileHandle|null — null means the zip cannot
+  //   be written back to disk (pasted blob or legacy drop). UI should
+  //   degrade delete/overwrite actions accordingly.
   pendingZipQueue: [],
   loadingZip: false,
   objectURLs: [],
@@ -193,6 +197,21 @@ function clearObjectURLs() {
       if (url) URL.revokeObjectURL(url);
     }
     galleryState.objectURLs.length = 0;
+  }
+  // Revoke and null out all item-level blob URLs to prevent stale references
+  var allItems = (galleryState.items || []).concat(galleryState.videoItems || []);
+  for (var i = 0; i < allItems.length; i++) {
+    var item = allItems[i];
+    if (item) {
+      if (item.mainURL && item.mainURL.indexOf('blob:') === 0) {
+        URL.revokeObjectURL(item.mainURL);
+      }
+      item.mainURL = null;
+      if (item.thumbURL && item.thumbURL.indexOf('blob:') === 0) {
+        URL.revokeObjectURL(item.thumbURL);
+      }
+      item.thumbURL = null;
+    }
   }
   galleryState.mainURL = null;
 }

@@ -276,10 +276,10 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Patch("/providers/{id}/models/alias", rt.updateModelAlias)
 			r.Patch("/providers/{id}/models/note", rt.updateModelNote)
 			r.Patch("/providers/{id}/models/nim", rt.updateModelNIM)
-		r.Patch("/providers/{id}/models/kind", rt.updateModelKind)
-		r.Patch("/providers/{id}/models/imgProtocol", rt.updateModelImgProtocol)
-		r.Patch("/providers/{id}/models/imgSizes", rt.updateModelImgSizes)
-		r.Patch("/providers/{id}/models/protocols", rt.updateModelProtocols)
+			r.Patch("/providers/{id}/models/kind", rt.updateModelKind)
+			r.Patch("/providers/{id}/models/imgProtocol", rt.updateModelImgProtocol)
+			r.Patch("/providers/{id}/models/imgSizes", rt.updateModelImgSizes)
+			r.Patch("/providers/{id}/models/protocols", rt.updateModelProtocols)
 			r.Delete("/providers/{id}/models", rt.deleteProviderModel)
 
 			// Keys
@@ -362,7 +362,8 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 	r.Route("/api/gallery", func(r chi.Router) {
 		r.Use(rt.AuthMiddleware)
 		r.Post("/zip", rt.galleryListZip)
-		r.Get("/zip/{sessionId}/{entryPath:*}", rt.galleryGetZipEntry)
+		r.Get("/zip/{sessionId}/*", rt.galleryGetZipEntry)
+		r.Delete("/zip/{sessionId}/*", rt.galleryDeleteZipEntry)
 		r.Post("/tiff", rt.galleryConvertTiff)
 	})
 

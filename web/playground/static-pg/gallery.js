@@ -57,4 +57,5 @@ window.cleanupGallery = function() {
   var c = galleryState.container;
   galleryState.container = null;
   if (c) c.classList.remove('gallery-page');
+  clearObjectURLs();
 };

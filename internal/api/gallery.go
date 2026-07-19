@@ -5,17 +5,15 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tinyrouter/tinyrouter/internal/gallery"
 )
-
-var galleryCleanupOnce sync.Once
 
 // newGallerySessionID returns a short random hex identifier for a zip session.
 // Returns an error if the system's crypto/rand fails, so the caller can
@@ -57,14 +55,10 @@ func (rt *Router) galleryListZip(w http.ResponseWriter, r *http.Request) {
 	}
 	gallerySessions.put(sessionID, body)
 
-	galleryCleanupOnce.Do(func() {
-		go gallerySessionCleanup()
-	})
-
 	rt.logger.Info("gallery: received zip, %d image entries (session %s)", manifest.Total, sessionID)
 
 	resp := struct {
-		SessionID string          `json:"sessionId"`
+		SessionID string           `json:"sessionId"`
 		Manifest  gallery.Manifest `json:"manifest"`
 	}{
 		SessionID: sessionID,
@@ -79,7 +73,7 @@ func (rt *Router) galleryListZip(w http.ResponseWriter, r *http.Request) {
 // chi wildcard.
 func (rt *Router) galleryGetZipEntry(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionId")
-	entryPath := chi.URLParam(r, "entryPath")
+	entryPath := chi.URLParam(r, "*")
 	if unescaped, err := url.PathUnescape(entryPath); err == nil {
 		entryPath = unescaped
 	}
@@ -129,4 +123,49 @@ func (rt *Router) galleryConvertTiff(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Write(out)
+}
+
+// galleryDeleteZipEntry removes a single entry from a cached zip session by
+// performing a local binary rewrite (store-mode only). On success it updates
+// the session in place and returns the rewritten zip bytes as
+// application/octet-stream, so the frontend can write them back to disk via
+// FileSystemFileHandle.createWritable().
+func (rt *Router) galleryDeleteZipEntry(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionId")
+	entryPath := chi.URLParam(r, "*")
+	if unescaped, err := url.PathUnescape(entryPath); err == nil {
+		entryPath = unescaped
+	}
+
+	data, ok := gallerySessions.get(sessionID)
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "zip session not found")
+		return
+	}
+
+	newData, _, err := gallery.DeleteZipEntry(data, entryPath)
+	if err != nil {
+		switch {
+		case errors.Is(err, gallery.ErrEntryNotFound):
+			writeAPIError(w, http.StatusNotFound, "entry not found")
+		case errors.Is(err, gallery.ErrUnsupportedMethod), errors.Is(err, gallery.ErrZip64):
+			writeAPIError(w, http.StatusConflict, "unsupported zip for deletion: "+err.Error())
+		default:
+			writeAPIError(w, http.StatusInternalServerError, "delete entry failed: "+err.Error())
+		}
+		return
+	}
+
+	if !gallerySessions.update(sessionID, newData) {
+		// Session disappeared between get and update (e.g. LRU evicted it).
+		writeAPIError(w, http.StatusNotFound, "zip session expired during deletion")
+		return
+	}
+
+	rt.logger.Info("gallery: deleted zip entry %q (session %s, %d -> %d bytes)",
+		entryPath, sessionID, len(data), len(newData))
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(newData)
 }

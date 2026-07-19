@@ -16,7 +16,9 @@ function getItemBlob(item) {
     if (item.kind === 'zip') {
       var sid = item.sessionId || galleryState.zipSessionId;
       var zPath = item.zipPath || item.path || '';
-      var identifier = (typeof item.index === 'number' && item.index >= 0) ? String(item.index) : zPath.split('/').map(encodeURIComponent).join('/');
+      // Use zipPath (path stable after deletion; index is renumbered by DELETE
+      // and would become stale — zipPath is unique per entry and never changes).
+      var identifier = zPath.split('/').map(encodeURIComponent).join('/');
       var url = '/api/gallery/zip/' + encodeURIComponent(sid) + '/' + identifier;
       return fetch(url).then(function(r) {
         if (!r.ok) throw new Error('zip entry http ' + r.status);
@@ -84,7 +86,8 @@ async function ensureThumb(item) {
 }
 
 // ---------- filesystem traversal ---------------------------------
-async function walkDir(dirHandle, prefix, out) {
+async function walkDir(dirHandle, prefix, out, outVid) {
+  var root = dirHandle; // capture the top-level directory handle
   var queue = [];
   queue.push({ handle: dirHandle, prefix: prefix });
   while (queue.length) {
@@ -104,15 +107,36 @@ async function walkDir(dirHandle, prefix, out) {
       if (ent.kind === 'directory') {
         queue.push({ handle: ent, prefix: rel });
       } else if (ent.kind === 'file') {
-        if (isSupportedExt(ent.name) || isZipName(ent.name)) {
-          out.push({
-            name: ent.name,
-            path: rel,
-            kind: 'fs',
-            handle: ent,
-            getBlob: function(h) { return function() { return h.getFile(); }; }(ent),
-            size: 0
-          });
+        if (isZipName(ent.name)) {
+          // Upload zip to server and create proper zip items with handle
+          try {
+            var ff = await ent.getFile();
+            await addZipBlob(ff, out, ent);
+          } catch (e) {
+            console.warn('walkDir zip failed:', e);
+          }
+        } else if (isSupportedExt(ent.name)) {
+          if (isVideoExt(ent.name)) {
+            if (outVid) outVid.push({
+              name: ent.name,
+              path: rel,
+              kind: 'fs',
+              handle: ent,
+              rootDirHandle: root, // points to the top-level directory
+              getBlob: function(h) { return function() { return h.getFile(); }; }(ent),
+              size: 0
+            });
+          } else {
+            out.push({
+              name: ent.name,
+              path: rel,
+              kind: 'fs',
+              handle: ent,
+              rootDirHandle: root, // points to the top-level directory
+              getBlob: function(h) { return function() { return h.getFile(); }; }(ent),
+              size: 0
+            });
+          }
         }
       }
     }
@@ -195,7 +219,7 @@ async function processCollectedEntries(collected) {
   for (var i = 0; i < collected.length; i++) {
     var item = collected[i];
     if (item.kind === 'zipfile') {
-      zipFiles.push(item.file);
+      zipFiles.push({ file: item.file, zipFileHandle: item.zipFileHandle || null });
     } else if (item.kind === 'plain' && item.file && item.file.size > 0) {
       var plainObj = {
         name: item.file.name || item.path.split('/').pop(),
@@ -219,7 +243,7 @@ async function processCollectedEntries(collected) {
 
   if (zipFiles.length > 0) {
     var zipPromises = zipFiles.map(function(zf) {
-      return addZipBlob(zf, outImg);
+      return addZipBlob(zf.file, outImg, zf.zipFileHandle);
     });
     await Promise.all(zipPromises);
   }
@@ -260,7 +284,7 @@ async function processHandles(handles, leaves) {
       if (isZipName(name)) {
         try {
           var file = await h.handle.getFile();
-          collected.push({ kind: 'zipfile', file: file });
+          collected.push({ kind: 'zipfile', file: file, zipFileHandle: h.handle });
         } catch (e) { console.warn('zip handle read failed:', e); }
       } else {
         try {
@@ -276,7 +300,7 @@ async function processHandles(handles, leaves) {
       if (lf.kind === 'ziphandle') {
         try {
           var zf = await lf.handle.getFile();
-          collected.push({ kind: 'zipfile', file: zf });
+          collected.push({ kind: 'zipfile', file: zf, zipFileHandle: lf.handle });
         } catch (e) {}
       } else if (lf.kind === 'file' && lf.handle) {
         try {
@@ -323,7 +347,7 @@ function makePlainItem(file) {
   };
 }
 
-async function addZipBlob(file, out) {
+async function addZipBlob(file, out, zipFileHandle) {
   try {
     var buf = await file.arrayBuffer();
     var res = await fetch('/api/gallery/zip', {
@@ -342,6 +366,10 @@ async function addZipBlob(file, out) {
     galleryState.zipEntriesCache = data.manifest;
     var entries = (data.manifest && data.manifest.entries) || [];
     var zipName = file.path || file.name || 'archive.zip';
+    // zipFileHandle: FileSystemFileHandle|null — null means the zip cannot be
+    // written back to disk (e.g. pasted blob, legacy drop). UI will degrade
+    // delete/overwrite actions accordingly.
+    var handle = zipFileHandle || null;
     for (var i = 0; i < entries.length; i++) {
       var e = entries[i];
       var nm = e.path.split('/').pop();
@@ -354,7 +382,8 @@ async function addZipBlob(file, out) {
         zipPath: e.path,
         sessionId: sessionId,
         size: e.size || 0,
-        getBlob: null
+        getBlob: null,
+        zipFileHandle: handle
       });
     }
   } catch (e) {
@@ -395,6 +424,24 @@ function appendItems(out) {
   renderTreePanel();
 }
 
+function appendVideoItems(outVid) {
+  if (!outVid.length) return;
+  var hadNoVideos = (galleryState.videoItems.length === 0);
+  sortItems(outVid);
+  galleryState.videoItems = galleryState.videoItems.concat(outVid);
+  updateVideoDirStructure();
+  if (hadNoVideos) {
+    galleryState.videoIndex = -1;
+    if (galleryState.viewMode === 'single' && galleryState.items.length === 0) {
+      galleryState.mediaType = 'video';
+      updateLayoutMode();
+    }
+    setVideoActive(0);
+  } else {
+    renderTreePanel();
+  }
+}
+
 // ---------- event handlers ---------------------------------------
 function onDragOver(e) {
   e.preventDefault();
@@ -412,7 +459,7 @@ function onDragLeave(e) {
   if (zone) zone.classList.remove('drag-active');
 }
 
-function onDrop(e) {
+async function onDrop(e) {
   e.preventDefault();
   var zone = document.getElementById('gallery-layout');
   if (zone) zone.classList.remove('drag-active');
@@ -424,6 +471,81 @@ function onDrop(e) {
     return;
   }
 
+  // Modern path: File System Access API (Chrome/Edge 86+)
+  // Provides FileSystemFileHandle / FileSystemDirectoryHandle with
+  // remove() and createWritable() capabilities.
+  if (typeof DataTransferItem.prototype.getAsFileSystemHandle === 'function') {
+    // IMPORTANT: getAsFileSystemHandle() must be called synchronously in the
+    // same tick — the promise must be collected, not awaited between calls.
+    var handlePromises = [];
+    for (var i = 0; i < dt.items.length; i++) {
+      var item = dt.items[i];
+      if (item.kind !== 'file') continue;
+      try {
+        var p = item.getAsFileSystemHandle();
+        if (p) handlePromises.push(p);
+      } catch (err) {
+        console.warn('getAsFileSystemHandle error:', err);
+      }
+    }
+    if (handlePromises.length) {
+      var handles = await Promise.all(handlePromises);
+      var out = [];
+      var outVid = [];
+      for (var j = 0; j < handles.length; j++) {
+        var h = handles[j];
+        if (!h) continue;
+        if (h.kind === 'directory') {
+          try {
+            await walkDir(h, '', out, outVid);
+          } catch (err) {
+            console.warn('walkDir drop failed:', err);
+          }
+        } else if (h.kind === 'file') {
+          if (isZipName(h.name)) {
+            try {
+              var ff = await h.getFile();
+              await addZipBlob(ff, out, h);
+            } catch (err) {
+              console.warn('drop zip handle failed:', err);
+            }
+          } else if (isSupportedExt(h.name)) {
+            if (isVideoExt(h.name)) {
+              outVid.push({
+                name: h.name,
+                path: h.name,
+                kind: 'fs',
+                handle: h,
+                rootDirHandle: null, // individual file, no directory context
+                getBlob: function(v) { return function() { return v.getFile(); }; }(h),
+                size: 0
+              });
+            } else {
+              out.push({
+                name: h.name,
+                path: h.name,
+                kind: 'fs',
+                handle: h,
+                rootDirHandle: null, // individual file, no directory context
+                getBlob: function(v) { return function() { return v.getFile(); }; }(h),
+                size: 0
+              });
+            }
+          }
+        }
+      }
+      if (out.length) {
+        appendItems(out);
+      }
+      if (outVid.length) {
+        appendVideoItems(outVid);
+      }
+      return;
+    }
+  }
+
+  // Fallback: webkitGetAsEntry / getAsFile (no handle — items cannot be
+  // deleted from disk; UI will degrade delete/overwrite actions accordingly).
   var promises = [];
   for (var i = 0; i < dt.items.length; i++) {
     var item = dt.items[i];
@@ -453,9 +575,81 @@ function onDrop(e) {
   }
 }
 
-function onPaste(e) {
+async function onPaste(e) {
   var cd = e.clipboardData;
   if (!cd || !cd.items) return;
+
+  // Modern path: File System Access API
+  if (typeof DataTransferItem.prototype.getAsFileSystemHandle === 'function') {
+    var handlePromises = [];
+    for (var i = 0; i < cd.items.length; i++) {
+      var it = cd.items[i];
+      if (it.kind !== 'file') continue;
+      try {
+        var p = it.getAsFileSystemHandle();
+        if (p) handlePromises.push(p);
+      } catch (err) {
+        console.warn('getAsFileSystemHandle paste error:', err);
+      }
+    }
+    if (handlePromises.length) {
+      var handles = await Promise.all(handlePromises);
+      var out = [];
+      var outVid = [];
+      for (var j = 0; j < handles.length; j++) {
+        var h = handles[j];
+        if (!h) continue;
+        if (h.kind === 'directory') {
+          try {
+            await walkDir(h, '', out, outVid);
+          } catch (err) {
+            console.warn('walkDir paste failed:', err);
+          }
+        } else if (h.kind === 'file') {
+          if (isZipName(h.name)) {
+            try {
+              var ff = await h.getFile();
+              await addZipBlob(ff, out, h);
+            } catch (err) {
+              console.warn('paste zip handle failed:', err);
+            }
+          } else if (isSupportedExt(h.name)) {
+            if (isVideoExt(h.name)) {
+              outVid.push({
+                name: h.name,
+                path: h.name,
+                kind: 'fs',
+                handle: h,
+                rootDirHandle: null, // individual file, no directory context
+                getBlob: function(v) { return function() { return v.getFile(); }; }(h),
+                size: 0
+              });
+            } else {
+              out.push({
+                name: h.name,
+                path: h.name,
+                kind: 'fs',
+                handle: h,
+                rootDirHandle: null, // individual file, no directory context
+                getBlob: function(v) { return function() { return v.getFile(); }; }(h),
+                size: 0
+              });
+            }
+          }
+        }
+      }
+      if (out.length) {
+        appendItems(out);
+      }
+      if (outVid.length) {
+        appendVideoItems(outVid);
+      }
+      e.preventDefault();
+      return;
+    }
+  }
+
+  // Fallback: webkitGetAsEntry / getAsFile (no handle)
   var promises = [];
   for (var i = 0; i < cd.items.length; i++) {
     var it = cd.items[i];
@@ -507,7 +701,9 @@ function onOpenClick() {
 async function onOpenDir() {
   var dirHandle = await window.showDirectoryPicker();
   var out = [];
-  await walkDir(dirHandle, '', out);
+  var outVid = [];
+  await walkDir(dirHandle, '', out, outVid);
+  if (outVid.length) { appendVideoItems(outVid); }
   appendItems(out);
 }
 

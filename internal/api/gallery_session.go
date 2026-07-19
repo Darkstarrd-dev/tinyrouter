@@ -7,13 +7,18 @@ import (
 
 const (
 	// galleryMaxSessions caps the number of in-memory zip sessions retained.
+	// Sessions are evicted only by LRU once the store exceeds this capacity.
+	// There is intentionally no time-based TTL: a common usage pattern is
+	// loading several archives and autoplaying through one while the others
+	// sit idle. A short idle TTL would evict the idle archives mid-session,
+	// surfacing as 404s when the user switches back to them. Bounding by LRU
+	// alone keeps idle archives alive as long as they remain within the most
+	// recently used set, which matches the single-user local nature of the app.
 	galleryMaxSessions = 32
-	// gallerySessionTTL is the idle expiry for a zip session.
-	gallerySessionTTL = 5 * time.Minute
 )
 
-// zipSession holds an uploaded zip archive in memory along with bookkeeping for
-// idle expiry.
+// zipSession holds an uploaded zip archive in memory along with bookkeeping
+// for LRU eviction.
 type zipSession struct {
 	data       []byte
 	createdAt  time.Time
@@ -21,8 +26,8 @@ type zipSession struct {
 }
 
 // gallerySessionStore is a thread-safe, bounded LRU store of in-memory zip
-// sessions. It is intentionally simple: retention is bounded by
-// galleryMaxSessions and stale entries are evicted by touchSessions.
+// sessions. Retention is bounded solely by galleryMaxSessions via LRU
+// eviction; there is no time-based expiry.
 type gallerySessionStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*zipSession
@@ -69,7 +74,29 @@ func (s *gallerySessionStore) get(sessionID string) ([]byte, bool) {
 	return sess.data, true
 }
 
-// remove deletes a single session under lock (caller must hold mu).
+// update replaces the stored zip data for an existing session and refreshes
+// its last-access time. Returns false if the session does not exist.
+func (s *gallerySessionStore) update(sessionID string, data []byte) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return false
+	}
+	sess.data = data
+	sess.lastAccess = time.Now()
+	s.bumpLocked(sessionID)
+	return true
+}
+
+// remove deletes a session by id.
+func (s *gallerySessionStore) remove(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.removeLocked(sessionID)
+}
+
+// removeLocked deletes a single session under lock (caller must hold mu).
 func (s *gallerySessionStore) removeLocked(sessionID string) {
 	delete(s.sessions, sessionID)
 	for i, id := range s.order {
@@ -91,32 +118,5 @@ func (s *gallerySessionStore) bumpLocked(sessionID string) {
 	s.order = append(s.order, sessionID)
 }
 
-// touch evicts sessions idle for longer than gallerySessionTTL. It is run
-// periodically by the cleanup goroutine.
-func (s *gallerySessionStore) touch() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now()
-	var expired []string
-	for id, sess := range s.sessions {
-		if now.Sub(sess.lastAccess) > gallerySessionTTL {
-			expired = append(expired, id)
-		}
-	}
-	for _, id := range expired {
-		s.removeLocked(id)
-	}
-}
-
 // gallerySessions is the package-level store for zip preview sessions.
 var gallerySessions = newGallerySessionStore()
-
-// gallerySessionCleanup periodically evicts expired zip sessions. It is
-// fire-and-forget: the process owns all memory and exits cleanly without
-// needing explicit teardown.
-func gallerySessionCleanup() {
-	ticker := time.NewTicker(1 * time.Minute)
-	for range ticker.C {
-		gallerySessions.touch()
-	}
-}

@@ -207,10 +207,15 @@ function renderTreePanel() {
     imgNodes.forEach(function(node) {
       node.onclick = function(e) {
         if (e) { e.preventDefault(); e.stopPropagation(); }
-        var fIdx = parseInt(node.getAttribute('data-first-idx'), 10);
         var dir = node.getAttribute('data-dir');
-        if (typeof dir === 'string') galleryState.curDirPath = dir;
-        if (!isNaN(fIdx)) setActive(fIdx);
+        var targetIdx = -1;
+        if (dir !== null && galleryState.dirMap[dir] && galleryState.dirMap[dir].length) {
+          targetIdx = galleryState.dirMap[dir][0];
+        } else {
+          var fIdx = parseInt(node.getAttribute('data-first-idx'), 10);
+          if (!isNaN(fIdx)) targetIdx = fIdx;
+        }
+        if (targetIdx >= 0) setActive(targetIdx);
       };
     });
   }
@@ -346,6 +351,7 @@ function renderThumbnails() {
       if (!item) return;
       var div = document.createElement('div');
       div.className = 'gallery-thumb' + (idx === galleryState.index ? ' active' : '');
+      if (item.markedForDeletion) div.classList.add('thumb-marked-for-deletion');
       div.dataset.idx = String(idx);
       var img = document.createElement('img');
       img.className = 'gallery-thumb-img';
@@ -384,12 +390,15 @@ function renderActive(index) {
   }
 
   if (!item) {
+    updateDeleteOverlay(null);
     if (imgEl) imgEl.removeAttribute('src');
     if (pathEl) { pathEl.textContent = '-'; pathEl.title = ''; }
     if (info) info.textContent = '0 / 0';
     if (empty) empty.style.display = '';
     return;
   }
+
+  updateDeleteOverlay(item);
 
   var displayPath = item.path || item.name || '';
   if (pathEl) {
@@ -434,6 +443,182 @@ function setActive(index) {
   if (!galleryState.items.length) return;
   if (index < 0) index = galleryState.items.length - 1;
   if (index >= galleryState.items.length) index = 0;
+  // Revoke previous item's mainURL to prevent blob URL leaks during autoplay
+  var prevIndex = galleryState.index;
+  if (prevIndex >= 0 && prevIndex < galleryState.items.length) {
+    var prev = galleryState.items[prevIndex];
+    if (prev && prev.mainURL && prev.mainURL.indexOf('blob:') === 0) {
+      URL.revokeObjectURL(prev.mainURL);
+      prev.mainURL = null;
+    }
+  }
   galleryState.index = index;
   renderActive(index);
+}
+
+// ---------- deletion interactions ------------------------------------------
+
+// updateDeleteOverlay toggles the red overlay on the main image based on the
+// item's markedForDeletion flag.
+function updateDeleteOverlay(item) {
+  var overlay = document.getElementById('gallery-delete-overlay');
+  if (!overlay) return;
+  if (item && item.markedForDeletion) {
+    overlay.classList.add('active');
+  } else {
+    overlay.classList.remove('active');
+  }
+}
+
+// deleteItemMark marks the current item for deletion, shows a red overlay, and
+// advances to the next item. If the current item is the last one, it stays in
+// place (no wrap-around to the first).
+function deleteItemMark() {
+  // Del 对视频无效
+  var isVidActive = (galleryState.viewMode === 'split') ? (galleryState.focus === 'video') : (galleryState.mediaType === 'video');
+  if (isVidActive) return;
+  if (!galleryState.items.length) return;
+  var idx = galleryState.index;
+  var item = galleryState.items[idx];
+  if (!item) return;
+  // Set true (mark — not a toggle; subsequent tasks may add unmark via Shift+Del)
+  item.markedForDeletion = true;
+  updateDeleteOverlay(item);
+  if (item.thumbDivEl) item.thumbDivEl.classList.add('thumb-marked-for-deletion');
+  // Advance to next item, no wrap if last
+  if (idx < galleryState.items.length - 1) {
+    setActive(idx + 1);
+  }
+}
+
+// removeItem removes the item at removedIndex from galleryState.items, revokes
+// its blob URLs, adjusts the current index (no wrap-around), rebuilds the
+// directory structure, and re-renders. Safe to call when the removed item is
+// the current one (jumps to next, or stays at new last if was last).
+function removeItem(removedIndex) {
+  if (removedIndex < 0 || removedIndex >= galleryState.items.length) return;
+  var item = galleryState.items[removedIndex];
+  // Revoke blob URLs of the removed item
+  if (item) {
+    if (item.mainURL && item.mainURL.indexOf('blob:') === 0) URL.revokeObjectURL(item.mainURL);
+    if (item.thumbURL && item.thumbURL.indexOf('blob:') === 0) URL.revokeObjectURL(item.thumbURL);
+  }
+  // Splice
+  galleryState.items.splice(removedIndex, 1);
+  // Adjust current index (no wrap)
+  var cur = galleryState.index;
+  if (removedIndex < cur) {
+    galleryState.index = cur - 1;
+  } else if (removedIndex === cur) {
+    // Was viewing the removed one: stay at same index (now points to next),
+    // or clamp to new last if beyond end.
+    if (galleryState.index >= galleryState.items.length) {
+      galleryState.index = galleryState.items.length - 1; // -1 if empty
+    }
+  }
+  // removedIndex > cur: index unchanged
+  // Rebuild dir structure + re-render
+  updateDirStructure();
+  if (galleryState.items.length === 0) {
+    // empty state: renderActive(0) handles empty via the !item guard
+    galleryState.index = -1;
+    renderActive(0);
+  } else {
+    var ni = Math.max(0, Math.min(galleryState.index, galleryState.items.length - 1));
+    galleryState.index = ni;
+    renderActive(ni);
+  }
+  renderThumbnails();
+  renderTreePanel();
+}
+
+// removeItemsByFilter removes all items for which filterFn(item) returns true,
+// revokes their blob URLs, adjusts the current index, rebuilds the directory
+// structure, and re-renders. If the current item is among the removed, the
+// index moves to the next surviving item (or clamps to the new last).
+function removeItemsByFilter(filterFn) {
+  var removed = [];
+  var kept = [];
+  for (var i = 0; i < galleryState.items.length; i++) {
+    var it = galleryState.items[i];
+    if (filterFn(it)) removed.push(it);
+    else kept.push(it);
+  }
+  if (removed.length === 0) return 0;
+  // Revoke blobs of removed items
+  for (var j = 0; j < removed.length; j++) {
+    var r = removed[j];
+    if (r.mainURL && r.mainURL.indexOf('blob:') === 0) URL.revokeObjectURL(r.mainURL);
+    if (r.thumbURL && r.thumbURL.indexOf('blob:') === 0) URL.revokeObjectURL(r.thumbURL);
+  }
+  // Determine current item's fate (by reference)
+  var curItem = galleryState.items[galleryState.index];
+  galleryState.items = kept;
+  var newIdx = -1;
+  if (curItem) {
+    for (var k = 0; k < kept.length; k++) {
+      if (kept[k] === curItem) { newIdx = k; break; }
+    }
+  }
+  if (newIdx < 0) {
+    // current was removed; clamp to the position it would occupy
+    // (approximation: use min of old index and new length-1)
+    newIdx = Math.min(galleryState.index, kept.length - 1);
+  }
+  galleryState.index = newIdx;
+  updateDirStructure();
+  if (kept.length === 0) {
+    galleryState.index = -1;
+    renderActive(0);
+  } else {
+    var ni = Math.max(0, Math.min(galleryState.index, kept.length - 1));
+    galleryState.index = ni;
+    renderActive(ni);
+  }
+  renderThumbnails();
+  renderTreePanel();
+  return removed.length;
+}
+
+// removeVideoItem removes the video at the given index from
+// galleryState.videoItems, revokes its blob URLs, adjusts the video index,
+// and re-renders the video area.
+function removeVideoItem(removedIndex) {
+  if (removedIndex < 0 || removedIndex >= galleryState.videoItems.length) return;
+  var item = galleryState.videoItems[removedIndex];
+  // Revoke blob URLs
+  if (item) {
+    if (item.mainURL && item.mainURL.indexOf('blob:') === 0) URL.revokeObjectURL(item.mainURL);
+    if (item.thumbURL && item.thumbURL.indexOf('blob:') === 0) URL.revokeObjectURL(item.thumbURL);
+  }
+  // Splice
+  galleryState.videoItems.splice(removedIndex, 1);
+  // Adjust video index
+  var cur = galleryState.videoIndex;
+  if (removedIndex < cur) {
+    galleryState.videoIndex = cur - 1;
+  } else if (removedIndex === cur) {
+    if (galleryState.videoIndex >= galleryState.videoItems.length) {
+      galleryState.videoIndex = galleryState.videoItems.length - 1;
+    }
+  }
+  // Re-render
+  if (galleryState.videoItems.length === 0) {
+    galleryState.videoIndex = -1;
+    galleryState.videoURL = null;
+    galleryState.videoPlayingState = false;
+    var vidEl = document.getElementById('gallery-main-video');
+    if (vidEl) {
+      try { vidEl.pause(); } catch (e2) {}
+      vidEl.removeAttribute('src');
+      try { vidEl.load(); } catch (e3) {}
+    }
+    renderActiveVideo(-1);
+  } else {
+    var ni = Math.max(0, Math.min(galleryState.videoIndex, galleryState.videoItems.length - 1));
+    galleryState.videoIndex = ni;
+    renderActiveVideo(ni);
+  }
+  updateVideoDirStructure();
+  renderTreePanel();
 }
