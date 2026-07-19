@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/config/`、`internal/registry/`、`internal/state/` 三个包共同构成的 **配置定义 + 内存注册表 + 运行时状态持久化** 基础设施的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-19，仓库工作区（`main`）。本轮新增：(a) `UpdateKey` 采用 partial update 语义——`Key`/`Account` 仅在 `updates.Key != ""` 时覆盖；(b) 会话 cookie 设置 `Secure: true`，`MaxAge` 与 `sessionMaxAge`（24h）对齐；(c) 移除 `deps.cfg` 字段，所有运行时配置读取统一走 `rt.reg.Config()` 快照。`ModelDef.Protocols`（`[]string`，`yaml/json:"protocols,omitempty"`，记录多协议探测结果，types.go:50-55）+ `ProtocolOpenAICompat`/`ProtocolOpenAIResponses`/`ProtocolAnthropic` 合法值常量（types.go:31-37）+ `validate.go` 的 `validateModelDef`（合法值告警）；`registry.UpdateModelProtocols`（models.go:182）+ `PATCH /providers/{id}/models/protocols`（api/router.go:262）；`state.yaml` 新增 `probes` map（`ProbeRecord`/`ProbeDetail`，state.go:22-49）+ `registry` 的 `probeRecords` 与 `UpdateProbeRecord`/`GetProbeRecord`/`SnapshotProbeRecords`/`RestoreProbeRecord` + `state.Manager` 的 `WithProbeStateProvider` + `app.go:166` 注入。行号随 `ModelDef`/`state.Snapshot` 扩展整体下移。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-19，仓库工作区（`main`）。本轮新增：(a) `UpdateKey` 采用 partial update 语义——`Key`/`Account` 仅在 `updates.Key != ""` 时覆盖；(b) 会话 cookie 设置 `Secure: true`，`MaxAge` 与 `sessionMaxAge`（24h）对齐；(c) 移除 `deps.cfg` 字段，所有运行时配置读取统一走 `rt.reg.Config()` 快照。`ModelDef.Protocols`（`[]string`，`yaml/json:"protocols,omitempty"`，记录多协议探测结果，types.go:50-55）+ `ProtocolOpenAICompat`/`ProtocolOpenAIResponses`/`ProtocolAnthropic` 合法值常量（types.go:31-37）+ `validate.go` 的 `validateModelDef`（合法值告警）；`registry.UpdateModelProtocols`（models.go:182）+ `PATCH /providers/{id}/models/protocols`（api/router.go:282）；`state.yaml` 新增 `probes` map（`ProbeRecord`/`ProbeDetail`，state.go:22-49）+ `registry` 的 `probeRecords` 与 `UpdateProbeRecord`/`GetProbeRecord`/`SnapshotProbeRecords`/`RestoreProbeRecord` + `state.Manager` 的 `WithProbeStateProvider` + `app.go:166` 注入。+ test-proto 单协议 endpoint 替换复合探测（probe_model.go 不再持久化，前端串行调用三次）；ProbeRecord 基础设施仍保留供 PATCH /providers/{id}/models/protocols 使用。行号随 `ModelDef`/`state.Snapshot` 扩展整体下移。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -112,7 +112,7 @@ flowchart TD
 - `IsNIM()`（types.go:102-107）：`APIType=="nim"` 或 `BaseURL` 含 “nvidia”（小写）时为真——保证 misconfigured apiType 不会静默绕过 NIM 节流。
 - `IsGeminiOpenAICompat()`（types.go:113-117）：`BaseURL` 含 “generativelanguage.googleapis.com” **且** 含 “/openai” 时为真，用于判定需要 thought_signature 处理的 Gemini OpenAI 兼容端点。
 
-**协议合法值常量与探测校验：** `config` 包定义三协议合法值常量 `ProtocolOpenAICompat`="openai-compat" / `ProtocolOpenAIResponses`="openai-responses" / `ProtocolAnthropic`="anthropic"（types.go:31-37），供多协议复合探测（`api/probe_common.go`+`probe_model.go`）与 `ModelDef.Protocols` 字段使用。`validate.go` 新增 `validateModelDef(p, m)`（10-42 区）+ `validProtocols` 集合（9），在 `validateProviders` 遍历 `p.Models` 时对每个模型的 `Protocols` 值做合法性告警（未知协议值仅 `os.Stderr` 告警，不阻断 Save）。
+**协议合法值常量与探测校验：** `config` 包定义三协议合法值常量 `ProtocolOpenAICompat`="openai-compat" / `ProtocolOpenAIResponses`="openai-responses" / `ProtocolAnthropic`="anthropic"（types.go:31-37），供单协议探测（`api/probe_common.go` 的 `probeOpenAICompat`/`probeOpenAIResponses`/`probeAnthropic` 函数，`api/probe_model.go` 的 `testProviderModelProto` handler 按 `proto` 参数分发）+ 前端串行调用三次实现三协议探测，以及 `ModelDef.Protocols` 字段使用。`validate.go` 新增 `validateModelDef(p, m)`（10-42 区）+ `validProtocols` 集合（9），在 `validateProviders` 遍历 `p.Models` 时对每个模型的 `Protocols` 值做合法性告警（未知协议值仅 `os.Stderr` 告警，不阻断 Save）。
 
 `config.go` 为本包文档注释文件（config.go:1-11），说明各文件职责，无导出符号。
 
@@ -174,6 +174,10 @@ flowchart TD
 - **combo 级：** 对每个 combo model 调 `splitModel`（validate.go:44-52，按首个 `/` 切分），若不含 “prefix/model” 格式则告警（34-40）。
 
 注意：重复 `Prefix` 仅是**告警**（skip warning），不修不阻断——存在路由歧义风险（见第 20 节 #9）。该校验无独立单测（见第 21 节）。
+
+**端口范围校验：** `validatePort(port int) error`（validate.go:18）检查 `port` 在 1-65535 范围内，否则返回 error；在 `finalizeConfig`（defaults.go:75）填默认端口后调用，失败时仅 `fmt.Fprintf(os.Stderr, ...)` 告警，不阻断启动（与 `validateProviders` 一致的 best-effort 风格）。
+
+**废弃字段向后兼容：** `config.yaml` 用 `yaml.NewDecoder` + `dec.KnownFields(true)` strict 解析（persistence.go:39,65），目的是捕获字段拼写错误（如 `baseURL` 写成 `baseurl`），而非拒绝历史遗留字段。v1.8.0 删除了 `MonitorConfig.Enabled`（曾用于控制 Monitor 开关，但删除前从未被代码引用），保留 strict 会导致从 v1.7.x 升级的旧 config.yaml 含 `monitor.enabled` 时启动失败。修复策略：在 `MonitorConfig` struct 中**保留** `Enabled` 字段（types.go:200，标记 `deprecated, ignored`），让 strict 解析识别为已知字段从而通过；`finalizeConfig`（defaults.go:155-158）检测到 `cfg.Monitor.Enabled == true` 时向 stderr 输出废弃告警，引导用户删除该字段。此模式兼顾"strict 拼写检测"与"向后兼容"——未来若再有字段删除，按同模式加回 + 告警即可。回归测试见 `config_compat_test.go`。
 
 ## 8. internal/config — AES-GCM 加密（crypto.go）
 
@@ -518,5 +522,5 @@ go build -o tinyrouter .
 | 修改 reload merge | `registry.go` reloadStatesLocked(28-54) + `reload_merge_test.go`（TestReload_MergesStates） |
 | 修改去抖 | `manager.go` ScheduleWrite(67-82)/flushNow(85-119)/FlushSync(152-170) |
 | 修改回调接线 | `app.go` WithKeyStateProvider/WithComboStateProvider(164-165) 与 registry/combo 的 Snapshot*/Restore* 实现 |
-| 修改校验 | `validate.go` validateProviders(10-42)（仅告警，注意重复 prefix 不阻断，第 20 节 #9） |
-| 新增 `ModelDef.Protocols` / 多协议探测 | `config/types.go` 新增 `Protocols` 字段(50-55)+`Protocol*` 常量(31-37)+`validate.go` `validateModelDef`(16-42)、`registry/models.go` `UpdateModelProtocols`(177-194)+`api/providers_models_crud.go` `updateModelProtocols`+`api/router.go` `PATCH /providers/{id}/models/protocols`(262)；运行态探测明细入 `state`：`state.go` `ProbeRecord`/`ProbeDetail`(29-49)+`Snapshot.Probes`(22)、`registry/state.go` `UpdateProbeRecord`/`GetProbeRecord`/`SnapshotProbeRecords`/`RestoreProbeRecord`(80-114)、`state/manager.go` `WithProbeStateProvider`(53-55)+`app.go` 注入(166) |
+| 修改校验 | `validate.go` validateProviders(10-42)（仅告警，注意重复 prefix 不阻断，第 20 节 #9）+ `validatePort`(18)（端口范围 1-65535 告警，defaults.go:75 finalizeConfig 调用） |
+| 新增 `ModelDef.Protocols` / 单协议探测 | `config/types.go` 新增 `Protocols` 字段(50-55)+`Protocol*` 常量(31-37)+`validate.go` `validateModelDef`(16-42)、`registry/models.go` `UpdateModelProtocols`(177-194)+`api/providers_models_crud.go` `updateModelProtocols`+`api/router.go` `PATCH /providers/{id}/models/protocols`(282)；运行态探测明细入 `state`：`state.go` `ProbeRecord`/`ProbeDetail`(29-49)+`Snapshot.Probes`(22)、`registry/state.go` `UpdateProbeRecord`/`GetProbeRecord`/`SnapshotProbeRecords`/`RestoreProbeRecord`(80-114)、`state/manager.go` `WithProbeStateProvider`(53-55)+`app.go` 注入(166)；`api/probe_model.go` `testProviderModelProto` 单协议单次探测（**不持久化**，`POST /providers/{id}/models/test-proto`）+ `probe_common.go` `normalizeProbeBaseURL`+`buildProbeURL`/`buildAnthropicURL` 归一化修复；前端 providers.js/combos.js/quickslots.js 串行调用三次实现三协议探测，O/R/A mini badges 可点击打开单协议详情 modal |

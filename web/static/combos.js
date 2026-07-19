@@ -323,7 +323,7 @@ function renderComboModelsList() {
           ? '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('enable') + '</button>'
           : '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('disable') + '</button>') +
         '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '"' + (isDisabled ? ' disabled' : '') + ' onclick="withLoading(this, () => testComboModel(' + i + '))">' + t('test') + '</button>' +
-        '<button type="button" class="btn btn-sm btn-info"' + (ts ? '' : ' disabled') + ' onclick="showModelInfo(\'' + escapeForJsString(modelIdEsc) + '\')">' + t('info') + '</button>' +
+        buildMiniProtocolBadges(ts, modelId) +
         '<button type="button" class="btn btn-sm ' + (isFirst ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
         '<button type="button" class="btn btn-sm ' + (isLast ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeComboModel(' + i + ')">' + t('delete') + '</button>' +
@@ -403,16 +403,18 @@ async function testComboModel(idx) {
     toast(t('modelTestFailed') + 'provider not found', 'error');
     return;
   }
-  try {
-    var result = await apiPost('/providers/' + provider.id + '/models/test', { model: modelId });
-    modelTestStatus[modelId] = result;
-    if (!result.ok) {
-      toast(t('modelTestFailed') + (result.error || 'unknown error'), 'error');
+  await testModelProtosSerial(provider.id, modelId, {
+    onComplete: function(result) {
+      if (!result.ok) {
+        var err = '';
+        for (var k in result) {
+          if (result[k] && result[k].error) err = result[k].error;
+        }
+        toast(t('modelTestFailed') + (err || 'unknown error'), 'error');
+      }
+      renderComboModelsList();
     }
-  } catch (e) {
-    toast(t('modelTestFailed') + e.message, 'error');
-  }
-  renderComboModelsList();
+  });
 }
 
 function removeComboModel(idx) {

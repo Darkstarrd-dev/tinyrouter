@@ -35,6 +35,7 @@ type HostLoopFunc func(*HostContext)
 type App struct {
 	cfg        *config.Config
 	configPath string
+	configDir  string
 	addr       string
 
 	logger       *console.Logger
@@ -79,11 +80,13 @@ func New(configPath string) (*App, error) {
 	lockPath := filepath.Join(configDir, ".tinyrouter.lock")
 	lockFile, lockErr := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if lockErr != nil {
-		return nil, fmt.Errorf("failed to open lock file: %w", lockErr)
+		err := fmt.Errorf("failed to open lock file: %w", lockErr)
+		return nil, err
 	}
 	if err := tryLockFile(lockFile); err != nil {
 		lockFile.Close()
-		return nil, fmt.Errorf("另一个 TinyRouter 实例已在运行。请先关闭它后重试。")
+		msg := "另一个 TinyRouter 实例已在运行。请先关闭它后重试。"
+		return nil, fmt.Errorf("%s", msg)
 	}
 	// Write PID for diagnostic purposes (not used for locking logic).
 	lockFile.Truncate(0)
@@ -93,9 +96,11 @@ func New(configPath string) (*App, error) {
 	// Sync ID counter with existing IDs to prevent collisions after restart.
 	api.SyncIDCounter(cfg)
 
+	configDir = filepath.Dir(configPath)
 	a := &App{
 		cfg:             cfg,
 		configPath:      configPath,
+		configDir:       configDir,
 		addr:            fmt.Sprintf("127.0.0.1:%d", cfg.Port),
 		lockFile:        lockFile,
 		lockPath:        lockPath,
@@ -175,6 +180,7 @@ func (a *App) buildComponents() error {
 
 	// HTTP server (not started until Run).
 	a.sm = NewServerManager(a.apiRouter.Routes(a.proxyHandler), a.addr, a.logger, cfg.Server)
+	a.sm.SetConfigDir(a.configDir)
 	return nil
 }
 
@@ -212,6 +218,8 @@ func (a *App) Run(hostLoop HostLoopFunc) error {
 
 	// Start the HTTP server and wire the live callbacks.
 	a.sm.Start()
+	// Clear any stale error log from a previous failed launch.
+	clearErrorLog(a.configDir)
 	a.apiRouter.SetRestartFunc(a.sm.Restart)
 	a.apiRouter.SetServerConfigFunc(a.sm.SetServerConfig)
 	a.apiRouter.SetUpstreamTimeoutFunc(a.proxyHandler.SetUpstreamTimeout)

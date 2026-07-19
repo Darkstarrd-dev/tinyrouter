@@ -193,7 +193,14 @@ type SecurityConfig struct {
 }
 
 // MonitorConfig controls the Monitor feature (command output streaming).
+//
+// Enabled is a deprecated field retained solely for backward compatibility
+// with config.yaml files generated before v1.8.0. It is parsed to avoid
+// strict-mode "field not found" errors on upgrade, but is never consulted —
+// finalizeConfig emits a deprecation warning if it is set. Remove it from
+// config.yaml at your convenience.
 type MonitorConfig struct {
+	Enabled         bool     `yaml:"enabled,omitempty" json:"enabled,omitempty"` // deprecated, ignored
 	AllowedCommands []string `yaml:"allowedCommands,omitempty" json:"allowedCommands,omitempty"`
 	MaxLineLength   int      `yaml:"maxLineLength,omitempty" json:"maxLineLength,omitempty"`
 }

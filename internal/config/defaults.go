@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +70,10 @@ func DefaultConfig() *Config {
 func finalizeConfig(cfg *Config, raw []byte) *Config {
 	if cfg.Port == 0 {
 		cfg.Port = 20128
+	}
+	// Validate the port after applying the default.
+	if err := validatePort(cfg.Port); err != nil {
+		fmt.Fprintf(os.Stderr, "[config] error: %v\n", err)
 	}
 	if cfg.ConsoleLogMaxLines == 0 {
 		cfg.ConsoleLogMaxLines = 200
@@ -144,6 +149,12 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 				}
 			}
 		}
+	}
+	// Deprecated field warnings: v1.8.0 removed MonitorConfig.Enabled but keeps
+	// the struct field (above) so strict yaml parsing does not reject legacy
+	// config.yaml files. Surface a warning so the user knows to clean it up.
+	if cfg.Monitor.Enabled {
+		fmt.Fprintf(os.Stderr, "[config] warning: 'monitor.enabled' is deprecated and ignored; remove it from config.yaml\n")
 	}
 	return cfg
 }

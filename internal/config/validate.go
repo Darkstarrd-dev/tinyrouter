@@ -13,6 +13,15 @@ var validProtocols = map[string]bool{
 	ProtocolAnthropic:       true,
 }
 
+// validatePort checks that the port number is within the valid range (1-65535).
+// It returns a descriptive error if the port is invalid.
+func validatePort(port int) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("invalid port %d: must be 1-65535", port)
+	}
+	return nil
+}
+
 // validateModelDef logs warnings for best-effort validation of a single model.
 // It checks that any Protocols values are within the known legal set. Unknown
 // values are reported but do not block startup (warning only).

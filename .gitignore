@@ -49,3 +49,6 @@ dist/
 .opencode/
 
 tmp/
+
+# Runtime lock file (PID for single-instance lock)
+.tinyrouter.lock

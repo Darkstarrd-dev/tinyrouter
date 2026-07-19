@@ -474,8 +474,7 @@ function buildModelRowMainInner(p, m) {
   return '<div class="model-row-main" onclick="' + rowOnclick + '">' +
     chevronDown +
     '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midJs + '\'))">' + t('test') + '</button>' +
-    buildMiniProtocolBadges(ts) +
-    '<button type="button" class="btn btn-sm btn-info"' + (ts ? '' : ' disabled') + ' onclick="event.stopPropagation(); showModelInfo(\'' + midJs + '\')">' + t('info') + '</button>' +
+    buildMiniProtocolBadges(ts, m.id) +
     '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
       '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
       '<option value="limited"' + (m.quotaType === 'limited' || !m.quotaType ? ' selected' : '') + '>' + t('limited') + '</option>' +
@@ -855,24 +854,23 @@ function updateModelRowStatus(pid, modelId) {
 
 async function testSingleModel(pid, modelId) {
   await doTestModel(pid, modelId);
-  var ts = modelTestStatus[modelId];
-  if (ts && !ts.ok) {
-    toast(t('modelTestFailed') + (ts.error || 'unknown error'), 'error');
-  }
   currentProviderId = pid;
   updateModelRowStatus(pid, modelId);
 }
 
 async function doTestModel(pid, modelId) {
-  const resultEl = document.getElementById('m-test-result');
-  if (resultEl) resultEl.innerHTML = '<span class="badge badge-testing">' + t('testing', [modelId]) + '</span>';
-  try {
-    const result = await apiPost('/providers/' + pid + '/models/test', { model: modelId });
-    modelTestStatus[modelId] = result;
-    if (resultEl) renderMultiProtocolBadge(resultEl, result, modelId);
-  } catch (e) {
-    if (resultEl) resultEl.innerHTML = '<span class="badge badge-invalid">' + t('failed', [e.message]) + '</span>';
-  }
+  await testModelProtosSerial(pid, modelId, {
+    onComplete: function(result) {
+      if (!result.ok) {
+        var err = '';
+        for (var k in result) {
+          if (result[k] && result[k].error) err = result[k].error;
+        }
+        toast(t('modelTestFailed') + (err || 'unknown error'), 'error');
+      }
+    }
+  });
+  updateModelRowStatus(pid, modelId);
 }
 
 // renderMultiProtocolBadge renders the top #m-test-result badge for the new
@@ -909,9 +907,69 @@ function renderMultiProtocolBadge(el, result, modelId) {
   el.innerHTML = summary + protoHtml;
 }
 
+// ===================== Shared Protocol Test Helpers =====================
+
+function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+function updateMiniBadge(modelId, protoKey, status) {
+  var el = document.querySelector('.mp-mini-badge[data-model="' + CSS.escape(modelId) + '"][data-proto="' + protoKey + '"]');
+  if (!el) return;
+  el.className = 'mp-mini-badge mp-' + status;
+  var labelMap = {openaiCompat: 'OpenAI Compatible', openaiResponses: 'OpenAI Responses', anthropic: 'Anthropic Messages'};
+  var statusMap = {testing: 'testing', ok: 'OK', err: 'failed', skip: 'skipped'};
+  el.title = (labelMap[protoKey] || protoKey) + ': ' + (statusMap[status] || status);
+  var cursorStyle = (status === 'testing') ? 'cursor:default' : 'cursor:pointer';
+  el.style.cursor = cursorStyle;
+  // Update onclick: once tested, make it clickable to show detail
+  if (status !== 'testing') {
+    el.setAttribute('onclick', 'showProtoDetail(\'' + escapeForJsString(modelId) + '\',\'' + protoKey + '\')');
+  } else {
+    el.removeAttribute('onclick');
+  }
+}
+
+async function testModelProtosSerial(pid, modelId, options) {
+  var protos = [
+    {key: 'openaiCompat', endpoint: 'openai-compat'},
+    {key: 'openaiResponses', endpoint: 'openai-responses'},
+    {key: 'anthropic', endpoint: 'anthropic'}
+  ];
+  var result = modelTestStatus[modelId] || {};
+  // Reset all mini badges to testing
+  for (var pi = 0; pi < protos.length; pi++) {
+    updateMiniBadge(modelId, protos[pi].key, 'testing');
+  }
+  // Show testing state in top result area if applicable
+  var resultEl = document.getElementById('m-test-result');
+  if (resultEl) resultEl.innerHTML = '<span class="badge badge-testing">' + t('testing', [modelId]) + '</span>';
+  for (var i = 0; i < protos.length; i++) {
+    var p = protos[i];
+    try {
+      var r = await apiPost('/providers/' + pid + '/models/test-proto', {model: modelId, proto: p.endpoint});
+      result[p.key] = r;
+      updateMiniBadge(modelId, p.key, r.ok ? 'ok' : (r.skipped ? 'skip' : 'err'));
+    } catch (e) {
+      result[p.key] = {ok: false, error: e.message, skipped: false};
+      updateMiniBadge(modelId, p.key, 'err');
+    }
+    if (i < protos.length - 1) await sleep(2000);
+  }
+  // Compute final protocols list
+  result.protocols = [];
+  for (var pi2 = 0; pi2 < protos.length; pi2++) {
+    if (result[protos[pi2].key] && result[protos[pi2].key].ok) {
+      result.protocols.push(protos[pi2].endpoint);
+    }
+  }
+  result.ok = result.protocols.length > 0;
+  modelTestStatus[modelId] = result;
+  if (resultEl) renderMultiProtocolBadge(resultEl, result, modelId);
+  if (options && options.onComplete) options.onComplete(result);
+}
+
 // buildMiniProtocolBadges returns the inline 3-dot mini badge HTML for a model
 // row, mirroring the per-protocol status from modelTestStatus.
-function buildMiniProtocolBadges(ts) {
+function buildMiniProtocolBadges(ts, modelId) {
   var letters = [
     ['openaiCompat', 'O', t('protoOpenAICompat')],
     ['openaiResponses', 'R', t('protoOpenAIResponses')],
@@ -922,6 +980,7 @@ function buildMiniProtocolBadges(ts) {
     var r = ts ? ts[p[0]] : null;
     var cls = 'mp-skip';
     var title = p[2] + ': ' + t('untested');
+    var hasData = !!r;
     if (r) {
       if (r.ok) {
         cls = 'mp-ok';
@@ -934,7 +993,9 @@ function buildMiniProtocolBadges(ts) {
         title = p[2] + ': ' + (r.status || r.error || t('mptestStatusFail'));
       }
     }
-    html += '<span class="mp-mini-badge ' + cls + '" title="' + escapeAttr(title) + '">' + escapeAttr(p[1]) + '</span>';
+    var cursorStyle = hasData ? 'cursor:pointer' : 'cursor:default';
+    var onclickAttr = hasData ? ' onclick="showProtoDetail(\'' + escapeForJsString(modelId || '') + '\',\'' + p[0] + '\')"' : '';
+    html += '<span class="mp-mini-badge ' + cls + '" data-model="' + escapeAttr(modelId || '') + '" data-proto="' + p[0] + '" style="' + cursorStyle + '"' + onclickAttr + ' title="' + escapeAttr(title) + '">' + escapeAttr(p[1]) + '</span>';
   });
   html += '</span>';
   return html;
@@ -942,37 +1003,31 @@ function buildMiniProtocolBadges(ts) {
 
 // ===================== Info Modal =====================
 
-function showModelInfo(modelId) {
+function showProtoDetail(modelId, protoKey) {
   var ts = modelTestStatus[modelId];
-  if (!ts) return;
+  var r = ts ? ts[protoKey] : null;
 
   var overlay = document.getElementById('info-modal-overlay');
   var titleEl = document.getElementById('info-modal-title');
   var bodyEl = document.getElementById('info-modal-body');
 
-  titleEl.textContent = modelId + ' \u2014 ' + t('info');
+  var nameMap = {
+    openaiCompat: 'protoOpenAICompat',
+    openaiResponses: 'protoOpenAIResponses',
+    anthropic: 'protoAnthropic'
+  };
+  var nameKey = nameMap[protoKey] || protoKey;
+  titleEl.textContent = modelId + ' \u2014 ' + t(nameKey);
 
-  __infoModalSections = [];
-  var html = '';
-
-  // Summary overview section
-  if (ts.protocols) {
-    html += renderInfoSection(t('mptestSummaryTitle'), {
-      protocols: ts.protocols.join(', '),
-      ok: ts.ok
-    });
+  if (!r) {
+    __infoModalSections = [];
+    bodyEl.innerHTML = '<div class="info-section"><div class="info-section-title">' + t('noData') + '</div><pre class="info-json">' + t('untested') + '</pre></div>';
+  } else {
+    __infoModalSections = [];
+    bodyEl.innerHTML = renderProtocolSection(protoKey, r);
   }
 
-  // One section per protocol
-  ['openaiCompat', 'openaiResponses', 'anthropic'].forEach(function(key) {
-    var r = ts[key];
-    if (!r) return;
-    html += renderProtocolSection(key, r);
-  });
-
-  bodyEl.innerHTML = html;
   overlay.classList.add('show');
-
   document.addEventListener('keydown', infoModalEscapeHandler);
 }
 

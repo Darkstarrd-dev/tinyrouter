@@ -84,6 +84,38 @@ func probeAnthropic(ctx context.Context, client *http.Client, baseURL, model, ap
 	return doProbe(ctx, client, probeProtocolAnthropic, http.MethodPost, url, "application/json", "x-api-key", apiKey, body, onOK, "anthropic-version", "2023-06-01")
 }
 
+// normalizeProbeBaseURL strips known endpoint suffixes so the URL ends at the
+// API root. Examples:
+//
+//	"https://example.com/v1/chat/completions" → "https://example.com"
+//	"https://example.com/v1/responses"        → "https://example.com"
+//	"https://example.com/v1/messages"         → "https://example.com"
+//	"https://example.com/v1/models"           → "https://example.com"
+//	"https://example.com/v1/images/generations" → "https://example.com"
+func normalizeProbeBaseURL(baseURL string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	for _, suffix := range []string{
+		"/v1/chat/completions",
+		"/chat/completions",
+		"/completions",
+		"/v1/responses",
+		"/responses",
+		"/v1/messages",
+		"/messages",
+		"/v1/models",
+		"/models",
+		"/v1/images/generations",
+		"/images/generations",
+	} {
+		if strings.HasSuffix(baseURL, suffix) {
+			baseURL = baseURL[:len(baseURL)-len(suffix)]
+			break
+		}
+	}
+	return baseURL
+}
+
 // buildProbeURL constructs the OpenAI-style upstream URL from a base URL and an
 // endpoint path. It mirrors proxy.BuildUpstreamURL but avoids depending on the
 // proxy package's normalization: it supports raw mode (trailing '*'),
@@ -93,7 +125,8 @@ func buildProbeURL(baseURL, endpointPath string) string {
 	if strings.HasSuffix(trimmed, "*") {
 		return strings.TrimRight(strings.TrimSuffix(trimmed, "*"), "/")
 	}
-	trimmed = strings.TrimSuffix(strings.TrimSuffix(trimmed, "/"), endpointPath)
+	trimmed = normalizeProbeBaseURL(trimmed)
+	trimmed = strings.TrimSuffix(trimmed, "/")
 	if strings.HasSuffix(trimmed, endpointPath) {
 		return trimmed
 	}
@@ -109,6 +142,7 @@ func buildAnthropicURL(baseURL, endpointPath string) string {
 	if strings.HasSuffix(trimmed, "*") {
 		return strings.TrimRight(strings.TrimSuffix(trimmed, "*"), "/")
 	}
+	trimmed = normalizeProbeBaseURL(trimmed)
 	trimmed = strings.TrimSuffix(trimmed, "/")
 	if strings.HasSuffix(trimmed, endpointPath) {
 		return trimmed

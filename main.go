@@ -5,6 +5,7 @@ package main
 import (
 	"flag"
 	"log"
+	"path/filepath"
 
 	"github.com/tinyrouter/tinyrouter/internal/app"
 )
@@ -13,11 +14,15 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
+	configDir := filepath.Dir(*configPath)
+
 	a, err := app.New(*configPath)
 	if err != nil {
+		app.FeedbackFatalError(configDir, err.Error())
 		log.Fatalf("%v", err)
 	}
 	if err := a.Run(runHostLoop); err != nil {
+		app.FeedbackFatalError(configDir, err.Error())
 		log.Fatalf("%v", err)
 	}
 }

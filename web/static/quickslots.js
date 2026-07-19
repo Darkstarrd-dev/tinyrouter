@@ -294,6 +294,7 @@ function renderQuickSlotModelsList() {
       '<div class="model-row-main"' + noteAttr + '>' +
         '<span class="drag-handle" title="' + t('dragToReorder') + '" draggable="false">⠿</span>' +
         '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="withLoading(this, () => testQuickSlotModel(' + i + '))">' + t('test') + '</button>' +
+        buildMiniProtocolBadges(ts, modelId) +
         '<button type="button" class="btn btn-sm ' + (isFirst ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
         '<button type="button" class="btn btn-sm ' + (isLast ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeQuickSlotModel(' + i + ')">' + t('delete') + '</button>' +
@@ -371,16 +372,18 @@ async function testQuickSlotModel(idx) {
     toast(t('modelTestFailed') + 'provider not found', 'error');
     return;
   }
-  try {
-    var result = await apiPost('/providers/' + provider.id + '/models/test', { model: modelId });
-    modelTestStatus[modelId] = result;
-    if (!result.ok) {
-      toast(t('modelTestFailed') + (result.error || 'unknown error'), 'error');
+  await testModelProtosSerial(provider.id, modelId, {
+    onComplete: function(result) {
+      if (!result.ok) {
+        var err = '';
+        for (var k in result) {
+          if (result[k] && result[k].error) err = result[k].error;
+        }
+        toast(t('modelTestFailed') + (err || 'unknown error'), 'error');
+      }
+      renderQuickSlotModelsList();
     }
-  } catch (e) {
-    toast(t('modelTestFailed') + e.message, 'error');
-  }
-  renderQuickSlotModelsList();
+  });
 }
 
 function removeQuickSlotModel(idx) {
