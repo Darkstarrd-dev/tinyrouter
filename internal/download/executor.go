@@ -84,6 +84,10 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 		processing bool
 		mu         sync.Mutex
 	)
+	// Prepend the full command line to the log output so users can verify
+	// type/quality/container settings in View Log.
+	cmdLine := FormatYtDlpCommand(ytDlpPath, args)
+	stdoutTail.Append("[command] " + cmdLine + "\n")
 
 	// 扫描 stderr（用于错误分类），同时累积尾部缓冲。
 	go func() {

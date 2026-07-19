@@ -21,17 +21,18 @@ var DL_STATUS_KEYS = {
   cancelled: 'statusCancelled'
 };
 
+// selectedTaskId tracks the task currently shown in the right-hand detail panel.
+var selectedTaskId = '';
+
 // renderDownload renders the download page into the given container.
 function renderDownload(container) {
   container.innerHTML = `
     <div class="download-sections">
     <div class="card download-input-card">
-      <div class="download-input-row">
-        <input type="text" id="dl-url" class="input flex-1" placeholder="${escapeHtml(t('downloadUrlPlaceholder'))}" />
+      <div class="download-toolbar">
+        <input type="text" id="dl-url" class="input" placeholder="${escapeHtml(t('downloadUrlPlaceholder'))}" />
         <button class="btn btn-ghost" id="dl-parse-btn" type="button" onclick="parseDownloadUrl()">${escapeHtml(t('parse'))}</button>
         <button class="btn btn-primary" id="dl-start-btn" type="button" onclick="startDownload()">${escapeHtml(t('download'))}</button>
-      </div>
-      <div class="download-options-row">
         <label>${escapeHtml(t('type'))}
           <select id="dl-type" class="select">
             <option value="video">${escapeHtml(t('video'))}</option>
@@ -56,9 +57,6 @@ function renderDownload(container) {
             <option value="original">${escapeHtml(t('original'))}</option>
           </select>
         </label>
-        <label class="flex-1">${escapeHtml(t('downloadDir'))}
-          <input type="text" id="dl-dir" class="input" placeholder="Downloads" />
-        </label>
         <button class="btn btn-ghost btn-sm" type="button" onclick="openDownloadSettingsModal()">${escapeHtml(t('downloadSettings'))}</button>
         <button class="btn btn-ghost btn-sm" type="button" onclick="clearCompletedDownloads()">${escapeHtml(t('clearCompleted'))}</button>
       </div>
@@ -78,6 +76,7 @@ function renderDownload(container) {
     });
   }
 
+  selectedTaskId = '';
   loadDownloadTasks();
   connectDownloadSSE();
   loadDownloadSettings();
@@ -228,10 +227,42 @@ async function loadDownloadSettings() {
   downloadDefaultDir = dl.defaultDir || '';
 }
 
+// fasBrowsePicker opens the system file/directory picker via the File System
+// Access API and writes the selected name into the given input. The FAS API
+// does not expose absolute paths, so only handle.name is stored (the backend
+// resolves bare binary names via PATH lookup). User cancellations (AbortError)
+// are ignored silently; other errors are surfaced via toast.
+//   mode: 'file' -> showOpenFilePicker, 'directory' -> showDirectoryPicker
+function fasBrowsePicker(inputEl, mode) {
+  if (!inputEl) return;
+  if (typeof window.showOpenFilePicker !== 'function' && typeof window.showDirectoryPicker !== 'function') {
+    return;
+  }
+  var pick;
+  if (mode === 'directory') {
+    if (typeof window.showDirectoryPicker !== 'function') return;
+    pick = window.showDirectoryPicker();
+  } else {
+    if (typeof window.showOpenFilePicker !== 'function') return;
+    pick = window.showOpenFilePicker({ multiple: false });
+  }
+  pick.then(function(handle) {
+    var single = Array.isArray(handle) ? handle[0] : handle;
+    if (single && single.name) {
+      inputEl.value = single.name;
+    }
+  }).catch(function(err) {
+    if (err && err.name === 'AbortError') return; // user cancelled, ignore
+    toast(t('downloadSettingsSaveFailed', [err && err.message ? err.message : String(err)]), 'error');
+  });
+}
+
 // openDownloadSettingsModal shows a modal with the four download tool settings
 // (yt-dlp / ffmpeg paths, default dir, proxy). Values are pre-populated from
 // GET /settings and persisted via PATCH /settings on Save. The modal can be
 // closed via the Cancel button, clicking the overlay, or pressing Escape.
+// The yt-dlp / ffmpeg / default-dir rows additionally offer a "Browse" button
+// backed by the File System Access API (when available).
 async function openDownloadSettingsModal() {
   if (document.getElementById('dl-settings-overlay')) return;
 
@@ -243,25 +274,36 @@ async function openDownloadSettingsModal() {
     dl = {};
   }
 
+  var fasAvailable = typeof window.showOpenFilePicker === 'function' || typeof window.showDirectoryPicker === 'function';
+
   var overlay = document.createElement('div');
   overlay.className = 'dl-settings-modal';
   overlay.id = 'dl-settings-overlay';
+
+  function browseRow(labelKey, inputId, value, placeholder, mode) {
+    var browseBtn = fasAvailable
+      ? '<button class="btn btn-ghost btn-sm dl-browse-btn" type="button" data-input="' + inputId + '" data-mode="' + mode + '">' + escapeHtml(t('browse')) + '</button>'
+      : '';
+    return '<div class="dl-settings-row">' +
+      '<label>' + escapeHtml(t(labelKey)) +
+        '<input type="text" class="input" id="' + inputId + '" value="' + escapeAttr(value) + '" placeholder="' + escapeAttr(placeholder) + '" />' +
+      '</label>' +
+      browseBtn +
+    '</div>';
+  }
+
   overlay.innerHTML = '' +
     '<div class="dl-settings-card">' +
       '<div class="dl-settings-modal-title">' + escapeHtml(t('downloadSettings')) + '</div>' +
       '<form class="dl-settings-form" id="dl-settings-form" onsubmit="return false;">' +
-        '<label>' + escapeHtml(t('ytDlpPath')) +
-          '<input type="text" class="input" id="modal-dl-ytdlp-path" value="' + escapeAttr(dl.ytDlpPath || '') + '" placeholder="yt-dlp" />' +
-        '</label>' +
-        '<label>' + escapeHtml(t('ffmpegPath')) +
-          '<input type="text" class="input" id="modal-dl-ffmpeg-path" value="' + escapeAttr(dl.ffmpegPath || '') + '" placeholder="ffmpeg" />' +
-        '</label>' +
-        '<label>' + escapeHtml(t('defaultDir')) +
-          '<input type="text" class="input" id="modal-dl-default-dir" value="' + escapeAttr(dl.defaultDir || '') + '" placeholder="Downloads" />' +
-        '</label>' +
-        '<label>' + escapeHtml(t('downloadProxy')) +
-          '<input type="text" class="input" id="modal-dl-proxy" value="' + escapeAttr(dl.proxy || '') + '" placeholder="http://host:port" />' +
-        '</label>' +
+        browseRow('ytDlpPath', 'modal-dl-ytdlp-path', dl.ytDlpPath || '', 'yt-dlp', 'file') +
+        browseRow('ffmpegPath', 'modal-dl-ffmpeg-path', dl.ffmpegPath || '', 'ffmpeg', 'file') +
+        browseRow('defaultDir', 'modal-dl-default-dir', dl.defaultDir || '', 'Downloads', 'directory') +
+        '<div class="dl-settings-row">' +
+          '<label>' + escapeHtml(t('downloadProxy')) +
+            '<input type="text" class="input" id="modal-dl-proxy" value="' + escapeAttr(dl.proxy || '') + '" placeholder="http://host:port" />' +
+          '</label>' +
+        '</div>' +
       '</form>' +
       '<div class="dl-settings-modal-actions">' +
         '<button class="btn btn-ghost" type="button" id="dl-settings-cancel">' + escapeHtml(t('cancel')) + '</button>' +
@@ -297,6 +339,13 @@ async function openDownloadSettingsModal() {
 
   document.getElementById('dl-settings-cancel').onclick = closeModal;
   document.getElementById('dl-settings-save').onclick = save;
+
+  Array.prototype.forEach.call(overlay.querySelectorAll('.dl-browse-btn'), function(btn) {
+    btn.addEventListener('click', function() {
+      var target = document.getElementById(btn.getAttribute('data-input'));
+      fasBrowsePicker(target, btn.getAttribute('data-mode'));
+    });
+  });
   overlay.addEventListener('click', function(e) {
     if (e.target === overlay) closeModal();
   });
@@ -370,11 +419,10 @@ async function startPlaylistDownload(url) {
   }
 }
 
-// resolveDownloadDir returns the per-task dir if set, otherwise falls back to
-// the persisted server default dir.
+// resolveDownloadDir returns the persisted server default download dir.
+// The per-task directory is no longer entered on the page; it is managed
+// centrally in the Download Settings modal.
 function resolveDownloadDir() {
-  var dir = (document.getElementById('dl-dir') || {}).value || '';
-  if (dir) return dir;
   return downloadDefaultDir || '';
 }
 
@@ -389,12 +437,19 @@ async function loadDownloadTasks() {
   downloadTaskEls = {};
   if (!tasks.length) {
     container.innerHTML = emptyState(t('noDownloads'));
+    selectedTaskId = '';
     return;
   }
   tasks.forEach(function(task) {
     downloadTasksMap[task.id] = task;
     renderDownloadTask(task, false);
   });
+  // Default selection: first task (the one rendered first).
+  if (!selectedTaskId && tasks.length) {
+    selectTask(tasks[0].id);
+  } else if (selectedTaskId) {
+    renderTaskDetail();
+  }
 }
 
 // connectDownloadSSE subscribes to the download event stream with auto-reconnect.
@@ -420,55 +475,144 @@ function connectDownloadSSE() {
   };
 }
 
-// renderDownloadTask creates (or replaces) the card for a task.
-// If focusAfter is true the card is appended even when the list was empty.
+// renderDownloadTask creates (or replaces) the left-side list item for a task
+// and, if the task is the selected one, refreshes the detail panel. When the
+// first task appears it also bootstraps the left/right split layout.
 function renderDownloadTask(task, _replaceEmpty) {
   var container = document.getElementById('dl-tasks');
   if (!container || !task || !task.id) return;
-  // Clear the empty-state placeholder when the first task appears.
-  if (container.querySelector('.empty')) container.innerHTML = '';
   downloadTasksMap[task.id] = task;
-  var existing = downloadTaskEls[task.id];
-  if (existing) {
-    existing.outerHTML = taskCardHtml(task);
-    downloadTaskEls[task.id] = document.querySelector('.dl-task-card[data-task-id="' + task.id + '"]');
-    return;
+
+  // Lazy-init the split layout (left list + right detail) on first task.
+  if (!container.querySelector('.dl-task-split')) {
+    container.innerHTML =
+      '<div class="dl-task-split">' +
+        '<div class="dl-task-list" id="dl-task-list"></div>' +
+        '<div class="dl-task-detail" id="dl-task-detail"></div>' +
+      '</div>';
   }
-  var wrap = document.createElement('div');
-  wrap.innerHTML = taskCardHtml(task);
-  var card = wrap.firstElementChild;
-  container.appendChild(card);
-  downloadTaskEls[task.id] = card;
+
+  var listEl = document.getElementById('dl-task-list');
+  if (!listEl) return;
+
+  var existing = downloadTaskEls[task.id];
+  var itemHtml = taskListItemHtml(task);
+  if (existing) {
+    existing.outerHTML = itemHtml;
+  } else {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = itemHtml;
+    var node = tmp.firstElementChild;
+    // Keep list order aligned with insertion order (newest appended).
+    listEl.appendChild(node);
+  }
+  downloadTaskEls[task.id] = document.getElementById('dl-task-item-' + task.id);
+
+  // Default selection to the first task ever rendered.
+  if (!selectedTaskId) {
+    selectTask(task.id);
+  } else if (task.id === selectedTaskId) {
+    renderTaskDetail();
+  }
 }
 
 // updateDownloadTask reconciles an incoming task update from the SSE stream.
 function updateDownloadTask(task) {
   if (!task || !task.id) return;
-  var existing = downloadTaskEls[task.id];
-  if (existing) {
-    existing.outerHTML = taskCardHtml(task);
-    downloadTaskEls[task.id] = document.querySelector('.dl-task-card[data-task-id="' + task.id + '"]');
-  } else {
-    renderDownloadTask(task, true);
-  }
   downloadTasksMap[task.id] = task;
+  var existing = downloadTaskEls[task.id];
+  if (!existing) {
+    renderDownloadTask(task, true);
+    return;
+  }
+  // Refresh the list item in place.
+  existing.outerHTML = taskListItemHtml(task);
+  downloadTaskEls[task.id] = document.getElementById('dl-task-item-' + task.id);
+  // Refresh the detail panel if this is the selected task.
+  if (task.id === selectedTaskId) {
+    renderTaskDetail();
+  }
 }
 
-// taskCardHtml returns the outerHTML for a single task card.
-function taskCardHtml(task) {
+// selectTask updates the selected task id, highlights the left list item and
+// refreshes the right-hand detail panel.
+function selectTask(taskId) {
+  selectedTaskId = taskId;
+  var list = document.getElementById('dl-task-list');
+  if (list) {
+    Array.prototype.forEach.call(list.querySelectorAll('.dl-task-item'), function(el) {
+      el.classList.toggle('selected', el.getAttribute('data-task-id') === taskId);
+    });
+  }
+  renderTaskDetail();
+}
+
+// renderTaskDetail renders the right-hand detail panel for the selected task.
+function renderTaskDetail() {
+  var detail = document.getElementById('dl-task-detail');
+  if (!detail) return;
+  var task = selectedTaskId ? downloadTasksMap[selectedTaskId] : null;
+  detail.innerHTML = taskDetailHtml(task);
+}
+
+// taskListItemHtml returns the compact left-side list row for a task.
+function taskListItemHtml(task) {
   var p = task.progress || {};
   var percent = typeof p.percent === 'number' ? p.percent : 0;
   if (percent < 0) percent = 0;
   if (percent > 1) percent = 1;
-  var pctWidth = (percent * 100).toFixed(1) + '%';
   var pctText = formatProgress(percent);
 
   var status = task.status || 'pending';
   var statusKey = DL_STATUS_KEYS[status] || 'statusPending';
   var statusLabel = t(statusKey);
-
-  var thumb = task.thumbnail ? '<img src="' + escapeHtml(task.thumbnail) + '" alt="" onerror="this.style.display=\'none\'">' : '';
   var title = task.title || task.url || task.id;
+  var tid = escapeAttr(task.id);
+  var isSelected = task.id === selectedTaskId ? ' selected' : '';
+
+  // Action buttons only on terminal (and error/cancelled) states, plus a
+  // cancel control while active.
+  var actions = '';
+  if (status === 'pending' || status === 'downloading' || status === 'processing') {
+    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="cancelDownload(\'' + tid + '\')">' + escapeHtml(t('cancelDownload')) + '</button>';
+  } else if (status === 'error' || status === 'cancelled') {
+    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="retryDownload(\'' + tid + '\')">' + escapeHtml(t('retry')) + '</button>';
+    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
+  } else if (status === 'completed') {
+    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
+  }
+
+  return '' +
+    '<div class="dl-task-item' + isSelected + '" id="dl-task-item-' + tid + '" data-task-id="' + tid + '" onclick="selectTask(\'' + tid + '\')">' +
+      '<div class="dl-task-item-main">' +
+        '<div class="dl-task-item-title">' + escapeHtml(title) + '</div>' +
+        '<div class="dl-task-item-meta">' +
+          '<span class="dl-status-dot ' + escapeAttr('dl-status-' + status) + '"></span>' +
+          '<span class="dl-task-item-pct">' + escapeHtml(pctText) + '</span>' +
+          '<span class="dl-status-badge ' + escapeAttr('dl-status-' + status) + '">' + escapeHtml(statusLabel) + '</span>' +
+        '</div>' +
+      '</div>' +
+      (actions ? '<div class="dl-task-item-actions">' + actions + '</div>' : '') +
+    '</div>';
+}
+
+// taskDetailHtml returns the right-side detail panel HTML for a task.
+function taskDetailHtml(task) {
+  if (!task) {
+    return '<div class="dl-detail-empty">' + escapeHtml(t('noDownloads')) + '</div>';
+  }
+  var p = task.progress || {};
+  var percent = typeof p.percent === 'number' ? p.percent : 0;
+  if (percent < 0) percent = 0;
+  if (percent > 1) percent = 1;
+  var pctText = formatProgress(percent);
+
+  var status = task.status || 'pending';
+  var statusKey = DL_STATUS_KEYS[status] || 'statusPending';
+  var statusLabel = t(statusKey);
+  var title = task.title || task.url || task.id;
+  var thumb = task.thumbnail ? '<img src="' + escapeHtml(task.thumbnail) + '" alt="" onerror="this.style.display=\'none\'">' : '';
+  var tid = escapeAttr(task.id);
 
   var statusDetail = '';
   if (status === 'pending') {
@@ -486,7 +630,6 @@ function taskCardHtml(task) {
   }
 
   var actions = '';
-  var tid = escapeAttr(task.id);
   if (status === 'pending' || status === 'downloading' || status === 'processing') {
     actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="cancelDownload(\'' + tid + '\')">' + escapeHtml(t('cancelDownload')) + '</button>';
     actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="viewLog(\'' + tid + '\')">' + escapeHtml(t('viewLog')) + '</button>';
@@ -500,20 +643,28 @@ function taskCardHtml(task) {
     actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
   }
 
+  var urlRow = '<div class="dl-detail-url-label">' + escapeHtml(t('downloadUrlPlaceholder')) + '</div>' +
+    '<div class="dl-detail-url" title="' + escapeAttr(task.url || '') + '">' + escapeHtml(task.url || '') + '</div>';
+
+  var errorRow = task.error
+    ? '<div class="dl-detail-error">' + escapeHtml(task.error) + '</div>'
+    : '';
+
+  var progressRow = progressText
+    ? '<div class="dl-detail-progress">' + escapeHtml(progressText) + '</div>'
+    : (statusDetail ? '<div class="dl-detail-status-detail">' + escapeHtml(statusDetail) + '</div>' : '');
+
   return '' +
-    '<div class="dl-task-card" data-task-id="' + escapeAttr(task.id) + '">' +
-      '<div class="dl-task-thumb">' + thumb + '</div>' +
-      '<div class="dl-task-info">' +
-        '<div class="dl-task-title">' + escapeHtml(title) + '</div>' +
-        '<div class="dl-task-status">' +
-          '<span class="dl-status-badge ' + escapeAttr('dl-status-' + status) + '">' + escapeHtml(statusLabel) + '</span>' +
-          (progressText ? '<span class="dl-task-progress-text">' + escapeHtml(progressText) + '</span>' : '') +
-          (statusDetail ? '<span class="dl-task-status-detail">' + escapeHtml(statusDetail) + '</span>' : '') +
-          (task.error ? '<span class="dl-task-error">' + escapeHtml(task.error) + '</span>' : '') +
-        '</div>' +
-        '<div class="progress-bar"><div class="progress-bar-fill" style="width:' + pctWidth + '"></div></div>' +
-        '<div class="dl-task-actions">' + actions + '</div>' +
+    '<div class="dl-detail-card" data-task-id="' + tid + '">' +
+      '<div class="dl-detail-thumb">' + thumb + '</div>' +
+      '<div class="dl-detail-title">' + escapeHtml(title) + '</div>' +
+      '<div class="dl-detail-status">' +
+        '<span class="dl-status-badge ' + escapeAttr('dl-status-' + status) + '">' + escapeHtml(statusLabel) + '</span>' +
       '</div>' +
+      progressRow +
+      urlRow +
+      errorRow +
+      '<div class="dl-detail-actions">' + actions + '</div>' +
     '</div>';
 }
 
@@ -561,9 +712,19 @@ async function removeDownload(taskId) {
   }
   if (downloadTaskEls[taskId]) { downloadTaskEls[taskId].remove(); delete downloadTaskEls[taskId]; }
   delete downloadTasksMap[taskId];
+  if (selectedTaskId === taskId) selectedTaskId = '';
   var container = document.getElementById('dl-tasks');
   if (container && !Object.keys(downloadTaskEls).length) {
     container.innerHTML = emptyState(t('noDownloads'));
+    selectedTaskId = '';
+    return;
+  }
+  // Pick a new selection if the removed one was selected.
+  if (!selectedTaskId) {
+    var firstId = Object.keys(downloadTaskEls)[0];
+    selectTask(firstId);
+  } else {
+    renderTaskDetail();
   }
 }
 

@@ -1087,38 +1087,31 @@ tbody tr:last-child td{border-bottom:none}
 
 .download-settings-card .download-options-row { margin-top: 0; }
 
-.download-input-row {
+/* Task 4: single merged toolbar, sticky at the top of the page. */
+.download-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
-.download-input-row .input { flex: 1; min-width: 0; }
-
-.download-options-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 14px;
-  margin-top: 14px;
+.download-toolbar .input {
+  flex: 1;
+  min-width: 220px;
 }
 
-.download-options-row label {
+.download-toolbar label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   margin-bottom: 0;
   color: var(--text-secondary);
   font-size: calc(var(--font-base) - 1.5px);
   font-weight: 500;
 }
 
-.download-options-row .select,
-.download-options-row .input {
-  width: 160px;
-}
-
-.download-options-row label.flex-1 .input { width: 100%; }
+.download-toolbar .select { width: 130px; }
+.download-toolbar label .select { width: 100%; }
 
 .dl-info-preview {
   margin-top: 16px;
@@ -1192,63 +1185,6 @@ tbody tr:last-child td{border-bottom:none}
   gap: 12px;
 }
 
-.dl-task-card {
-  display: flex;
-  gap: 14px;
-  padding: 14px;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-
-.dl-task-card:hover {
-  border-color: var(--glass-border-hover);
-  box-shadow: var(--shadow-card-hover);
-}
-
-.dl-task-thumb {
-  width: 120px;
-  height: 68px;
-  flex-shrink: 0;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--input-bg);
-  border: 1px solid var(--glass-border);
-}
-
-.dl-task-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.dl-task-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.dl-task-title {
-  font-size: calc(var(--font-base) + 1px);
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.dl-task-status {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-height: 20px;
-}
-
 .dl-status-badge {
   display: inline-flex;
   align-items: center;
@@ -1277,44 +1213,6 @@ tbody tr:last-child td{border-bottom:none}
 .dl-status-completed { background: rgba(102,187,106,0.14); color: var(--accent2); }
 .dl-status-error { background: rgba(239,83,80,0.14); color: #ef5350; }
 .dl-status-cancelled { background: rgba(255,167,38,0.14); color: #ffa726; }
-
-.dl-task-progress-text {
-  font-size: calc(var(--font-base) - 1.5px);
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.dl-task-error {
-  font-size: calc(var(--font-base) - 1.5px);
-  color: #ef5350;
-  word-break: break-word;
-}
-
-.dl-task-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 6px;
-  background: var(--input-bg);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.progress-bar-fill {
-  height: 100%;
-  width: 0;
-  border-radius: 3px;
-  background: var(--accent-gradient);
-  background-size: 200% 100%;
-  animation: progressShine 2s ease-in-out infinite;
-  transition: width .3s cubic-bezier(0.4,0,0.2,1);
-}
-@keyframes progressShine{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
 .download-settings-card { margin-bottom: 16px; }
 .download-settings-card .download-options-row label.flex-1 {
@@ -1415,22 +1313,239 @@ tbody tr:last-child td{border-bottom:none}
 /* ---------------------------------------------------------------------
    Download page polish
    --------------------------------------------------------------------- */
-/* Remove rounded corners and gaps between the large containers. */
-.download-input-card { border-radius: 0; margin-bottom: 0; border-bottom: none; }
+/* Task 4: sticky merged toolbar. */
+.download-sections { display: flex; flex-direction: column; min-height: 0; }
+.download-input-card {
+  border-radius: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--glass-bg);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
 .download-settings-card { border-radius: 0; margin-bottom: 0; }
 .download-queue { margin-top: 0; }
-.download-sections { display: flex; flex-direction: column; }
 
-/* Status detail text under the badge (pending / cancelled). */
-.dl-task-status-detail {
-  font-size: calc(var(--font-base) - 1.5px);
-  color: var(--text-muted);
+/* dl-info-preview is regular inline content below the sticky toolbar. */
+.dl-info-preview {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--glass-border);
 }
 
-/* Make error text more prominent. */
-.dl-task-error {
+/* ---------------------------------------------------------------------
+   Download page split layout (Task 5): left list + right detail
+   --------------------------------------------------------------------- */
+.dl-task-split {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.dl-task-list {
+  flex: 2 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.dl-task-detail {
+  flex: 3 1 0;
+  min-width: 0;
+  position: sticky;
+  top: 120px;
+  align-self: flex-start;
+}
+
+/* Left list item (compact) */
+.dl-task-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.dl-task-item:hover {
+  border-color: var(--glass-border-hover);
+}
+
+.dl-task-item.selected {
+  border-left-color: var(--accent);
+  background: var(--glass-hover);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.dl-task-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dl-task-item-title {
+  font-size: calc(var(--font-base) - 0.5px);
   font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-task-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: calc(var(--font-base) - 2px);
+  color: var(--text-secondary);
+}
+
+.dl-task-item-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.dl-task-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dl-task-item-actions .btn { margin: 0; }
+
+/* Small status dot for the list meta row. */
+.dl-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+.dl-status-dot.dl-status-pending { background: var(--text-muted); color: var(--text-muted); box-shadow: none; }
+.dl-status-dot.dl-status-downloading { background: var(--accent); color: var(--accent); }
+.dl-status-dot.dl-status-processing { background: #b39ddb; color: #b39ddb; }
+.dl-status-dot.dl-status-completed { background: var(--accent2); color: var(--accent2); }
+.dl-status-dot.dl-status-error { background: #ef5350; color: #ef5350; }
+.dl-status-dot.dl-status-cancelled { background: #ffa726; color: #ffa726; }
+
+/* Right detail panel */
+.dl-detail-empty {
+  color: var(--text-muted);
+  font-size: calc(var(--font-base) - 1px);
+  padding: 24px;
+  text-align: center;
+  background: var(--glass-bg);
+  border: 1px dashed var(--glass-border);
+  border-radius: var(--radius-lg);
+}
+
+.dl-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+}
+
+.dl-detail-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 220px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--input-bg);
+  border: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dl-detail-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.dl-detail-title {
+  font-size: calc(var(--font-base) + 2px);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
   word-break: break-word;
+}
+
+.dl-detail-status { display: flex; align-items: center; gap: 8px; }
+
+.dl-detail-progress,
+.dl-detail-status-detail {
+  font-size: calc(var(--font-base) - 1px);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-detail-url-label {
+  font-size: calc(var(--font-base) - 2px);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.dl-detail-url {
+  font-size: calc(var(--font-base) - 1px);
+  color: var(--text-secondary);
+  word-break: break-all;
+  background: var(--input-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.dl-detail-error {
+  font-size: calc(var(--font-base) - 1.5px);
+  font-weight: 600;
+  color: #ef5350;
+  word-break: break-word;
+  background: rgba(239, 83, 80, 0.08);
+  border: 1px solid rgba(239, 83, 80, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.dl-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+/* Responsive: stack the split on narrow screens. */
+@media (max-width: 760px) {
+  .dl-task-split { flex-direction: column; }
+  .dl-task-list { max-height: none; }
+  .dl-task-detail { position: static; top: auto; width: 100%; }
+  .download-toolbar .input { min-width: 140px; }
+  .download-toolbar .select { width: 110px; }
 }
 
 /* Download settings modal (matches login/auth modal aesthetic). */
@@ -1482,6 +1597,9 @@ tbody tr:last-child td{border-bottom:none}
   font-weight: 500;
 }
 .dl-settings-form .input { width: 100%; }
+.dl-settings-row { display: flex; align-items: flex-end; gap: 8px; }
+.dl-settings-row > label { flex: 1 1 auto; min-width: 0; }
+.dl-settings-row .dl-browse-btn { flex: 0 0 auto; white-space: nowrap; margin-bottom: 0; }
 .dl-settings-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
 
 /* ---------------------------------------------------------------------
