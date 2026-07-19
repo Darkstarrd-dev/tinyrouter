@@ -349,6 +349,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Get("/downloads/{id}/file", rt.playDownloadFile)
 			r.Post("/downloads/{id}/cancel", rt.cancelDownload)
 			r.Post("/downloads/{id}/open", rt.openDownloadDir)
+			r.Post("/downloads/{id}/retry", rt.retryDownloadTask)
 			r.Delete("/downloads/{id}", rt.removeDownload)
 			r.Post("/open-url", rt.openExternalURL)
 			r.Post("/browse", rt.browseSystemPath)

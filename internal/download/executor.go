@@ -50,10 +50,6 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 	args := BuildDownloadArgs(task.URL, task.Type, task.Quality, task.Container,
 		task.DownloadDir, e.settings.ConcurrentFragments, e.settings)
 
-	if e.logger != nil {
-		e.logger.Debug("yt-dlp %s", FormatYtDlpCommand(ytDlpPath, args))
-	}
-
 	cmd := exec.CommandContext(ctx, ytDlpPath, args...)
 	setupProcessGroup(cmd)
 

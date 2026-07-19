@@ -910,31 +910,15 @@ async function cancelDownload(taskId) {
   }
 }
 
-// retryDownload re-queues a failed or cancelled task using its original
-// parameters. On success it toasts the same message as a fresh download.
+// retryDownload re-queues a failed or cancelled task in place, reusing the
+// original task id so the task item stays in its current position.
 async function retryDownload(taskId) {
-  var task = downloadTasksMap[taskId];
-  if (!task || !task.url) {
-    toast(t('downloadFailed', ['task not found']), 'error');
+  var res = await apiPost('/downloads/' + encodeURIComponent(taskId) + '/retry', {});
+  if (res && res.error) {
+    toast(t('downloadFailed', [res.error]), 'error');
     return;
   }
-  var body = {
-    url: task.url,
-    type: task.type || 'video',
-    quality: task.quality || 'best',
-    container: task.container || 'auto',
-    downloadDir: task.downloadDir || resolveDownloadDir()
-  };
-  try {
-    var res = await apiPost('/downloads', body);
-    if (res && res.error) {
-      toast(t('downloadFailed', [res.error]), 'error');
-      return;
-    }
-    toast(t('downloadStarted'), 'success');
-  } catch (e) {
-    toast(t('downloadFailed', [e && e.message ? e.message : String(e)]), 'error');
-  }
+  toast(t('downloadStarted'), 'success');
 }
 
 // removeDownload removes a terminal task from the list.
@@ -974,8 +958,7 @@ async function clearCompletedDownloads() {
   loadDownloadTasks();
 }
 
-// openDownloadDir requests the server to open the downloaded file's folder in the system file manager,
-// falling back to copying the path to the clipboard if that fails.
+// openDownloadDir requests the server to open the downloaded file's folder in the system file manager.
 async function openDownloadDir(taskId) {
   var res = await apiPost('/downloads/' + encodeURIComponent(taskId) + '/open', {});
   if (res && res.error) {

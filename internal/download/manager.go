@@ -395,6 +395,50 @@ func (m *Manager) CancelTask(taskID string) error {
 	return nil
 }
 
+// RetryTask re-queues a failed or cancelled task, reusing the same task ID so
+// the task item stays in place in the UI. Only tasks in StatusError or
+// StatusCancelled state can be retried.
+func (m *Manager) RetryTask(taskID string) error {
+	m.mu.Lock()
+	task, ok := m.tasks[taskID]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("task not found")
+	}
+	if task.Status != StatusError && task.Status != StatusCancelled {
+		m.mu.Unlock()
+		return fmt.Errorf("task is not in a failed or cancelled state")
+	}
+	// Reset state for re-execution.
+	task.Status = StatusPending
+	task.Error = ""
+	task.Progress = Progress{}
+	task.SavedFile = ""
+	task.FilePath = ""
+	task.FileSize = 0
+	task.StartedAt = time.Time{}
+	task.CompletedAt = time.Time{}
+	task.LogTail = ""
+	// Create new context + cancel for the retry.
+	ctx, cancel := context.WithCancel(context.Background())
+	m.controls[taskID] = &taskControl{ctx: ctx, cancel: cancel}
+	m.mu.Unlock()
+
+	// Enqueue (same non-blocking pattern as CreateTask).
+	select {
+	case m.pendingCh <- taskID:
+	default:
+		m.mu.Lock()
+		delete(m.controls, taskID)
+		m.mu.Unlock()
+		m.finalizeTask(taskID, StatusError, "download queue is full", 0)
+		return fmt.Errorf("download queue is full")
+	}
+	m.publishEvent(Event{Type: "task-updated", Task: m.snapshot(task)})
+	m.publishEvent(Event{Type: "queue-updated"})
+	return nil
+}
+
 // ListTasks 返回所有任务（含已完成），按创建顺序。
 func (m *Manager) ListTasks() []*Task {
 	m.mu.RLock()

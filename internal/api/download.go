@@ -366,39 +366,22 @@ func (rt *Router) openDownloadDir(w http.ResponseWriter, r *http.Request) {
 		path = absPath
 	}
 
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		fi, statErr := os.Stat(path)
-		if statErr == nil {
-			if fi.IsDir() {
-				cmd = exec.Command("explorer.exe", path)
-			} else {
-				cmd = exec.Command("explorer.exe", "/select,"+path)
-			}
-		} else {
-			dir := filepath.Dir(path)
-			if dir != "" && dir != "." {
-				_ = os.MkdirAll(dir, 0755)
-				cmd = exec.Command("explorer.exe", dir)
-			} else {
-				cmd = exec.Command("explorer.exe", path)
-			}
-		}
-	case "darwin":
-		if _, statErr := os.Stat(path); statErr == nil {
-			cmd = exec.Command("open", "-R", path)
-		} else {
-			cmd = exec.Command("open", filepath.Dir(path))
-		}
-	default:
-		cmd = exec.Command("xdg-open", filepath.Dir(path))
-	}
-
-	setCmdHideWindow(cmd)
-
-	if err := cmd.Start(); err != nil {
+	if err := openInExplorer(path); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, fmt.Sprintf("open folder: %s", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// retryDownloadTask re-queues a failed or cancelled task in place, reusing the
+// original task ID so the task item stays in its current position.
+// POST /api/downloads/{id}/retry
+func (rt *Router) retryDownloadTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := rt.downloadMgr.RetryTask(id); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

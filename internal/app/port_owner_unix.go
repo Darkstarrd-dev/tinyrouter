@@ -64,7 +64,7 @@ func identifyWithLsof(port int) (PortOwner, bool) {
 		return identifyWithLsofStandard(port)
 	}
 
-	return makeOwner(pid, name, path), true
+	return makeOwner(pid, name, path)
 }
 
 func identifyWithLsofStandard(port int) (PortOwner, bool) {
@@ -90,7 +90,7 @@ func identifyWithLsofStandard(port int) (PortOwner, bool) {
 			name := fields[0]
 			pid, _ := strconv.Atoi(fields[1])
 			path := strings.Join(fields[8:], " ")
-			return makeOwner(pid, name, path), true
+			return makeOwner(pid, name, path)
 		}
 	}
 	return PortOwner{}, false
@@ -134,7 +134,7 @@ func identifyWithSS(port int) (PortOwner, bool) {
 			}
 		}
 
-		return makeOwner(pid, name, ""), true
+		return makeOwner(pid, name, "")
 	}
 	return PortOwner{}, false
 }

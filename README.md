@@ -18,7 +18,8 @@
 - **控制台日志** — 与 9router 格式一致的实时日志，SSE 流式推送
 - **Monitor** — 实时流式运行白名单命令（如 `nvidia-smi -l 1`），结果内嵌于 Console 页面
 - **Terminal** — Debug Mode 下开启完整交互式终端（xterm.js + WebSocket + ConPTY/PTY），支持 vim、Ctrl+C、Tab 补全；会话持久保持
-- **Video Download** — 基于 yt-dlp 的视频/音频下载，支持单链接 / 播放列表、画质选择、并发分片、代理、缩略图预览与任务队列
+- **Video Download** — 基于 yt-dlp 的视频/音频下载，支持单链接 / 播放列表、画质选择、并发分片、代理、缩略图预览与任务队列；失败/取消任务原地重试（不再生成新任务项）；打开目录按钮正确打开下载位置（修复 explorer.exe 单实例 DDE 转发丢失路径问题）
+- **Download UI (v1.8.0)** — 解析卡片表头粘性置顶，多个解析卡片与任务列表共享同一滚动条，消除 card 与 task-item 之间的间隙；移除了 console 页面的重复 yt-dlp [debug] 信息（已在 download 页面 View Log 显示）
 - **Gallery (v1.7.8)** — 本地与 Zip 压缩包漫画/图片/视频浏览器，支持独立 Sub-Panel 左图右视频双屏 (`D`) / 单屏 (`S`) / 媒体 (`M`) 模式切换、Focus 焦点继承退回、全屏黄金比例自适应排布 (`autoBalanceFullscreenSplitRatio`)、视频状态感知连贯播放 (State-Aware Continuity)、多层子目录 Zip 压缩包秒解与直属计数 (`directCount`) 目录树、全量 SVG 图标与亮色主题完全兼容
 - **纯本地** — 无鉴权，无远程访问，任意 Key 或无 Key 均可访问
 - **多模型同时请求测试** — 一键对多个模型并行发起请求，对比延迟/速度/配额
