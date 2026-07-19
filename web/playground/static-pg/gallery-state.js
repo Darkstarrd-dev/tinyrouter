@@ -1,0 +1,212 @@
+// gallery-state.js — Gallery state, constants, and helper functions.
+
+'use strict';
+
+// ---------- helpers ----------------------------------------------
+var SUPPORTED_IMG_EXTS = ['webp', 'png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif', 'avif', 'gif'];
+var SUPPORTED_VIDEO_EXTS = ['mp4', 'webm', 'ogv'];
+var AUTOPLAY_INTERVALS = [1000, 2000, 3000, 5000, 10000, 15000, 30000, 60000, 120000]; // ms
+var AUTOPLAY_LABELS = ['1s', '2s', '3s', '5s', '10s', '15s', '30s', '60s', '120s'];
+var THUMB_SIZE = 300;
+
+function isVideoExt(name) {
+  if (!name) return false;
+  var dot = name.lastIndexOf('.');
+  if (dot < 0) return false;
+  var ext = name.slice(dot + 1).toLowerCase();
+  return SUPPORTED_VIDEO_EXTS.indexOf(ext) >= 0;
+}
+
+function isSupportedExt(name) {
+  if (!name) return false;
+  var dot = name.lastIndexOf('.');
+  if (dot < 0) return false;
+  var ext = name.slice(dot + 1).toLowerCase();
+  return SUPPORTED_IMG_EXTS.indexOf(ext) >= 0 || SUPPORTED_VIDEO_EXTS.indexOf(ext) >= 0;
+}
+
+function isZipName(name) {
+  if (!name) return false;
+  var lower = name.toLowerCase();
+  return lower.endsWith('.zip');
+}
+
+function extOf(name) {
+  if (!name) return '';
+  var dot = name.lastIndexOf('.');
+  if (dot < 0) return '';
+  return name.slice(dot + 1).toLowerCase();
+}
+
+function isTiff(name) {
+  var ext = extOf(name);
+  return ext === 'tiff' || ext === 'tif';
+}
+
+function T(key) {
+  return (typeof t === 'function') ? t(key) : key;
+}
+
+function prettySize(n) {
+  if (!n && n !== 0) return '';
+  n = Number(n) || 0;
+  if (n < 1024) return n + ' B';
+  var units = ['KB', 'MB', 'GB', 'TB'];
+  var i = -1;
+  do {
+    n /= 1024;
+    i++;
+  } while (n >= 1024 && i < units.length - 1);
+  return n.toFixed(n < 10 ? 1 : 0) + ' ' + units[i];
+}
+
+function formatTime(secs) {
+  if (isNaN(secs) || secs < 0) return '00:00';
+  var m = Math.floor(secs / 60);
+  var s = Math.floor(secs % 60);
+  return (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function naturalComparePath(pathA, pathB) {
+  var segsA = (pathA || '').split('/');
+  var segsB = (pathB || '').split('/');
+  var minLen = Math.min(segsA.length, segsB.length);
+
+  for (var i = 0; i < minLen; i++) {
+    var a = segsA[i];
+    var b = segsB[i];
+    if (a !== b) {
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    }
+  }
+  return segsA.length - segsB.length;
+}
+
+function sortItems(items) {
+  items.sort(function(a, b) {
+    return naturalComparePath(a.path, b.path);
+  });
+}
+
+function showMsg(text, targetPaneId) {
+  var isVidActive = (galleryState.viewMode === 'split') ? (galleryState.focus === 'video') : (galleryState.mediaType === 'video');
+  var el;
+  if (targetPaneId) {
+    var pane = document.getElementById(targetPaneId);
+    if (pane) el = pane.querySelector('#gallery-toolbar-msg');
+  }
+  if (!el && isVidActive) {
+    var vidPane = document.getElementById('gallery-pane-video');
+    if (vidPane) el = vidPane.querySelector('#gallery-toolbar-msg');
+  }
+  if (!el) el = document.getElementById('gallery-toolbar-msg');
+  if (!el) return;
+
+  el.textContent = text || '';
+  el.style.display = text ? '' : 'none';
+  if (showMsg._timer) clearTimeout(showMsg._timer);
+  if (text) {
+    showMsg._timer = setTimeout(function() {
+      el.textContent = '';
+      el.style.display = 'none';
+    }, 3000);
+  }
+}
+
+// ---------- state ------------------------------------------------
+var galleryState = {
+  items: [],
+  index: -1,
+  videoItems: [],
+  videoIndex: -1,
+  videoPlayingState: false,
+  viewMode: 'single',
+  mediaType: 'image',
+  focus: 'image',
+  videoURL: null,
+  videoCurDirPath: '',
+  videoDirMap: {},
+  videoDirPathList: [],
+  currentVideoFolderIndices: [],
+  currentVideoSubIndex: -1,
+  autoplayTimer: null,
+  autoplayOn: false,
+  autoplayInterval: 3000, // ms, default 3rd gear
+  mainURL: null,
+  fullscreenEl: null,
+  keyHandler: null,
+  fsChangeHandler: null,
+  contextMenuHandler: null,
+  pasteHandler: null,
+  pageKeyHandler: null,
+  zipSessionId: null,
+  zipEntriesCache: null,
+  pendingZipQueue: [],
+  loadingZip: false,
+  objectURLs: [],
+  thumbObserver: null,
+  container: null,
+  treeOpen: false,
+  curDirPath: '',
+  dirMap: {},
+  dirPathList: [],
+  currentFolderIndices: [],
+  currentSubIndex: -1
+};
+
+var GALLERY_ICONS = {
+  tree: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1.5" fill="currentColor"/><circle cx="4.5" cy="12" r="1.5" fill="currentColor"/><circle cx="4.5" cy="18" r="1.5" fill="currentColor"/></svg>',
+  prevFolder: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 19 2 12 11 5 11 19"/><polygon points="22 19 13 12 22 5 22 19"/></svg>',
+  prev: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+  play: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
+  pause: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>',
+  stop: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>',
+  next: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+  nextFolder: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg>',
+  volume: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>',
+  single: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
+  dual: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>',
+  picture: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+  video: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>',
+  fullscreen: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>'
+};
+
+function trackURL(url) {
+  if (url) galleryState.objectURLs.push(url);
+  return url;
+}
+
+function clearObjectURLs() {
+  if (galleryState.objectURLs && galleryState.objectURLs.length) {
+    for (var i = 0; i < galleryState.objectURLs.length; i++) {
+      var url = galleryState.objectURLs[i];
+      if (url) URL.revokeObjectURL(url);
+    }
+    galleryState.objectURLs.length = 0;
+  }
+  galleryState.mainURL = null;
+}
+
+function setMainURL(item, url) {
+  if (item.mainURL && item.mainURL.startsWith('blob:')) {
+    URL.revokeObjectURL(item.mainURL);
+  }
+  item.mainURL = url;
+}
+
+function setThumbURL(item, url) {
+  if (item.thumbURL && item.thumbURL.startsWith('blob:')) {
+    URL.revokeObjectURL(item.thumbURL);
+  }
+  item.thumbURL = url;
+}

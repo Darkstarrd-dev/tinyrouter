@@ -381,6 +381,8 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 				"pg-ui.js", "pg-modal.js", "pg-lifecycle.js",
 				"pg-autochat.js",
 				"pg-setup.js", "pg-director.js",
+				"gallery-state.js", "gallery-io.js", "gallery-layout.js",
+				"gallery-tree.js", "gallery-video.js", "gallery-fullscreen.js",
 				"gallery.js",
 			}
 			for _, f := range pgJSFiles {
