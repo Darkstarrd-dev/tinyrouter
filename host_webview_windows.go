@@ -27,7 +27,32 @@ func addWebviewMenuItem(hctx *app.HostContext) interface{} {
 	// Auto-open the native window once at startup (independent of the click loop).
 	go openWebviewAfterReady(hctx)
 
+	// On UI shutdown, terminate all open native windows immediately so they
+	// close at once instead of waiting for the user to close each one. Each
+	// window's Run() returns on Terminate and its deferred cleanup unregisters
+	// it and calls systray.Quit(); the existing tray Quit listener also quits
+	// systray, so both paths are idempotent.
+	go func() {
+		<-hctx.Quit()
+		hctx.Logger.Info("terminating webview windows (UI)")
+		terminateAllWebviews()
+	}()
+
 	return m
+}
+
+// terminateAllWebviews force-closes every currently-open WebView2 window. Safe
+// to call when no windows are open (it is a no-op then). It does NOT call
+// Destroy; the owning goroutine's w.Run() returns on Terminate and handles its
+// own teardown.
+func terminateAllWebviews() {
+	webviewMu.Lock()
+	defer webviewMu.Unlock()
+	for _, w := range webviews {
+		if w != nil {
+			w.Terminate()
+		}
+	}
 }
 
 // openWebviewAfterReady waits briefly for the HTTP server to be listening, then
@@ -53,6 +78,15 @@ func runWebviewClickLoop(hctx *app.HostContext, m *systray.MenuItem) {
 // webviewWindowMu serializes window creation: jchv/go-webview2 is not designed
 // to create two windows in parallel from different goroutines (shared window class).
 var webviewWindowMu sync.Mutex
+
+// webviewMu guards the registry of currently-open WebView2 windows so shutdown
+// can terminate them (close the native window immediately) even though each
+// window's message pump runs on a different locked OS thread.
+var webviewMu sync.Mutex
+
+// webviews maps each open WebView2 window keyed by its HWND, registered while
+// running and unregistered on close.
+var webviews = map[uintptr]webview2.WebView{}
 
 // openWebviewWindow creates and runs a single WebView2 window. Each invocation
 // blocks until the user closes the window, then returns. Multiple concurrent
@@ -120,6 +154,16 @@ func openWebviewWindow(hctx *app.HostContext) {
 		return
 	}
 	w.SetTitle("TinyRouter")
+
+	// Register this window so shutdown can terminate it immediately.
+	webviewMu.Lock()
+	webviews[uintptr(w.Window())] = w
+	webviewMu.Unlock()
+	defer func() {
+		webviewMu.Lock()
+		delete(webviews, uintptr(w.Window()))
+		webviewMu.Unlock()
+	}()
 
 	var (
 		fsSavedStyle     uint32

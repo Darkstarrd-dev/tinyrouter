@@ -254,14 +254,24 @@ func (a *App) Run(hostLoop HostLoopFunc) error {
 	return a.Shutdown(ctx)
 }
 
-// Shutdown gracefully stops the HTTP server, flushes persisted state, cleans up
-// the API router (monitor / terminal / downloads), and releases the
-// single-instance lock. It is safe to call once.
-func (a *App) Shutdown(ctx context.Context) error {
+// Shutdown stops the HTTP server, flushes persisted state, cleans up the API
+// router (monitor / terminal / downloads), and releases the single-instance
+// lock. It is safe to call once.
+//
+// Shutdown is "power-cut": the HTTP server is given at most a short drain
+// window, then forcibly closed (listener + all active connections dropped)
+// regardless of in-flight requests. It never returns an error, so a shutdown
+// timeout can never surface as a startup-failure dialog.
+func (a *App) Shutdown(_ context.Context) error {
 	if a.sm != nil {
-		if err := a.sm.Shutdown(ctx); err != nil {
-			return fmt.Errorf("forced shutdown: %w", err)
+		// Best-effort graceful drain; ignore any error and never surface it.
+		shortCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		if err := a.sm.Shutdown(shortCtx); err != nil {
+			a.logger.Warn("graceful http drain incomplete: %v", err)
 		}
+		cancel()
+		// Force-close: drop the listener and kill all active connections now.
+		a.sm.ForceClose()
 	}
 	if a.stateManager != nil {
 		if err := a.stateManager.FlushSync(); err != nil {
@@ -277,7 +287,7 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.lockFile.Close()
 		_ = os.Remove(a.lockPath)
 	}
-	
+
 	// Tray/webview builds force-exit to prevent zombie processes (message
 	// loops can resist termination); the default console host returns normally.
 	forceExitIfNeeded()

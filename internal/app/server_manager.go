@@ -124,3 +124,14 @@ func (m *ServerManager) Shutdown(ctx context.Context) error {
 	}
 	return nil
 }
+
+// ForceClose immediately closes the listener and all active connections
+// ("power-cut" shutdown). Used by App.Shutdown when graceful drain does not
+// finish in the short allotted window. Safe to call after Shutdown.
+func (m *ServerManager) ForceClose() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.srv != nil {
+		_ = m.srv.Close()
+	}
+}

@@ -351,9 +351,9 @@ function toggleTheme() {
 async function shutdownServer() {
   const ok = await confirmModal(t('confirmShutdown'));
   if (!ok) return;
-  try {
-    await apiPost('/shutdown', {});
-  } catch (e) {}
+  // Show "shutting down" UI immediately so the user is not left staring at a
+  // frozen page even before the backend acknowledges. The desktop window will
+  // be terminated by the backend shortly after; the fetch is best-effort.
   document.body.innerHTML = '\
     <div class="app" style="align-items:center;justify-content:center">\
       <div class="card" style="text-align:center;max-width:360px">\
@@ -361,7 +361,8 @@ async function shutdownServer() {
         <p class="muted mt-12">' + t('serverStoppedDesc') + '</p>\
       </div>\
     </div>';
-  window.close();
+  try { await apiPost('/shutdown', {}); } catch (e) {}
+  try { window.close(); } catch (e) {}
 }
 
 function showSkeleton(container, count) {
