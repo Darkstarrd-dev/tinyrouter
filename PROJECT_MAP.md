@@ -315,7 +315,7 @@ Debug Mode 下的完整交互式终端（xterm.js + WebSocket + ConPTY/PTY），
 | 类别 | 文件 |
 |---|---|
 | 入口 | `index.html`、`index-nopg.html`（无 playground 变体） |
-| JS 模块 | `app.js`、`api.js`、`auth.js`、`i18n.js`、`info_common.js`、`providers.js`、`combos.js`、`quickslots.js`、`usage.js`、`console.js`、`terminal.js`、`monitor.js`、`download.js`、`endpoint.js`、`headerStats.js` |
+| JS 模块 | `app.js`、`api.js`、`auth.js`、`i18n.js`、`info_common.js`、`providers.js`、`combos.js`、`quickslots.js`、`usage.js`、`console.js`、`terminal.js`、`monitor.js`、`download.js`、`endpoint.js`、`headerStats.js`、`shortcuts.js`（快捷键注册中心：系统预设 + 用户覆盖 + `Shortcuts.matchEvent`） |
 | 三方 JS | `chart.umd.js` |
 | 样式 | `style.css` |
 | 图标 | `logo.png`(1024 源)、`logo-sm.png`、`favicon.ico`(7 尺寸)、`favicon.png`、`icon-192.png`、`icon-512.png`、`apple-touch-icon.png`、`site.webmanifest` |
@@ -404,7 +404,8 @@ Debug Mode 下的完整交互式终端（xterm.js + WebSocket + ConPTY/PTY），
 | 修改上游 URL/body 改写 | proxy | `proxy/upstream.go`、`proxy/forward.go` |
 | 修改 Gemini thought_signature 回填 | proxy | `proxy/signature_cache.go`+`forward.go`+`stream.go`、`config/types.go`（`IsGeminiOpenAICompat`） |
 | 新增管理 API 端点 | （对应模块文档）、config-registry-state | `api/router.go`（挂载+鉴权边界）、`api/<域>.go`、`registry/<域>.go` |
-| 新增/修改配置字段 | config-registry-state | `config/types.go`（`ModelDef` 含 `Alias`/`Note`/`NIMOver`/`Kind`/`ImgProtocol`/`ImgSizes`）+`defaults.go`（`finalizeConfig`）+`persistence.go`（严格解析） |
+| 新增/修改配置字段 | config-registry-state | `config/types.go`（`ModelDef` 含 `Alias`/`Note`/`NIMOver`/`Kind`/`ImgProtocol`/`ImgSizes`；顶层 `Shortcuts ShortcutsConfig` 用户覆盖）+`defaults.go`（`finalizeConfig`，含 `Shortcuts` nil→空 map 归一）+`persistence.go`（严格解析）+`api/settings.go`（`getSettings` 返回 `shortcuts`、PATCH 接收 `shortcuts`）+`web/static/shortcuts.js`（前端系统预设与 `Shortcuts.matchEvent`） |
+| 修改全局快捷键/键映射 | PROJECT_MAP §16.2 | `web/static/shortcuts.js`（`SHORTCUT_PRESETS` 系统预设 + `Shortcuts` API）、`web/static/app.js`（全局 keydown 改 `Shortcuts.matchEvent`）、`web/playground/static-pg/pg-ui.js`+`pg-autochat.js`+`gallery-fullscreen.js`（按区域改 `matchEvent`）、`web/static/endpoint.js`（`openShortcutsModal`）、`internal/api/settings.go`（`shortcuts` 字段流转）、`internal/config/types.go`（`ShortcutsConfig`） |
 | 修改运行时状态持久化 | config-registry-state | `state/manager.go`+`state.go`、`registry/state.go`（`KeySnapshot`）、`app/app.go`（回调接线） |
 | 修改本地密码/鉴权 | config-registry-state | `config/crypto.go`、`api/auth.go`+`settings.go`、`config/types.go`（`SecurityConfig`） |
 | 修改 NIM 限速 | rotation | `rotation/nim.go`+`selector.go`（`IsNIMEnabled`）、`config/types.go`（`NIMSettings`+`ModelNIMOverride`）、`proxy/retry.go`（429 分发）、`proxy/interfaces.go`（`KeyProvider`）、`proxy/forward.go`（NIM 门控） |

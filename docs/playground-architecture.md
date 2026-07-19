@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-19，仓库工作区（`main`，`v1.7.8`）。本次新增/核对：(a) 实施 UI/UX 视觉与交互现代化改版；(b) 重构 Gallery 布局与单行控制栏（`.gallery-layout` 固定尺寸禁止图片撑开、`.main` 启用 `main-no-scroll`、`gallery-main` 占据主区域、`gallery-thumbnails` 居中其下、`gallery-controls` 居最底部一排）；(c) 升级 Zip 后端支持 Index / Path 双重比对与 Windows 反斜杠/转义清洗，消除非 UTF-8 中文“副本”乱码与 404 报错；(d) 架构支持多 Zip 文件 / 包含 Zip 文件夹的滑动懒加载队列；(e) 引入自然路径分段排序算法（Natural Segment Path Order），彻底解决子目录错乱排序；(f) 新增原生 WebView2 JS 桥 `toggleNativeFullscreen` 实现全屏；(g) 控制栏最左侧新增目录树切换按钮与侧边栏面板（`.gallery-tree-panel`，绑定快捷键 `T`），按子目录缩进显示，点击直达对应目录直属第 1 张图片；(h) 控制栏新增 `<|` 与 `|>` 跨文件夹跳转按钮（绑定快捷键 `Up` / `Down`）；(i) 缩略图条与 Info 计数改为按当前直属目录层级过滤显示；(j) 全屏模式下拦截鼠标右键并自动退出全屏；(k) 支持进程生命周期内的内存会话留存（In-Memory Session Preservation）；(l) 重构双屏与单屏架构为**左右独立 Sub-Panel 面板（左图右视频，各自拥有独立视口、独立控制栏与侧边栏）**；(m) 取消过渡闪烁动画，采用全屏双屏左边缘亮蓝 Accent 细线条做 focus 标识；(n) 修正亮色 Theme 模式下 `<video>` 容器背景为 `var(--bg-main)`；(o) **升级版本号至 v1.7.8**。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-19，仓库工作区（`main`，`v1.7.8`）。本次新增/核对：(a) 实施 UI/UX 视觉与交互现代化改版；(b) 重构 Gallery 布局与单行控制栏（`.gallery-layout` 固定尺寸禁止图片撑开、`.main` 启用 `main-no-scroll`、`gallery-main` 占据主区域、`gallery-thumbnails` 居中其下、`gallery-controls` 居最底部一排）；(c) 升级 Zip 后端支持 Index / Path 双重比对与 Windows 反斜杠/转义清洗，消除非 UTF-8 中文“副本”乱码与 404 报错；(d) 架构支持多 Zip 文件 / 包含 Zip 文件夹的滑动懒加载队列；(e) 引入自然路径分段排序算法（Natural Segment Path Order），彻底解决子目录错乱排序；(f) 新增原生 WebView2 JS 桥 `toggleNativeFullscreen` 实现全屏；(g) 控制栏最左侧新增目录树切换按钮与侧边栏面板（`.gallery-tree-panel`，绑定快捷键 `T`），按子目录缩进显示，点击直达对应目录直属第 1 张图片；(h) 控制栏新增 `<|` 与 `|>` 跨文件夹跳转按钮（绑定快捷键 `Up` / `Down`）；(i) 缩略图条与 Info 计数改为按当前直属目录层级过滤显示；(j) 全屏模式下拦截鼠标右键并自动退出全屏；(k) 支持进程生命周期内的内存会话留存（In-Memory Session Preservation）；(l) 重构双屏与单屏架构为**左右独立 Sub-Panel 面板（左图右视频，各自拥有独立视口、独立控制栏与侧边栏）**；(m) 取消过渡闪烁动画，采用全屏双屏左边缘亮蓝 Accent 细线条做 focus 标识；(n) 修正亮色 Theme 模式下 `<video>` 容器背景为 `var(--bg-main)`；(o) **升级版本号至 v1.7.8**；(p) **键盘快捷键集中化**——新增 `web/static/shortcuts.js` 作为系统预设与用户覆盖的单一来源（`Shortcuts.matchEvent`），Playground 输入框（`pg-ui.js::pgOnInputKey` 发送、`pg-ui.js:22` 编辑/取消编辑）、Gallery 页面与全屏（`gallery-fullscreen.js::onGalleryKeyDown`/`onFullscreenKey`）的硬编码 `e.key === 'Enter'` / `'Escape'` / `'a'` / `'f'` / `'t'` / `'ArrowLeft'` 等改用 `Shortcuts.matchEvent('<actionID>', e)`；用户覆盖经 Settings 页左侧新增的 "Shortcut Settings" → `openShortcutsModal()` 弹窗可按区域（Global/Playground/Gallery tab）枚举、捕获按键、冲突校验、单条/全部恢复默认，仅被覆盖项持久化到 `config.yaml` 的 `shortcuts:` 段（详见 `docs/config-registry-state-architecture.md`"变更维护清单"-"新增/修改快捷键"）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 > **2026-07-14 更新：** Playground 请求详情弹窗改为复用 Usage 页面的 `info-modal-overlay` + `renderInfoSection` 基础设施，具备 pretty/raw 切换和 copy 按钮；服务端 `recorder.go`、`forward.go`、`stream.go` 不再依赖 debug mode 门控，始终捕获请求/响应 payload 与 headers，使弹窗在 debug mode 关闭时也能显示完整信息。`app.js` 的 `topOpenModal()`/`dismissTopModal()` 扩展支持 `pg-modal-overlay`，修复 Playground 弹窗 ESC 穿透触发关闭应用的问题。图片发送改为在 `pgUserSend` 阶段将用户消息构建为多模态 content parts 并清空 `imageUrls`/`imageEnabled`，使发送后输入区缩略图消失、图片随用户气泡渲染。Reasoning 气泡改为 markdown 渲染、移除滚动条约束、随内容自然增长，reasoning 结束后自动折叠。Recent Requests 面板新增 SSE 订阅（`/api/usage/events`），请求发送即实时出现、完成后实时更新，轮询降为 10 秒后备。新增 Custom Endpoint 面板（普通模式），启用后直接 fetch 自定义 URL + Key，绕过 TinyRouter 代理栈。Image Preview 弹窗新增 Copy/Save/Reset 按钮、鼠标滚轮缩放（以图片中心为轴心，最小不低于 auto-fit）、鼠标拖拽平移、图片 auto-fit 容器；聊天气泡图片缩略图可点击打开预览；新增 `POST /api/save-image` 后端端点保存图片到 `imgs/` 目录。
 
@@ -656,7 +656,9 @@ Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器
 - **POST `/api/gallery/tiff`**：上 TIFF 二进制（50MB 上限），后端用 `golang.org/x/image/tiff` 解码后重编码为 JPEG 返回。解码后检查图片尺寸：任一维度超过 `maxTIFFDim`（16384）时返回错误，防止解压炸弹 DoS（`internal/gallery/tiff.go:15`、`internal/gallery/tiff.go:29-31`）。
 
 ### 全屏交互
-进入全屏后**仅**键盘操作：`←` 前一张 / `→` 或 `Space` 下一张 / `Esc` / `Enter` 退出全屏 / `1`-`9` 设置 9 档间隔时间（按序映射到 1/2/3/5/10/15/30/60/120 秒）/ `a` 切换自动播放。capture 阶段绑定 keydown 以拦截 app.js 全局 F1-F6。
+进入全屏后**仅**键盘操作：`←` 前一张 / `→` 或 `Space` 下一张 / `Esc` / `Enter` 退出全屏 / `1`-`9` 设置 9 档间隔时间（按序映射到 1/2/3/5/10/15/30/60/120 秒）/ `a` 切换自动播放。capture 阶段绑定 keydown（`galleryState.keyHandler = onFullscreenKey`，`document.addEventListener('keydown', ..., true)`）以拦截 app.js 全局 F1-F6。
+
+> 2026-07-19：除 1-9（间隔档位，全屏内仍硬编码不可自定义）外的所有全屏键已切到 `web/static/shortcuts.js` 注册中心。`onFullscreenKey` 与 `onGalleryKeyDown` 改用 `Shortcuts.matchEvent('gallery.<actionID>', e)`：`gallery.prev`/`gallery.next`/`gallery.prev-folder`/`gallery.next-folder`/`gallery.toggle-autoplay`/`gallery.toggle-fullscreen`/`gallery.toggle-tree`/`gallery.exit-fullscreen`/`gallery.toggle-split`/`gallery.toggle-media`/`gallery.switch-focus`。视频激活时 `ArrowLeft/Right/Up/Down/Space/1-9`（媒体控制：倒退 10 秒、上一/下一视频、音量、暂停）仍保持硬编码，**刻意不纳入自定义**以避免与全局 quickslot-cycle 1-9 产生跨区域冲突；`Space`/`PageUp`/`PageDown` 仍走通用导览分支作为快捷的同义键。详见 §16.x（快捷键注册中心）与 §23"变更维护清单"。
 
 ### 缩略图
 前端懒生成：IntersectionObserver 触发 → `createImageBitmap(blob)` + `OffscreenCanvas(THUMB_SIZE=300)` 等比例缩放 → `convertToBlob('image/jpeg',0.8)` → createObjectURL；失败回退原 blob。
@@ -665,8 +667,8 @@ Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器
 - `internal/api/compress.go` `skipTypes` 追加 `image/tiff`
 - `internal/api/router.go` `pgJSFiles` 数组追加 `gallery.js`
 - `web/static/index.html` 增加 Gallery nav-item + `<script src="/gallery.js">`
-- `web/static/app.js` 加 `case 'gallery'` / F6 快捷键 / `cleanupGallery` 钩子
-- `web/static/i18n.js` 加 `gallery` 与 14 个 gallery 专用 key（en/cn）
+- `web/static/app.js` 加 `case 'gallery'` / F6 快捷键 / `cleanupGallery` 钩子；2026-07-19 起 F6 与 1-9 quickslot-cycle 改为经 `Shortcuts.matchEvent('global.goto-gallery' / 'global.quickslot-cycle-N', e)`
+- `web/static/i18n.js` 加 `gallery` 与 14 个 gallery 专用 key（en/cn）+ 2026-07-19 新增 20 个 `shortcut*` key（en/cn，对应 Settings > Shortcut Settings 弹窗）
 - `web/static/style.css` 末尾追加 `.gallery-*` 段（约 35 行）
 - `go.mod` 新增直接依赖 `golang.org/x/image v0.44.0`
 

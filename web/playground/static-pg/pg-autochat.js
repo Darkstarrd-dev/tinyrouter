@@ -1019,7 +1019,7 @@ function pgGroupChatSend() {
 }
 
 function pgOnGroupChatInputKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
+  if (Shortcuts.matchEvent('pg.send-group-message', e) && !e.shiftKey) {
     e.preventDefault();
     pgGroupChatSend();
   }

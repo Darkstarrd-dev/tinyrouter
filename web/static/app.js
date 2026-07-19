@@ -439,24 +439,34 @@ document.addEventListener('keydown', function(e) {
   }
 
   // ---- No modal: global shortcuts ----
-  // F1-F5: page navigation (works even in inputs)
-  if (e.key === 'F1') { e.preventDefault(); navigateTo('usage'); return; }
-  if (e.key === 'F2') { e.preventDefault(); navigateTo('endpoint'); return; }
-  if (e.key === 'F3') { e.preventDefault(); navigateTo('console'); return; }
-  if (e.key === 'F4') { e.preventDefault(); var pgNav = document.querySelector('.nav-item[data-page="playground"]'); if (pgNav) navigateTo('playground'); return; }
-  if (e.key === 'F5') { e.preventDefault(); navigateTo('download'); return; }
-  if (e.key === 'F6') { e.preventDefault(); var galNav = document.querySelector('.nav-item[data-page="gallery"]'); if (galNav) navigateTo('gallery'); return; }
+  // F1-F6: page navigation (works even in inputs) — keys are configurable
+  // via Settings > Shortcut Settings (action IDs global.goto-*).
+  if (Shortcuts.matchEvent('global.goto-usage', e))      { e.preventDefault(); navigateTo('usage'); return; }
+  if (Shortcuts.matchEvent('global.goto-endpoint', e))   { e.preventDefault(); navigateTo('endpoint'); return; }
+  if (Shortcuts.matchEvent('global.goto-console', e))    { e.preventDefault(); navigateTo('console'); return; }
+  if (Shortcuts.matchEvent('global.goto-playground', e)) { e.preventDefault(); var pgNav = document.querySelector('.nav-item[data-page="playground"]'); if (pgNav) navigateTo('playground'); return; }
+  if (Shortcuts.matchEvent('global.goto-download', e))   { e.preventDefault(); navigateTo('download'); return; }
+  if (Shortcuts.matchEvent('global.goto-gallery', e))    { e.preventDefault(); var galNav = document.querySelector('.nav-item[data-page="gallery"]'); if (galNav) navigateTo('gallery'); return; }
 
   // Number keys 1-9: cycle quickslot models (only when not in input and not in gallery)
-  if (!isInput && e.key >= '1' && e.key <= '9') {
-    if (typeof currentPage !== 'undefined' && currentPage === 'gallery') return;
-    e.preventDefault();
-    var orderNum = parseInt(e.key, 10);
-    if (typeof cycleQuickSlotModel === 'function') cycleQuickSlotModel(orderNum);
-    return;
+  if (!isInput) {
+    if (typeof currentPage !== 'undefined' && currentPage === 'gallery') {
+      // Gallery page owns these keys; do not double-trigger quickslot.
+    } else {
+      var matchedQuickslot = false;
+      for (var n = 1; n <= 9; n++) {
+        if (Shortcuts.matchEvent('global.quickslot-cycle-' + n, e)) {
+          e.preventDefault();
+          if (typeof cycleQuickSlotModel === 'function') cycleQuickSlotModel(n);
+          matchedQuickslot = true;
+          break;
+        }
+      }
+      if (matchedQuickslot) return;
+    }
   }
-  // ESC: shutdown
-  if (e.key === 'Escape') {
+  // ESC: shutdown (only when no modal is open — modal case handled above)
+  if (Shortcuts.matchEvent('global.shutdown-server', e)) {
     e.preventDefault();
     shutdownServer();
     return;

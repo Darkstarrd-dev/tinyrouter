@@ -20,8 +20,8 @@ function pgBeginEdit(i, idx) {
   if (ta) {
     ta.focus();
     ta.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pgCancelEdit(i, idx); }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      if (Shortcuts.matchEvent('pg.cancel-edit', e)) { e.preventDefault(); e.stopPropagation(); pgCancelEdit(i, idx); }
+      if (Shortcuts.matchEvent('pg.apply-edit', e)) {
         e.preventDefault();
         pgApplyEdit(i, idx, true);
       }
@@ -1155,7 +1155,7 @@ function pgCustomFormat() {
   } catch (e) { /* ignore - format button only shown when valid */ }
 }
 function pgOnInputKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); pgUserSend(); }
+  if (Shortcuts.matchEvent('pg.send-message', e) && !e.shiftKey) { e.preventDefault(); pgUserSend(); }
 }
 
 // ----- Load fixup: finalize orphaned streaming assistants. ----------

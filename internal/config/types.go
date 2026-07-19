@@ -245,19 +245,37 @@ type DownloadConfig struct {
 	CookiesPath         string `yaml:"cookiesPath,omitempty" json:"cookiesPath,omitempty"`
 }
 
+// ShortcutBinding describes a keyboard shortcut binding usable by the
+// frontend. CtrlOrCmd matches Ctrl on non-macOS platforms and Cmd on macOS.
+// Only action IDs that the user has explicitly overridden are stored in
+// Config.Shortcuts; bindings that equal the system preset are not persisted.
+type ShortcutBinding struct {
+	Key       string `yaml:"key" json:"key"`
+	CtrlOrCmd bool   `yaml:"ctrlOrCmd,omitempty" json:"ctrlOrCmd,omitempty"`
+	Alt       bool   `yaml:"alt,omitempty" json:"alt,omitempty"`
+	Shift     bool   `yaml:"shift,omitempty" json:"shift,omitempty"`
+}
+
+// ShortcutsConfig maps action IDs (e.g. "global.goto-usage") to their
+// user-overridden bindings. An empty (non-nil) map means "no overrides";
+// a nil map is normalized to an empty map at load time so the JSON API
+// returns {} rather than null.
+type ShortcutsConfig map[string]ShortcutBinding
+
 // Config is the top-level configuration structure.
 type Config struct {
-	Port               int            `yaml:"port" json:"port"`
-	ConsoleLogMaxLines int            `yaml:"consoleLogMaxLines" json:"consoleLogMaxLines"`
-	UsageRingSize      int            `yaml:"usageRingSize" json:"usageRingSize"`
-	Rotation           RotationConfig `yaml:"rotation" json:"rotation"`
-	EnablePlayground   bool           `yaml:"enablePlayground" json:"enablePlayground"`
-	Providers          []Provider     `yaml:"providers" json:"providers"`
-	Combos             []Combo        `yaml:"combos" json:"combos"`
-	QuickSlots         []QuickSlot    `yaml:"quickSlots" json:"quickSlots"`
-	Security           SecurityConfig `yaml:"security" json:"security"`
-	Monitor            MonitorConfig  `yaml:"monitor" json:"monitor"`
-	Proxy              ProxyConfig    `yaml:"proxy" json:"proxy"`
-	Server             ServerConfig   `yaml:"server" json:"server"`
-	Download           DownloadConfig `yaml:"download" json:"download"`
+	Port               int             `yaml:"port" json:"port"`
+	ConsoleLogMaxLines int             `yaml:"consoleLogMaxLines" json:"consoleLogMaxLines"`
+	UsageRingSize      int             `yaml:"usageRingSize" json:"usageRingSize"`
+	Rotation           RotationConfig  `yaml:"rotation" json:"rotation"`
+	EnablePlayground   bool            `yaml:"enablePlayground" json:"enablePlayground"`
+	Providers          []Provider      `yaml:"providers" json:"providers"`
+	Combos             []Combo         `yaml:"combos" json:"combos"`
+	QuickSlots         []QuickSlot     `yaml:"quickSlots" json:"quickSlots"`
+	Security           SecurityConfig  `yaml:"security" json:"security"`
+	Monitor            MonitorConfig   `yaml:"monitor" json:"monitor"`
+	Proxy              ProxyConfig     `yaml:"proxy" json:"proxy"`
+	Server             ServerConfig    `yaml:"server" json:"server"`
+	Download           DownloadConfig  `yaml:"download" json:"download"`
+	Shortcuts          ShortcutsConfig `yaml:"shortcuts,omitempty" json:"shortcuts,omitempty"`
 }

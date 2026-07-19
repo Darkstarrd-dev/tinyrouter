@@ -150,15 +150,13 @@ function onFullscreenKey(e) {
     return;
   }
   var k = e.key;
-  if (k === 'Tab') {
-    if (galleryState.viewMode === 'split') {
-      e.preventDefault(); e.stopPropagation(); switchFocus(); return;
-    }
+  if (Shortcuts.matchEvent('gallery.switch-focus', e) && galleryState.viewMode === 'split') {
+    e.preventDefault(); e.stopPropagation(); switchFocus(); return;
   }
-  if (k === 'd' || k === 'D') {
+  if (Shortcuts.matchEvent('gallery.toggle-split', e)) {
     e.preventDefault(); e.stopPropagation(); toggleSplitMode(); return;
   }
-  if (k === 'm' || k === 'M') {
+  if (Shortcuts.matchEvent('gallery.toggle-media', e)) {
     e.preventDefault(); e.stopPropagation(); toggleMediaType(); return;
   }
 
@@ -166,6 +164,8 @@ function onFullscreenKey(e) {
 
   if (isVidActive) {
     var vidEl = document.getElementById('gallery-main-video');
+    // 1-9 media volume control — intentionally NOT customizable to avoid
+    // conflicting with the global quickslot-cycle 1-9 mappings.
     if (k >= '1' && k <= '9') {
       e.preventDefault(); e.stopPropagation();
       var num = parseInt(k, 10);
@@ -177,6 +177,9 @@ function onFullscreenKey(e) {
       showMsg('Volume: ' + volPct + '%');
       return;
     }
+    // Per-video scrubbing / volume controls below are intentionally NOT
+    // customizable: they share key space with gallery navigation and
+    // would conflict if rebound independently.
     if (k === 'ArrowUp') {
       e.preventDefault(); e.stopPropagation(); setVideoActive(galleryState.videoIndex - 1); return;
     }
@@ -203,21 +206,21 @@ function onFullscreenKey(e) {
     }
   }
 
-  if (k === 'ArrowLeft' || k === 'PageUp') {
+  if (Shortcuts.matchEvent('gallery.prev', e) || k === 'PageUp') {
     e.preventDefault(); e.stopPropagation(); goPrev();
-  } else if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Spacebar') {
+  } else if (Shortcuts.matchEvent('gallery.next', e) || k === 'PageDown' || k === ' ' || k === 'Spacebar') {
     e.preventDefault(); e.stopPropagation(); goNext();
-  } else if (k === 'ArrowUp') {
+  } else if (Shortcuts.matchEvent('gallery.prev-folder', e)) {
     e.preventDefault(); e.stopPropagation(); goPrevFolder();
-  } else if (k === 'ArrowDown') {
+  } else if (Shortcuts.matchEvent('gallery.next-folder', e)) {
     e.preventDefault(); e.stopPropagation(); goNextFolder();
-  } else if (k === 'Escape' || k === 'Enter') {
+  } else if (Shortcuts.matchEvent('gallery.exit-fullscreen', e) || k === 'Enter') {
     e.preventDefault(); e.stopPropagation(); exitFullscreen();
-  } else if (k === 'a' || k === 'A') {
+  } else if (Shortcuts.matchEvent('gallery.toggle-autoplay', e)) {
     e.preventDefault(); e.stopPropagation(); toggleAutoplay();
-  } else if (k === 'f' || k === 'F') {
+  } else if (Shortcuts.matchEvent('gallery.toggle-fullscreen', e)) {
     e.preventDefault(); e.stopPropagation(); toggleFullscreen();
-  } else if (k === 't' || k === 'T') {
+  } else if (Shortcuts.matchEvent('gallery.toggle-tree', e)) {
     e.preventDefault(); e.stopPropagation(); toggleTreePanel();
   } else if (k >= '1' && k <= '9') {
     e.preventDefault(); e.stopPropagation();
@@ -240,31 +243,27 @@ function onGalleryKeyDown(e) {
   }
 
   var k = e.key;
-  if (k === 'Tab') {
-    if (galleryState.viewMode === 'split') {
-      e.preventDefault();
-      e.stopPropagation();
-      switchFocus();
-      return;
-    }
-  }
-  if (k === 'd' || k === 'D') {
+  if (Shortcuts.matchEvent('gallery.switch-focus', e) && galleryState.viewMode === 'split') {
     e.preventDefault();
-    toggleSplitMode();
+    e.stopPropagation();
+    switchFocus();
     return;
   }
-  if (k === 'm' || k === 'M') {
-    e.preventDefault();
-    toggleMediaType();
-    return;
+  if (Shortcuts.matchEvent('gallery.toggle-split', e)) {
+    e.preventDefault(); e.stopPropagation(); toggleSplitMode(); return;
+  }
+  if (Shortcuts.matchEvent('gallery.toggle-media', e)) {
+    e.preventDefault(); e.stopPropagation(); toggleMediaType(); return;
   }
 
   var isVidActive = (galleryState.viewMode === 'split') ? (galleryState.focus === 'video') : (galleryState.mediaType === 'video');
 
   if (isVidActive) {
     var vidEl = document.getElementById('gallery-main-video');
+    // 1-9 media volume — intentionally NOT customizable (shared with quickslot).
     if (k >= '1' && k <= '9') {
       e.preventDefault();
+      e.stopPropagation();
       var num = parseInt(k, 10);
       var volPct = num * 11;
       if (volPct > 100) volPct = 100;
@@ -274,28 +273,26 @@ function onGalleryKeyDown(e) {
       showMsg('Volume: ' + volPct + '%');
       return;
     }
+    // Per-video scrubbing controls below are NOT customizable (shared with
+    // gallery navigation keys).
     if (k === 'ArrowUp') {
-      e.preventDefault();
-      setVideoActive(galleryState.videoIndex - 1);
-      return;
+      e.preventDefault(); e.stopPropagation(); setVideoActive(galleryState.videoIndex - 1); return;
     }
     if (k === 'ArrowDown') {
-      e.preventDefault();
-      setVideoActive(galleryState.videoIndex + 1);
-      return;
+      e.preventDefault(); e.stopPropagation(); setVideoActive(galleryState.videoIndex + 1); return;
     }
     if (k === 'ArrowLeft') {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       if (vidEl) vidEl.currentTime = Math.max(0, vidEl.currentTime - 10);
       return;
     }
     if (k === 'ArrowRight') {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       if (vidEl) vidEl.currentTime = Math.min(vidEl.duration || 0, vidEl.currentTime + 10);
       return;
     }
     if (k === ' ' || k === 'Spacebar') {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       if (vidEl) {
         if (vidEl.paused) vidEl.play();
         else vidEl.pause();
@@ -304,22 +301,22 @@ function onGalleryKeyDown(e) {
     }
   }
 
-  if (k === 'ArrowLeft' || k === 'PageUp') {
-    e.preventDefault(); goPrev();
-  } else if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Spacebar') {
-    e.preventDefault(); goNext();
-  } else if (k === 'ArrowUp') {
-    e.preventDefault(); goPrevFolder();
-  } else if (k === 'ArrowDown') {
-    e.preventDefault(); goNextFolder();
-  } else if (k === 'a' || k === 'A') {
-    e.preventDefault(); toggleAutoplay();
-  } else if (k === 'f' || k === 'F') {
-    e.preventDefault(); toggleFullscreen();
-  } else if (k === 't' || k === 'T') {
-    e.preventDefault(); toggleTreePanel();
+  if (Shortcuts.matchEvent('gallery.prev', e) || k === 'PageUp') {
+    e.preventDefault(); e.stopPropagation(); goPrev();
+  } else if (Shortcuts.matchEvent('gallery.next', e) || k === 'PageDown' || k === ' ' || k === 'Spacebar') {
+    e.preventDefault(); e.stopPropagation(); goNext();
+  } else if (Shortcuts.matchEvent('gallery.prev-folder', e)) {
+    e.preventDefault(); e.stopPropagation(); goPrevFolder();
+  } else if (Shortcuts.matchEvent('gallery.next-folder', e)) {
+    e.preventDefault(); e.stopPropagation(); goNextFolder();
+  } else if (Shortcuts.matchEvent('gallery.toggle-autoplay', e)) {
+    e.preventDefault(); e.stopPropagation(); toggleAutoplay();
+  } else if (Shortcuts.matchEvent('gallery.toggle-fullscreen', e)) {
+    e.preventDefault(); e.stopPropagation(); toggleFullscreen();
+  } else if (Shortcuts.matchEvent('gallery.toggle-tree', e)) {
+    e.preventDefault(); e.stopPropagation(); toggleTreePanel();
   } else if (k >= '1' && k <= '9') {
-    e.preventDefault();
+    e.preventDefault(); e.stopPropagation();
     setAutoplayInterval(parseInt(k, 10) - 1);
   }
 }

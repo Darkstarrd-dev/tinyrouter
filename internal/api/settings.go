@@ -27,6 +27,7 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 		"proxy":              cfg.Proxy,
 		"server":             cfg.Server,
 		"download":           cfg.Download,
+		"shortcuts":          cfg.Shortcuts,
 		"security": map[string]any{
 			"passwordEnabled": cfg.Security.PasswordEnabled,
 			"hasPassword":     cfg.Security.PasswordEncrypted != "",
@@ -45,6 +46,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		Proxy              *config.ProxyConfig    `json:"proxy"`
 		Server             *config.ServerConfig   `json:"server"`
 		Download           *config.DownloadConfig `json:"download"`
+		Shortcuts          *config.ShortcutsConfig `json:"shortcuts"`
 		Security           *struct {
 			PasswordEnabled *bool  `json:"passwordEnabled"`
 			Password        string `json:"password"`
@@ -165,6 +167,19 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 				BrowserCookies:      cfg.Download.BrowserCookies,
 				CookiesPath:         cfg.Download.CookiesPath,
 			})
+		}
+	}
+
+	// Shortcuts: replace the entire overrides map. The frontend always
+	// sends the full current set of overrides (possibly {}) so we don't
+	// need to merge — a direct assignment drops any override the user
+	// just reset to default. A nil map here is normalized to {} by
+	// finalizeConfig on the next Load, but we set it explicitly so the
+	// in-memory cfg is consistent immediately.
+	if updates.Shortcuts != nil {
+		cfg.Shortcuts = *updates.Shortcuts
+		if cfg.Shortcuts == nil {
+			cfg.Shortcuts = config.ShortcutsConfig{}
 		}
 	}
 

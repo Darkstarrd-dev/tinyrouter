@@ -156,5 +156,12 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 	if cfg.Monitor.Enabled {
 		fmt.Fprintf(os.Stderr, "[config] warning: 'monitor.enabled' is deprecated and ignored; remove it from config.yaml\n")
 	}
+	// Normalize Shortcuts: a nil map becomes an empty map so the JSON API
+	// returns {} rather than null, and so callers can safely range over it.
+	// User-overridden bindings are persisted as-is; the system preset lives
+	// in the frontend and is the fallback for any action ID not present here.
+	if cfg.Shortcuts == nil {
+		cfg.Shortcuts = ShortcutsConfig{}
+	}
 	return cfg
 }
