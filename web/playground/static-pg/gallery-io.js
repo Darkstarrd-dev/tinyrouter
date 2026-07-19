@@ -189,7 +189,6 @@ function appendNewItems(newItems) {
 async function processCollectedEntries(collected) {
   galleryState.pendingZipQueue = [];
   galleryState.loadingZip = false;
-  galleryState.videoPlayingState = false;
   var outImg = [];
   var outVid = [];
   var zipFiles = [];
@@ -225,19 +224,27 @@ async function processCollectedEntries(collected) {
     await Promise.all(zipPromises);
   }
 
+  // Append videos (preserve existing)
   if (outVid.length) {
+    var hadNoVideos = (galleryState.videoItems.length === 0);
     sortItems(outVid);
-    galleryState.videoItems = outVid;
-    galleryState.videoIndex = -1;
+    galleryState.videoItems = galleryState.videoItems.concat(outVid);
     updateVideoDirStructure();
-    if (galleryState.viewMode === 'single' && outImg.length === 0) {
-      galleryState.mediaType = 'video';
+    if (hadNoVideos) {
+      galleryState.videoIndex = -1;
+      if (galleryState.viewMode === 'single' && outImg.length === 0 && galleryState.items.length === 0) {
+        galleryState.mediaType = 'video';
+        updateLayoutMode();
+      }
+      setVideoActive(0);
+    } else {
+      renderTreePanel();
     }
-    setVideoActive(0);
   }
 
-  if (outImg.length || !outVid.length) {
-    finalizeItems(outImg);
+  // Append images (preserve existing)
+  if (outImg.length) {
+    appendItems(outImg);
   }
   renderTreePanel();
 }
@@ -374,6 +381,20 @@ function finalizeItems(out) {
   setActive(0);
 }
 
+function appendItems(out) {
+  if (!out.length) return;
+  sortItems(out);
+  galleryState.items = galleryState.items.concat(out);
+  updateDirStructure();
+  renderThumbnails();
+  if (galleryState.index >= 0 && galleryState.index < galleryState.items.length) {
+    renderActive(galleryState.index);
+  } else if (galleryState.items.length) {
+    setActive(0);
+  }
+  renderTreePanel();
+}
+
 // ---------- event handlers ---------------------------------------
 function onDragOver(e) {
   e.preventDefault();
@@ -487,7 +508,7 @@ async function onOpenDir() {
   var dirHandle = await window.showDirectoryPicker();
   var out = [];
   await walkDir(dirHandle, '', out);
-  finalizeItems(out);
+  appendItems(out);
 }
 
 async function onOpenFiles() {

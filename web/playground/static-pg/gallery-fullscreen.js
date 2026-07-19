@@ -222,6 +222,8 @@ function onFullscreenKey(e) {
     e.preventDefault(); e.stopPropagation(); toggleFullscreen();
   } else if (Shortcuts.matchEvent('gallery.toggle-tree', e)) {
     e.preventDefault(); e.stopPropagation(); toggleTreePanel();
+  } else if (galleryState.treeOpen && Shortcuts.matchEvent('gallery.clear-tree', e)) {
+    e.preventDefault(); e.stopPropagation(); clearActiveSideTree(); return;
   } else if (k >= '1' && k <= '9') {
     e.preventDefault(); e.stopPropagation();
     setAutoplayInterval(parseInt(k, 10) - 1);
@@ -315,6 +317,8 @@ function onGalleryKeyDown(e) {
     e.preventDefault(); e.stopPropagation(); toggleFullscreen();
   } else if (Shortcuts.matchEvent('gallery.toggle-tree', e)) {
     e.preventDefault(); e.stopPropagation(); toggleTreePanel();
+  } else if (galleryState.treeOpen && Shortcuts.matchEvent('gallery.clear-tree', e)) {
+    e.preventDefault(); e.stopPropagation(); clearActiveSideTree(); return;
   } else if (k >= '1' && k <= '9') {
     e.preventDefault(); e.stopPropagation();
     setAutoplayInterval(parseInt(k, 10) - 1);

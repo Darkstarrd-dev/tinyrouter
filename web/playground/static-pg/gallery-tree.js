@@ -46,77 +46,153 @@ function renderTreePanel() {
   if (!panel) panel = document.getElementById('gallery-tree-panel');
   if (!panel) return;
 
+  var headerHTML = '<div class="gallery-tree-header">' +
+    '<button class="gallery-tree-clear-btn" type="button" title="Clear (C)">Clear</button>' +
+    '</div>';
+  var contentHTML = '';
+  var needVideoNodeBinding = false;
+  var needImageNodeBinding = false;
+
   if (isVidActive) {
     if (!galleryState.videoItems || !galleryState.videoItems.length) {
-      panel.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No Videos</div>';
-      return;
-    }
-
-    // Check if all videos are in root
-    var hasDirs = false;
-    for (var v = 0; v < galleryState.videoItems.length; v++) {
-      if ((galleryState.videoItems[v].path || '').indexOf('/') !== -1) {
-        hasDirs = true;
-        break;
-      }
-    }
-
-    var html = '';
-    if (!hasDirs) {
-      // Flat list of individual video files
-      for (var i = 0; i < galleryState.videoItems.length; i++) {
-        var item = galleryState.videoItems[i];
-        var vName = item.name || item.path || ('Video ' + (i + 1));
-        var isAct = (i === galleryState.videoIndex) ? ' active' : '';
-        html += '<div class="gallery-tree-node' + isAct + '" data-vid-idx="' + i + '" style="padding-left:8px" title="' + escapeHtml(vName) + '">' +
-                  '<span class="tree-icon">🎬</span>' +
-                  '<span class="tree-name">' + escapeHtml(vName) + '</span>' +
-                '</div>';
-      }
+      contentHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No Videos</div>';
     } else {
-      // Grouped by directory with individual video items
-      var vDirMap = {};
-      var vDirList = [];
-      for (var j = 0; j < galleryState.videoItems.length; j++) {
-        var vp = galleryState.videoItems[j].path || '';
-        var parts = vp.split('/');
-        var dPath = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
-        if (!vDirMap[dPath]) {
-          vDirMap[dPath] = [];
-          vDirList.push(dPath);
+      // Check if all videos are in root
+      var hasDirs = false;
+      for (var v = 0; v < galleryState.videoItems.length; v++) {
+        if ((galleryState.videoItems[v].path || '').indexOf('/') !== -1) {
+          hasDirs = true;
+          break;
         }
-        vDirMap[dPath].push(j);
       }
 
-      for (var d = 0; d < vDirList.length; d++) {
-        var dirKey = vDirList[d];
-        var vIndices = vDirMap[dirKey];
-        if (dirKey) {
-          var dParts = dirKey.split('/');
-          var dName = dParts[dParts.length - 1];
-          var dIndent = (dParts.length - 1) * 12 + 8;
-          html += '<div class="gallery-tree-node tree-folder-node" style="padding-left:' + dIndent + 'px;font-weight:600" title="' + escapeHtml(dirKey) + '">' +
-                    '<span class="tree-icon">📁</span>' +
-                    '<span class="tree-name">' + escapeHtml(dName) + '</span>' +
-                    '<span class="tree-count">' + vIndices.length + '</span>' +
-                  '</div>';
-        }
-        var fileIndent = (dirKey ? dirKey.split('/').length * 12 : 0) + 8;
-        for (var k = 0; k < vIndices.length; k++) {
-          var vIdx = vIndices[k];
-          var vItem = galleryState.videoItems[vIdx];
-          var fName = vItem.name || (vItem.path ? vItem.path.split('/').pop() : ('Video ' + (vIdx + 1)));
-          var vAct = (vIdx === galleryState.videoIndex) ? ' active' : '';
-          html += '<div class="gallery-tree-node' + vAct + '" data-vid-idx="' + vIdx + '" style="padding-left:' + fileIndent + 'px" title="' + escapeHtml(fName) + '">' +
+      var html = '';
+      if (!hasDirs) {
+        // Flat list of individual video files
+        for (var i = 0; i < galleryState.videoItems.length; i++) {
+          var item = galleryState.videoItems[i];
+          var vName = item.name || item.path || ('Video ' + (i + 1));
+          var isAct = (i === galleryState.videoIndex) ? ' active' : '';
+          html += '<div class="gallery-tree-node' + isAct + '" data-vid-idx="' + i + '" style="padding-left:8px" title="' + escapeHtml(vName) + '">' +
                     '<span class="tree-icon">🎬</span>' +
-                    '<span class="tree-name">' + escapeHtml(fName) + '</span>' +
+                    '<span class="tree-name">' + escapeHtml(vName) + '</span>' +
                   '</div>';
         }
-      }
-    }
-    panel.innerHTML = html;
+      } else {
+        // Grouped by directory with individual video items
+        var vDirMap = {};
+        var vDirList = [];
+        for (var j = 0; j < galleryState.videoItems.length; j++) {
+          var vp = galleryState.videoItems[j].path || '';
+          var parts = vp.split('/');
+          var dPath = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+          if (!vDirMap[dPath]) {
+            vDirMap[dPath] = [];
+            vDirList.push(dPath);
+          }
+          vDirMap[dPath].push(j);
+        }
 
-    // Bind video item clicks
+        for (var d = 0; d < vDirList.length; d++) {
+          var dirKey = vDirList[d];
+          var vIndices = vDirMap[dirKey];
+          if (dirKey) {
+            var dParts = dirKey.split('/');
+            var dName = dParts[dParts.length - 1];
+            var dIndent = (dParts.length - 1) * 12 + 8;
+            html += '<div class="gallery-tree-node tree-folder-node" style="padding-left:' + dIndent + 'px;font-weight:600" title="' + escapeHtml(dirKey) + '">' +
+                      '<span class="tree-icon">📁</span>' +
+                      '<span class="tree-name">' + escapeHtml(dName) + '</span>' +
+                      '<span class="tree-count">' + vIndices.length + '</span>' +
+                    '</div>';
+          }
+          var fileIndent = (dirKey ? dirKey.split('/').length * 12 : 0) + 8;
+          for (var k = 0; k < vIndices.length; k++) {
+            var vIdx = vIndices[k];
+            var vItem = galleryState.videoItems[vIdx];
+            var fName = vItem.name || (vItem.path ? vItem.path.split('/').pop() : ('Video ' + (vIdx + 1)));
+            var vAct = (vIdx === galleryState.videoIndex) ? ' active' : '';
+            html += '<div class="gallery-tree-node' + vAct + '" data-vid-idx="' + vIdx + '" style="padding-left:' + fileIndent + 'px" title="' + escapeHtml(fName) + '">' +
+                      '<span class="tree-icon">🎬</span>' +
+                      '<span class="tree-name">' + escapeHtml(fName) + '</span>' +
+                    '</div>';
+          }
+        }
+      }
+      contentHTML = html;
+      needVideoNodeBinding = true;
+    }
+  } else {
+    // Image & Zip Tree rendering
+    if (!galleryState.items || !galleryState.items.length) {
+      contentHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No Images</div>';
+    } else {
+      // Build hierarchical tree structure for images & zips
+      var treeMap = {};
+      var treeOrder = [];
+
+      for (var idx = 0; idx < galleryState.items.length; idx++) {
+        var itemPath = galleryState.items[idx].path || '';
+        var segs = itemPath.split('/');
+        if (segs.length > 1) {
+          segs.pop(); // Remove filename
+          var fullDir = segs.join('/');
+          var acc = '';
+          for (var s = 0; s < segs.length; s++) {
+            var seg = segs[s];
+            acc = acc ? (acc + '/' + seg) : seg;
+            if (!treeMap[acc]) {
+              treeMap[acc] = { key: acc, name: seg, count: 0, firstIndex: idx, level: s };
+              treeOrder.push(acc);
+            }
+          }
+          if (treeMap[fullDir]) {
+            treeMap[fullDir].count++;
+          }
+        } else {
+          // Direct root images
+          if (!treeMap['']) {
+            treeMap[''] = { key: '', name: 'Root', count: 0, firstIndex: idx, level: 0 };
+            treeOrder.unshift('');
+          }
+          treeMap[''].count++;
+        }
+      }
+
+      var htmlImg = '';
+      for (var t = 0; t < treeOrder.length; t++) {
+        var tKey = treeOrder[t];
+        var node = treeMap[tKey];
+        var indent = node.level * 12 + 8;
+        var isActive = (tKey === galleryState.curDirPath) ? ' active' : '';
+        var icon = '📁';
+        if (isZipName(node.name) || tKey.indexOf('.zip/') !== -1 || isZipName(tKey)) {
+          icon = '📦';
+        } else if (tKey === '') {
+          icon = '🖼';
+        }
+
+        htmlImg += '<div class="gallery-tree-node' + isActive + '" data-dir="' + escapeHtml(tKey) + '" data-first-idx="' + node.firstIndex + '" style="padding-left:' + indent + 'px" title="' + escapeHtml(tKey || 'Root') + '">' +
+                     '<span class="tree-icon">' + icon + '</span>' +
+                     '<span class="tree-name">' + escapeHtml(node.name) + '</span>' +
+                     '<span class="tree-count">' + node.count + '</span>' +
+                   '</div>';
+      }
+      contentHTML = htmlImg;
+      needImageNodeBinding = true;
+    }
+  }
+
+  panel.innerHTML = headerHTML + contentHTML;
+
+  // Bind Clear button
+  var clearBtn = panel.querySelector('.gallery-tree-clear-btn');
+  if (clearBtn) clearBtn.onclick = function(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    clearActiveSideTree();
+  };
+
+  if (needVideoNodeBinding) {
     var vNodes = panel.querySelectorAll('[data-vid-idx]');
     vNodes.forEach(function(node) {
       node.onclick = function(e) {
@@ -125,79 +201,70 @@ function renderTreePanel() {
         if (!isNaN(idx)) setVideoActive(idx);
       };
     });
+  }
+  if (needImageNodeBinding) {
+    var imgNodes = panel.querySelectorAll('[data-first-idx]');
+    imgNodes.forEach(function(node) {
+      node.onclick = function(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        var fIdx = parseInt(node.getAttribute('data-first-idx'), 10);
+        var dir = node.getAttribute('data-dir');
+        if (typeof dir === 'string') galleryState.curDirPath = dir;
+        if (!isNaN(fIdx)) setActive(fIdx);
+      };
+    });
+  }
+}
+
+function clearActiveSideTree() {
+  var isVidActive = (galleryState.viewMode === 'split') ? (galleryState.focus === 'video') : (galleryState.mediaType === 'video');
+
+  if (isVidActive) {
+    for (var i = 0; i < galleryState.videoItems.length; i++) {
+      var vi = galleryState.videoItems[i];
+      if (vi && vi.mainURL && String(vi.mainURL).indexOf('blob:') === 0) URL.revokeObjectURL(vi.mainURL);
+      if (vi && vi.thumbURL && String(vi.thumbURL).indexOf('blob:') === 0) URL.revokeObjectURL(vi.thumbURL);
+    }
+    galleryState.videoItems = [];
+    galleryState.videoIndex = -1;
+    galleryState.videoURL = null;
+    galleryState.videoPlayingState = false;
+    galleryState.videoCurDirPath = '';
+    galleryState.videoDirMap = {};
+    galleryState.videoDirPathList = [];
+    galleryState.currentVideoFolderIndices = [];
+    galleryState.currentVideoSubIndex = -1;
+    var vidEl = document.getElementById('gallery-main-video');
+    if (vidEl) {
+      try { vidEl.pause(); } catch (e2) {}
+      vidEl.removeAttribute('src');
+      try { vidEl.load(); } catch (e3) {}
+    }
+    var vPath = document.getElementById('gallery-video-path') || document.getElementById('gallery-path');
+    var vInfo = document.getElementById('gallery-video-info') || document.getElementById('gallery-info');
+    if (vPath) { vPath.textContent = '-'; vPath.title = ''; }
+    if (vInfo) vInfo.textContent = '0 / 0 | Video';
+    renderTreePanel();
     return;
   }
 
-  // Image & Zip Tree rendering
-  if (!galleryState.items || !galleryState.items.length) {
-    panel.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No Images</div>';
-    return;
+  for (var j = 0; j < galleryState.items.length; j++) {
+    var im = galleryState.items[j];
+    if (im && im.mainURL && String(im.mainURL).indexOf('blob:') === 0) URL.revokeObjectURL(im.mainURL);
+    if (im && im.thumbURL && String(im.thumbURL).indexOf('blob:') === 0) URL.revokeObjectURL(im.thumbURL);
   }
-
-  // Build hierarchical tree structure for images & zips
-  var treeMap = {};
-  var treeOrder = [];
-
-  for (var idx = 0; idx < galleryState.items.length; idx++) {
-    var itemPath = galleryState.items[idx].path || '';
-    var segs = itemPath.split('/');
-    if (segs.length > 1) {
-      segs.pop(); // Remove filename
-      var fullDir = segs.join('/');
-      var acc = '';
-      for (var s = 0; s < segs.length; s++) {
-        var seg = segs[s];
-        acc = acc ? (acc + '/' + seg) : seg;
-        if (!treeMap[acc]) {
-          treeMap[acc] = { key: acc, name: seg, count: 0, firstIndex: idx, level: s };
-          treeOrder.push(acc);
-        }
-      }
-      if (treeMap[fullDir]) {
-        treeMap[fullDir].count++;
-      }
-    } else {
-      // Direct root images
-      if (!treeMap['']) {
-        treeMap[''] = { key: '', name: 'Root', count: 0, firstIndex: idx, level: 0 };
-        treeOrder.unshift('');
-      }
-      treeMap[''].count++;
-    }
-  }
-
-  var htmlImg = '';
-  for (var t = 0; t < treeOrder.length; t++) {
-    var tKey = treeOrder[t];
-    var node = treeMap[tKey];
-    var indent = node.level * 12 + 8;
-    var isActive = (tKey === galleryState.curDirPath) ? ' active' : '';
-    var icon = '📁';
-    if (isZipName(node.name) || tKey.indexOf('.zip/') !== -1 || isZipName(tKey)) {
-      icon = '📦';
-    } else if (tKey === '') {
-      icon = '🖼';
-    }
-
-    htmlImg += '<div class="gallery-tree-node' + isActive + '" data-dir="' + escapeHtml(tKey) + '" data-first-idx="' + node.firstIndex + '" style="padding-left:' + indent + 'px" title="' + escapeHtml(tKey || 'Root') + '">' +
-                 '<span class="tree-icon">' + icon + '</span>' +
-                 '<span class="tree-name">' + escapeHtml(node.name) + '</span>' +
-                 '<span class="tree-count">' + node.count + '</span>' +
-               '</div>';
-  }
-  panel.innerHTML = htmlImg;
-
-  // Bind image tree node clicks
-  var imgNodes = panel.querySelectorAll('[data-first-idx]');
-  imgNodes.forEach(function(node) {
-    node.onclick = function(e) {
-      if (e) { e.preventDefault(); e.stopPropagation(); }
-      var fIdx = parseInt(node.getAttribute('data-first-idx'), 10);
-      var dir = node.getAttribute('data-dir');
-      if (typeof dir === 'string') galleryState.curDirPath = dir;
-      if (!isNaN(fIdx)) setActive(fIdx);
-    };
-  });
+  galleryState.items = [];
+  galleryState.index = -1;
+  galleryState.mainURL = null;
+  galleryState.curDirPath = '';
+  galleryState.dirMap = {};
+  galleryState.dirPathList = [];
+  galleryState.currentFolderIndices = [];
+  galleryState.currentSubIndex = -1;
+  updateDirStructure();
+  renderThumbnails();
+  renderActive(-1);
+  renderTreePanel();
 }
 
 function updateCurrentFolderItems(index) {

@@ -56,6 +56,7 @@ var SHORTCUT_PRESETS = {
     'gallery.toggle-autoplay':  { key: 'a', label: 'Toggle autoplay' },
     'gallery.toggle-fullscreen':{ key: 'f', label: 'Toggle fullscreen' },
     'gallery.toggle-tree':      { key: 't', label: 'Toggle tree panel' },
+    'gallery.clear-tree':       { key: 'c', label: 'Clear focused tree (tree open only)' },
     'gallery.exit-fullscreen':  { key: 'Escape', label: 'Exit fullscreen (Enter also works)' }
   }
 };
