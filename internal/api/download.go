@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -335,4 +338,181 @@ func (rt *Router) getDownloadLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(task.LogTail))
+}
+
+// openDownloadDir opens the local directory and selects the file
+// POST /api/downloads/{id}/open
+func (rt *Router) openDownloadDir(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, ok := rt.downloadMgr.GetTask(id)
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	path := task.FilePath
+	if path == "" {
+		path = task.SavedFile
+	}
+	if path == "" {
+		path = task.DownloadDir
+	}
+	if path == "" {
+		writeAPIError(w, http.StatusBadRequest, "path empty")
+		return
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err == nil {
+		path = absPath
+	}
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		fi, statErr := os.Stat(path)
+		if statErr == nil {
+			if fi.IsDir() {
+				cmd = exec.Command("explorer.exe", path)
+			} else {
+				cmd = exec.Command("explorer.exe", "/select,"+path)
+			}
+		} else {
+			dir := filepath.Dir(path)
+			if dir != "" && dir != "." {
+				_ = os.MkdirAll(dir, 0755)
+				cmd = exec.Command("explorer.exe", dir)
+			} else {
+				cmd = exec.Command("explorer.exe", path)
+			}
+		}
+	case "darwin":
+		if _, statErr := os.Stat(path); statErr == nil {
+			cmd = exec.Command("open", "-R", path)
+		} else {
+			cmd = exec.Command("open", filepath.Dir(path))
+		}
+	default:
+		cmd = exec.Command("xdg-open", filepath.Dir(path))
+	}
+
+	setCmdHideWindow(cmd)
+
+	if err := cmd.Start(); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, fmt.Sprintf("open folder: %s", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// playDownloadFile serves the downloaded media file with HTTP range headers.
+// GET /api/downloads/{id}/file
+func (rt *Router) playDownloadFile(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, ok := rt.downloadMgr.GetTask(id)
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	path := task.FilePath
+	if path == "" {
+		path = task.SavedFile
+	}
+	if path == "" {
+		writeAPIError(w, http.StatusBadRequest, "file path is empty")
+		return
+	}
+	if _, err := os.Stat(path); err != nil {
+		writeAPIError(w, http.StatusNotFound, "file not found on disk")
+		return
+	}
+	http.ServeFile(w, r, path)
+}
+
+// openExternalURL opens the given HTTP/HTTPS URL in the default web browser.
+// POST /api/open-url
+func (rt *Router) openExternalURL(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.URL == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid url")
+		return
+	}
+	parsed, err := url.Parse(input.URL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		writeAPIError(w, http.StatusBadRequest, "invalid url scheme")
+		return
+	}
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", input.URL)
+	case "darwin":
+		cmd = exec.Command("open", input.URL)
+	default:
+		cmd = exec.Command("xdg-open", input.URL)
+	}
+
+	setCmdHideWindow(cmd)
+
+	if err := cmd.Start(); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, fmt.Sprintf("open url: %s", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// browseSystemPath launches native System file/directory picker dialog and returns absolute path.
+// POST /api/browse
+func (rt *Router) browseSystemPath(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Mode string `json:"mode"` // "file" or "directory"
+	}
+	_ = json.NewDecoder(r.Body).Decode(&input)
+
+	var selectedPath string
+	switch runtime.GOOS {
+	case "windows":
+		var psCmd string
+		if input.Mode == "directory" {
+			psCmd = `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }`
+		} else {
+			psCmd = `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Executables (*.exe)|*.exe|All Files (*.*)|*.*'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }`
+		}
+		cmd := exec.Command("powershell", "-NoProfile", "-Command", psCmd)
+		setCmdHideWindow(cmd)
+		out, err := cmd.Output()
+		if err == nil {
+			selectedPath = strings.TrimSpace(string(out))
+		}
+	case "darwin":
+		var script string
+		if input.Mode == "directory" {
+			script = "posix path of (choose folder)"
+		} else {
+			script = "posix path of (choose file)"
+		}
+		cmd := exec.Command("osascript", "-e", script)
+		out, err := cmd.Output()
+		if err == nil {
+			selectedPath = strings.TrimSpace(string(out))
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"path": selectedPath})
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }

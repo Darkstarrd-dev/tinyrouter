@@ -89,6 +89,12 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 	cmdLine := FormatYtDlpCommand(ytDlpPath, args)
 	stdoutTail.Append("[command] " + cmdLine + "\n")
 
+	// Post cmdLine immediately so UI starts updating right away.
+	select {
+	case progressCh <- Progress{LogLine: "[command] " + cmdLine}:
+	default:
+	}
+
 	// 扫描 stderr（用于错误分类），同时累积尾部缓冲。
 	go func() {
 		scanner := bufio.NewScanner(stderr)
@@ -98,6 +104,11 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 			mu.Lock()
 			stderrTail.Append(line + "\n")
 			mu.Unlock()
+
+			select {
+			case progressCh <- Progress{LogLine: line}:
+			default:
+			}
 		}
 	}()
 
@@ -112,14 +123,18 @@ func (e *Executor) Execute(ctx context.Context, task *Task, progressCh chan<- Pr
 		if hasPostprocessSignal(line) {
 			processing = true
 		}
-		if p, ok := parseProgressLine(line); ok {
-			if processing {
-				p.Processing = true
-			}
-			select {
-			case progressCh <- p:
-			default:
-			}
+		p, ok := parseProgressLine(line)
+		if !ok {
+			p = Progress{}
+		}
+		if processing {
+			p.Processing = true
+		}
+		p.LogLine = line
+
+		select {
+		case progressCh <- p:
+		default:
 		}
 	}
 

@@ -24,46 +24,58 @@ var DL_STATUS_KEYS = {
 // selectedTaskId tracks the task currently shown in the right-hand detail panel.
 var selectedTaskId = '';
 
+// In-memory cache to restore parsed playlist and folding state when navigating back.
+var cachedParsedPreviewMap = {};
+var cachedParsedFoldedMap = {};
+
+// selectedTaskIds tracks all selected task IDs (for batch operations like multi-play)
+var selectedTaskIds = [];
+
 // renderDownload renders the download page into the given container.
 function renderDownload(container) {
   container.innerHTML = `
     <div class="download-sections">
     <div class="card download-input-card">
       <div class="download-toolbar">
+        <select id="dl-type" class="select">
+          <option value="video">${escapeHtml(t('video'))}</option>
+          <option value="audio">${escapeHtml(t('audio'))}</option>
+        </select>
+        <select id="dl-quality" class="select">
+          <option value="best">${escapeHtml(t('qualityBest'))}</option>
+          <option value="good">1080p</option>
+          <option value="normal">720p</option>
+          <option value="bad">480p</option>
+          <option value="worst">360p</option>
+        </select>
+        <select id="dl-container" class="select">
+          <option value="auto">Auto (MP4/MKV)</option>
+          <option value="mp4">MP4</option>
+          <option value="mkv">MKV</option>
+          <option value="webm">WebM</option>
+          <option value="original">${escapeHtml(t('original'))}</option>
+        </select>
         <input type="text" id="dl-url" class="input" placeholder="${escapeHtml(t('downloadUrlPlaceholder'))}" />
-        <button class="btn btn-ghost" id="dl-parse-btn" type="button" onclick="parseDownloadUrl()">${escapeHtml(t('parse'))}</button>
-        <button class="btn btn-primary" id="dl-start-btn" type="button" onclick="startDownload()">${escapeHtml(t('download'))}</button>
-        <label>${escapeHtml(t('type'))}
-          <select id="dl-type" class="select">
-            <option value="video">${escapeHtml(t('video'))}</option>
-            <option value="audio">${escapeHtml(t('audio'))}</option>
-          </select>
-        </label>
-        <label>${escapeHtml(t('quality'))}
-          <select id="dl-quality" class="select">
-            <option value="best">${escapeHtml(t('qualityBest'))}</option>
-            <option value="good">1080p</option>
-            <option value="normal">720p</option>
-            <option value="bad">480p</option>
-            <option value="worst">360p</option>
-          </select>
-        </label>
-        <label>${escapeHtml(t('container'))}
-          <select id="dl-container" class="select">
-            <option value="auto">Auto (MP4/MKV)</option>
-            <option value="mp4">MP4</option>
-            <option value="mkv">MKV</option>
-            <option value="webm">WebM</option>
-            <option value="original">${escapeHtml(t('original'))}</option>
-          </select>
-        </label>
-        <button class="btn btn-ghost btn-sm" type="button" onclick="openDownloadSettingsModal()">${escapeHtml(t('downloadSettings'))}</button>
-        <button class="btn btn-ghost btn-sm" type="button" onclick="clearCompletedDownloads()">${escapeHtml(t('clearCompleted'))}</button>
+        <button class="btn btn-primary" id="dl-parse-btn" type="button" onclick="parseDownloadUrl()">${escapeHtml(t('parse'))}</button>
+        <button class="btn btn-ghost" type="button" onclick="openDownloadSettingsModal()">${escapeHtml(t('settings'))}</button>
+        <button class="btn btn-ghost btn-icon" type="button" onclick="clearCompletedDownloads()" title="${escapeHtml(t('clearCompleted'))}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M3 6h18"></path>
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+            <path d="m9 14 2 2 4-4"></path>
+          </svg>
+        </button>
       </div>
-      <div id="dl-info-preview" class="dl-info-preview" style="display:none;"></div>
     </div>
     <div class="download-queue">
-      <div id="dl-tasks" class="dl-tasks"></div>
+      <div class="dl-task-split">
+        <div class="dl-task-left-col">
+          <div id="dl-info-preview" class="dl-info-preview" style="display:none;"></div>
+          <div id="dl-task-list" class="dl-task-list"></div>
+        </div>
+        <div id="dl-task-detail" class="dl-task-detail"></div>
+      </div>
     </div>
     </div>
   `;
@@ -97,25 +109,26 @@ function parseDownloadUrl() {
 }
 
 async function doParse(url) {
-  showInfoPreview(null);
   var singleP = apiPost('/downloads/info', { url: url });
   var playlistP = apiPost('/downloads/playlist-info', { url: url });
   var results = await Promise.allSettled([singleP, playlistP]);
   var single = results[0].status === 'fulfilled' ? results[0].value : null;
   var playlist = results[1].status === 'fulfilled' ? results[1].value : null;
 
+  var cardId = 'parse-card-' + Math.random().toString(36).substr(2, 9);
+
   // Prefer playlist view when the playlist endpoint returned entries.
   if (playlist && Array.isArray(playlist.entries) && playlist.entries.length > 0) {
-    renderPlaylistPreview(url, playlist);
+    renderPlaylistPreview(cardId, url, playlist);
     return;
   }
   if (single && !single.error && (single.title || single.webpage_url || single.extractor_key)) {
-    renderSinglePreview(url, single);
+    renderSinglePreview(cardId, url, single);
     return;
   }
   // Some servers return the single info nested under "info".
   if (single && !single.error && single.info) {
-    renderSinglePreview(url, single.info);
+    renderSinglePreview(cardId, url, single.info);
     return;
   }
   var msg = (single && single.error) ? single.error : (playlist && playlist.error ? playlist.error : 'unknown');
@@ -123,37 +136,53 @@ async function doParse(url) {
 }
 
 // renderSinglePreview shows the parsed video info.
-function renderSinglePreview(url, info) {
+function renderSinglePreview(cardId, url, info) {
   var thumb = info.thumbnail || '';
   var title = info.title || url;
   var sub = [];
   if (info.duration) sub.push(formatDuration(info.duration));
   if (info.uploader) sub.push(info.uploader);
-  showInfoPreview(`
-    <div class="dl-info-row">
-      <div class="dl-info-thumb">${thumb ? '<img src="' + escapeHtml(thumb) + '" alt="" onerror="this.style.display=\'none\'">' : ''}</div>
-      <div class="dl-info-meta">
-        <div class="dl-info-title">${escapeHtml(title)}</div>
-        <div class="dl-info-sub">${escapeHtml(sub.join(' · '))}</div>
+  
+  var html = `
+    <div class="dl-playlist-preview">
+      <div class="dl-playlist-header-sticky" style="border-bottom:none; margin-bottom:0;">
+        <div class="dl-playlist-header-row">
+          <div class="dl-info-thumb-icon-mini">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          </div>
+          <div class="dl-playlist-header-text">
+            <div class="dl-playlist-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+            <div class="dl-playlist-subtitle">${escapeHtml(sub.join(' · '))}</div>
+          </div>
+          <div class="dl-playlist-header-actions">
+            <button class="btn-action-icon" type="button" onclick="removeParsedCard('${cardId}')" title="Remove List">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+        </div>
+        <div class="dl-playlist-actions-row">
+          <div class="dl-playlist-actions-left"></div>
+          <div class="dl-playlist-actions-right">
+            <button class="btn btn-primary btn-sm" type="button" onclick="startDownload('${cardId}', '${escapeAttr(url)}')">${escapeHtml(t('download'))}</button>
+          </div>
+        </div>
       </div>
-      <button class="btn btn-primary btn-sm" type="button" onclick="startDownload()">${escapeHtml(t('download'))}</button>
     </div>
-  `);
+  `;
+  addParsedPreviewCard(cardId, html);
 }
 
 // renderPlaylistPreview shows the detected playlist with a selectable list of
 // entries, so users can pick which ones to download.
-function renderPlaylistPreview(url, playlist) {
+function renderPlaylistPreview(cardId, url, playlist) {
   var title = playlist.title || url;
   var entries = playlist.entries || [];
   var count = entries.length;
   var rows = entries.map(function(entry) {
-    var thumb = entry.thumbnail ? '<img src="' + escapeHtml(entry.thumbnail) + '" alt="" onerror="this.style.display=\'none\'">' : '';
     var label = entry.title || (playlist.url || url);
     return '' +
       '<div class="dl-playlist-entry">' +
-        '<input type="checkbox" name="dl-playlist-select" data-index="' + escapeAttr(entry.index) + '" checked onchange="updatePlaylistSelectionLabel()" />' +
-        '<div class="dl-playlist-entry-thumb">' + thumb + '</div>' +
+        '<input type="checkbox" name="dl-playlist-select" data-index="' + escapeAttr(entry.index) + '" checked onchange="updatePlaylistSelectionLabel(\'' + cardId + '\')" />' +
         '<div class="dl-playlist-entry-title">' +
           '<span class="dl-playlist-entry-index">' + escapeHtml(entry.index) + '.</span> ' +
           escapeHtml(label) +
@@ -161,32 +190,52 @@ function renderPlaylistPreview(url, playlist) {
       '</div>';
   }).join('');
 
-  showInfoPreview(`
+  var html = `
     <div class="dl-playlist-preview">
-      <div class="dl-info-row">
-        <div class="dl-info-thumb dl-info-thumb-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      <div class="dl-playlist-header-sticky">
+        <div class="dl-playlist-header-row">
+          <div class="dl-info-thumb-icon-mini">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          </div>
+          <div class="dl-playlist-header-text">
+            <div class="dl-playlist-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+            <div class="dl-playlist-subtitle">${escapeHtml(t('playlistDetected', [count]))}</div>
+          </div>
+          <div class="dl-playlist-header-actions">
+            <button class="btn-action-icon" type="button" onclick="toggleParsedCard('${cardId}')" title="Collapse/Expand List">
+              <svg class="icon-chevron-up" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+              <svg class="icon-chevron-down" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <button class="btn-action-icon" type="button" onclick="removeParsedCard('${cardId}')" title="Remove List">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
         </div>
-        <div class="dl-info-meta">
-          <div class="dl-info-title">${escapeHtml(title)}</div>
-          <div class="dl-info-sub">${escapeHtml(t('playlistDetected', [count]))}</div>
+        <div class="dl-playlist-actions-row">
+          <div class="dl-playlist-actions-left">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="setAllPlaylistSelected('${cardId}', true)">${escapeHtml(t('selectAll'))}</button>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="setAllPlaylistSelected('${cardId}', false)">${escapeHtml(t('deselectAll'))}</button>
+          </div>
+          <div class="dl-playlist-actions-right">
+            <span class="dl-playlist-count" id="dl-playlist-count">${escapeHtml(t('nSelected', [count]))}</span>
+            <button class="btn btn-primary btn-sm" type="button" onclick="startPlaylistDownload('${cardId}', '${escapeAttr(url)}')">${escapeHtml(t('download'))}</button>
+          </div>
         </div>
       </div>
-      <div class="dl-playlist-actions">
-        <button class="btn btn-ghost btn-sm" type="button" onclick="setAllPlaylistSelected(true)">${escapeHtml(t('selectAll'))}</button>
-        <button class="btn btn-ghost btn-sm" type="button" onclick="setAllPlaylistSelected(false)">${escapeHtml(t('deselectAll'))}</button>
-        <span class="dl-playlist-count" id="dl-playlist-count">${escapeHtml(t('nSelected', [count]))}</span>
-        <button class="btn btn-primary btn-sm" type="button" onclick="startPlaylistDownload('${escapeAttr(url)}')">${escapeHtml(t('downloadSelected'))}</button>
+      <div class="dl-playlist-entries">
+        <div class="dl-playlist-entries-heading">${escapeHtml(t('playlistEntries'))}</div>
+        ${rows}
       </div>
-      <div class="dl-playlist-entries-heading">${escapeHtml(t('playlistEntries'))}</div>
-      <div class="dl-playlist-entries">${rows}</div>
     </div>
-  `);
+  `;
+  addParsedPreviewCard(cardId, html);
 }
 
 // getSelectedPlaylistIndices returns the array of selected 1-based playlist indices.
-function getSelectedPlaylistIndices() {
-  var boxes = document.querySelectorAll('input[name="dl-playlist-select"]:checked');
+function getSelectedPlaylistIndices(cardId) {
+  var cardEl = document.getElementById(cardId);
+  if (!cardEl) return [];
+  var boxes = cardEl.querySelectorAll('input[name="dl-playlist-select"]:checked');
   var idx = [];
   boxes.forEach(function(b) {
     var n = parseInt(b.getAttribute('data-index'), 10);
@@ -196,27 +245,110 @@ function getSelectedPlaylistIndices() {
 }
 
 // setAllPlaylistSelected checks or unchecks every playlist entry checkbox.
-function setAllPlaylistSelected(checked) {
-  var boxes = document.querySelectorAll('input[name="dl-playlist-select"]');
+function setAllPlaylistSelected(cardId, checked) {
+  var cardEl = document.getElementById(cardId);
+  if (!cardEl) return;
+  var boxes = cardEl.querySelectorAll('input[name="dl-playlist-select"]');
   boxes.forEach(function(b) { b.checked = !!checked; });
-  updatePlaylistSelectionLabel();
+  updatePlaylistSelectionLabel(cardId);
 }
 
 // updatePlaylistSelectionLabel refreshes the "N selected" counter text.
-function updatePlaylistSelectionLabel() {
-  var el = document.getElementById('dl-playlist-count');
+function updatePlaylistSelectionLabel(cardId) {
+  var cardEl = document.getElementById(cardId);
+  if (!cardEl) return;
+  var el = cardEl.querySelector('.dl-playlist-count');
   if (!el) return;
-  var n = getSelectedPlaylistIndices().length;
+  var n = getSelectedPlaylistIndices(cardId).length;
   el.textContent = t('nSelected', [n]);
 }
 
-// showInfoPreview fills the info preview area and reveals it.
-function showInfoPreview(html) {
-  var el = document.getElementById('dl-info-preview');
-  if (!el) return;
-  if (html === null) { el.style.display = 'none'; el.innerHTML = ''; return; }
-  el.innerHTML = html;
-  el.style.display = 'block';
+// showInfoPreview fills the info preview area and reveals it, toggling the task list visibility.
+// addParsedPreviewCard adds a new parsed preview card with a unique cardId
+function addParsedPreviewCard(cardId, html) {
+  var previewEl = document.getElementById('dl-info-preview');
+  if (!previewEl) return;
+
+  cachedParsedPreviewMap[cardId] = html;
+  cachedParsedFoldedMap[cardId] = false;
+
+  var cardDiv = document.createElement('div');
+  cardDiv.id = cardId;
+  cardDiv.className = 'dl-parsed-card';
+  cardDiv.style.borderBottom = '1px solid var(--glass-border)';
+  cardDiv.style.marginBottom = '0';
+  cardDiv.innerHTML = html;
+
+  previewEl.appendChild(cardDiv);
+  checkPreviewVisibility();
+}
+
+// removeParsedCard removes a parsed card by id
+function removeParsedCard(cardId) {
+  var cardEl = document.getElementById(cardId);
+  if (cardEl) {
+    cardEl.remove();
+  }
+  delete cachedParsedPreviewMap[cardId];
+  delete cachedParsedFoldedMap[cardId];
+  checkPreviewVisibility();
+}
+
+// toggleParsedCard collapses or expands a specific card
+function toggleParsedCard(cardId) {
+  var cardEl = document.getElementById(cardId);
+  if (!cardEl) return;
+  var entries = cardEl.querySelector('.dl-playlist-entries');
+  var heading = cardEl.querySelector('.dl-playlist-entries-heading');
+  var iconUp = cardEl.querySelector('.icon-chevron-up');
+  var iconDown = document.getElementById('dl-task-list') ? cardEl.querySelector('.icon-chevron-down') : null; // Safe select
+  iconDown = cardEl.querySelector('.icon-chevron-down');
+
+  if (entries) {
+    if (entries.style.display === 'none') {
+      entries.style.display = 'flex';
+      if (heading) heading.style.display = 'block';
+      if (iconUp) iconUp.style.display = 'block';
+      if (iconDown) iconDown.style.display = 'none';
+      cachedParsedFoldedMap[cardId] = false;
+    } else {
+      entries.style.display = 'none';
+      if (heading) heading.style.display = 'none';
+      if (iconUp) iconUp.style.display = 'none';
+      if (iconDown) iconDown.style.display = 'block';
+      cachedParsedFoldedMap[cardId] = true;
+    }
+  }
+  checkPreviewVisibility();
+}
+
+// checkPreviewVisibility syncs visibility of the preview container and download task list
+function checkPreviewVisibility() {
+  var previewEl = document.getElementById('dl-info-preview');
+  var listEl = document.getElementById('dl-task-list');
+  if (!previewEl) return;
+
+  var cardIds = Object.keys(cachedParsedPreviewMap);
+  if (cardIds.length === 0) {
+    previewEl.style.display = 'none';
+    if (listEl) listEl.style.display = 'flex';
+    return;
+  }
+
+  previewEl.style.display = 'block';
+
+  var hasExpanded = false;
+  cardIds.forEach(function(id) {
+    if (!cachedParsedFoldedMap[id]) {
+      hasExpanded = true;
+    }
+  });
+
+  if (hasExpanded) {
+    if (listEl) listEl.style.display = 'none';
+  } else {
+    if (listEl) listEl.style.display = 'flex';
+  }
 }
 
 // loadDownloadSettings fetches the download settings (yt-dlp / ffmpeg paths)
@@ -227,42 +359,34 @@ async function loadDownloadSettings() {
   downloadDefaultDir = dl.defaultDir || '';
 }
 
-// fasBrowsePicker opens the system file/directory picker via the File System
-// Access API and writes the selected name into the given input. The FAS API
-// does not expose absolute paths, so only handle.name is stored (the backend
-// resolves bare binary names via PATH lookup). User cancellations (AbortError)
-// are ignored silently; other errors are surfaced via toast.
-//   mode: 'file' -> showOpenFilePicker, 'directory' -> showDirectoryPicker
-function fasBrowsePicker(inputEl, mode) {
-  if (!inputEl) return;
-  if (typeof window.showOpenFilePicker !== 'function' && typeof window.showDirectoryPicker !== 'function') {
-    return;
-  }
-  var pick;
-  if (mode === 'directory') {
-    if (typeof window.showDirectoryPicker !== 'function') return;
-    pick = window.showDirectoryPicker();
-  } else {
-    if (typeof window.showOpenFilePicker !== 'function') return;
-    pick = window.showOpenFilePicker({ multiple: false });
-  }
-  pick.then(function(handle) {
-    var single = Array.isArray(handle) ? handle[0] : handle;
-    if (single && single.name) {
-      inputEl.value = single.name;
-    }
-  }).catch(function(err) {
-    if (err && err.name === 'AbortError') return; // user cancelled, ignore
-    toast(t('downloadSettingsSaveFailed', [err && err.message ? err.message : String(err)]), 'error');
+// openExternalUrl requests the server to open an HTTP/HTTPS link in default browser.
+function openExternalUrl(url) {
+  apiPost('/open-url', { url: url }).catch(function() {
+    window.open(url, '_blank');
   });
 }
 
-// openDownloadSettingsModal shows a modal with the four download tool settings
-// (yt-dlp / ffmpeg paths, default dir, proxy). Values are pre-populated from
-// GET /settings and persisted via PATCH /settings on Save. The modal can be
-// closed via the Cancel button, clicking the overlay, or pressing Escape.
-// The yt-dlp / ffmpeg / default-dir rows additionally offer a "Browse" button
-// backed by the File System Access API (when available).
+// fasBrowsePicker requests native system file/directory picker from backend and sets full absolute path.
+async function fasBrowsePicker(inputEl, mode) {
+  if (!inputEl) return;
+  try {
+    var res = await apiPost('/browse', { mode: mode });
+    if (res && res.path) {
+      inputEl.value = res.path;
+    }
+  } catch (e) {
+    if (mode === 'directory' && typeof window.showDirectoryPicker === 'function') {
+      window.showDirectoryPicker().then(function(h) { if (h && h.name) inputEl.value = h.name; });
+    } else if (typeof window.showOpenFilePicker === 'function') {
+      window.showOpenFilePicker({ multiple: false }).then(function(h) {
+        var single = Array.isArray(h) ? h[0] : h;
+        if (single && single.name) inputEl.value = single.name;
+      });
+    }
+  }
+}
+
+// openDownloadSettingsModal shows a modal with the four download tool settings.
 async function openDownloadSettingsModal() {
   if (document.getElementById('dl-settings-overlay')) return;
 
@@ -274,21 +398,23 @@ async function openDownloadSettingsModal() {
     dl = {};
   }
 
-  var fasAvailable = typeof window.showOpenFilePicker === 'function' || typeof window.showDirectoryPicker === 'function';
-
   var overlay = document.createElement('div');
   overlay.className = 'dl-settings-modal';
   overlay.id = 'dl-settings-overlay';
 
-  function browseRow(labelKey, inputId, value, placeholder, mode) {
-    var browseBtn = fasAvailable
-      ? '<button class="btn btn-ghost btn-sm dl-browse-btn" type="button" data-input="' + inputId + '" data-mode="' + mode + '">' + escapeHtml(t('browse')) + '</button>'
-      : '';
-    return '<div class="dl-settings-row">' +
-      '<label>' + escapeHtml(t(labelKey)) +
+  function browseRow(labelKey, inputId, value, placeholder, mode, getToolHtml) {
+    var browseBtn = '<button class="btn btn-ghost btn-sm dl-browse-btn" type="button" data-input="' + inputId + '" data-mode="' + mode + '">' + escapeHtml(t('browse')) + '</button>';
+    var headerHtml = '<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:calc(var(--font-base) - 1.5px); font-weight:500; color:var(--text-secondary);">' +
+      '<span>' + escapeHtml(t(labelKey)) + '</span>' +
+      (getToolHtml || '') +
+    '</div>';
+
+    return '<div class="dl-settings-field" style="margin-bottom:12px;">' +
+      headerHtml +
+      '<div class="dl-settings-row">' +
         '<input type="text" class="input" id="' + inputId + '" value="' + escapeAttr(value) + '" placeholder="' + escapeAttr(placeholder) + '" />' +
-      '</label>' +
-      browseBtn +
+        browseBtn +
+      '</div>' +
     '</div>';
   }
 
@@ -296,13 +422,14 @@ async function openDownloadSettingsModal() {
     '<div class="dl-settings-card">' +
       '<div class="dl-settings-modal-title">' + escapeHtml(t('downloadSettings')) + '</div>' +
       '<form class="dl-settings-form" id="dl-settings-form" onsubmit="return false;">' +
-        browseRow('ytDlpPath', 'modal-dl-ytdlp-path', dl.ytDlpPath || '', 'yt-dlp', 'file') +
-        browseRow('ffmpegPath', 'modal-dl-ffmpeg-path', dl.ffmpegPath || '', 'ffmpeg', 'file') +
+        browseRow('ytDlpPath', 'modal-dl-ytdlp-path', dl.ytDlpPath || '', 'yt-dlp', 'file', '<button class="btn btn-ghost btn-sm" style="padding:0 6px; height:18px; font-size:10px; line-height:16px; border:1px solid var(--glass-border); text-transform:none; font-weight:normal;" type="button" onclick="openExternalUrl(\'https://github.com/yt-dlp/yt-dlp/releases\')">Get yt-dlp</button>') +
+        browseRow('ffmpegPath', 'modal-dl-ffmpeg-path', dl.ffmpegPath || '', 'ffmpeg', 'file', '<button class="btn btn-ghost btn-sm" style="padding:0 6px; height:18px; font-size:10px; line-height:16px; border:1px solid var(--glass-border); text-transform:none; font-weight:normal;" type="button" onclick="openExternalUrl(\'https://www.ffmpeg.org/download.html\')">Get ffmpeg</button>') +
         browseRow('defaultDir', 'modal-dl-default-dir', dl.defaultDir || '', 'Downloads', 'directory') +
-        '<div class="dl-settings-row">' +
-          '<label>' + escapeHtml(t('downloadProxy')) +
-            '<input type="text" class="input" id="modal-dl-proxy" value="' + escapeAttr(dl.proxy || '') + '" placeholder="http://host:port" />' +
-          '</label>' +
+        '<div class="dl-settings-field" style="margin-bottom:12px;">' +
+          '<div style="margin-bottom:6px; font-size:calc(var(--font-base) - 1.5px); font-weight:500; color:var(--text-secondary);">' + escapeHtml(t('downloadProxy')) + '</div>' +
+          '<div class="dl-settings-row">' +
+            '<input type="text" class="input" id="modal-dl-proxy" value="' + escapeAttr(dl.proxy || '') + '" placeholder="http://host:port" style="width:100%;" />' +
+          '</div>' +
         '</div>' +
       '</form>' +
       '<div class="dl-settings-modal-actions">' +
@@ -356,8 +483,8 @@ async function openDownloadSettingsModal() {
 }
 
 // startDownload creates a single download task from the current options.
-async function startDownload() {
-  var url = (document.getElementById('dl-url') || {}).value;
+async function startDownload(cardId, url) {
+  if (!url) url = (document.getElementById('dl-url') || {}).value;
   if (!url || !url.trim()) {
     toast(t('downloadUrlPlaceholder'), 'warning');
     return;
@@ -374,7 +501,9 @@ async function startDownload() {
     toast(t('downloadFailed', [res.error]), 'error');
     return;
   }
-  showInfoPreview(null);
+  if (cardId) {
+    removeParsedCard(cardId);
+  }
   toast(t('downloadStarted'), 'success');
   if (res && res.id) {
     downloadTasksMap[res.id] = res;
@@ -383,13 +512,13 @@ async function startDownload() {
 }
 
 // startPlaylistDownload creates a playlist batch download.
-async function startPlaylistDownload(url) {
+async function startPlaylistDownload(cardId, url) {
   if (!url) url = (document.getElementById('dl-url') || {}).value;
   if (!url || !url.trim()) {
     toast(t('downloadUrlPlaceholder'), 'warning');
     return;
   }
-  var indices = getSelectedPlaylistIndices();
+  var indices = getSelectedPlaylistIndices(cardId);
   if (indices.length === 0) {
     toast(t('noSelection'), 'warning');
     return;
@@ -407,7 +536,15 @@ async function startPlaylistDownload(url) {
     toast(t('downloadFailed', [res.error]), 'error');
     return;
   }
-  showInfoPreview(null);
+  if (cardId) {
+    var cardEl = document.getElementById(cardId);
+    if (cardEl) {
+      var entries = cardEl.querySelector('.dl-playlist-entries');
+      if (entries && entries.style.display !== 'none') {
+        toggleParsedCard(cardId);
+      }
+    }
+  }
   toast(t('downloadStarted'), 'success');
   // The backend may return a single id, a list of ids, or a status object.
   var ids = res && res.ids ? res.ids : (res && res.id ? [res.id] : []);
@@ -430,13 +567,53 @@ function resolveDownloadDir() {
 async function loadDownloadTasks() {
   var res = await apiGet('/downloads');
   var tasks = Array.isArray(res) ? res : (res && res.tasks ? res.tasks : []);
-  var container = document.getElementById('dl-tasks');
-  if (!container) return;
-  container.innerHTML = '';
+  var listEl = document.getElementById('dl-task-list');
+  var detailEl = document.getElementById('dl-task-detail');
+  if (!listEl || !detailEl) return;
+  listEl.innerHTML = '';
+  detailEl.innerHTML = '';
   downloadTasksMap = {};
   downloadTaskEls = {};
+
+  // Restore cached multi-cards and folding states
+  var previewEl = document.getElementById('dl-info-preview');
+  if (previewEl) {
+    previewEl.innerHTML = '';
+    var cardIds = Object.keys(cachedParsedPreviewMap);
+    cardIds.forEach(function(cardId) {
+      var html = cachedParsedPreviewMap[cardId];
+      var cardDiv = document.createElement('div');
+      cardDiv.id = cardId;
+      cardDiv.className = 'dl-parsed-card';
+      cardDiv.style.borderBottom = '1px solid var(--glass-border)';
+      cardDiv.style.marginBottom = '0';
+      cardDiv.innerHTML = html;
+      previewEl.appendChild(cardDiv);
+
+      var isFolded = cachedParsedFoldedMap[cardId];
+      var entries = cardDiv.querySelector('.dl-playlist-entries');
+      var heading = cardDiv.querySelector('.dl-playlist-entries-heading');
+      var iconUp = cardDiv.querySelector('.icon-chevron-up');
+      var iconDown = cardDiv.querySelector('.icon-chevron-down');
+      if (entries) {
+        if (isFolded) {
+          entries.style.display = 'none';
+          if (heading) heading.style.display = 'none';
+          if (iconUp) iconUp.style.display = 'none';
+          if (iconDown) iconDown.style.display = 'block';
+        } else {
+          entries.style.display = 'flex';
+          if (heading) heading.style.display = 'block';
+          if (iconUp) iconUp.style.display = 'block';
+          if (iconDown) iconDown.style.display = 'none';
+        }
+      }
+    });
+  }
+  checkPreviewVisibility();
+
   if (!tasks.length) {
-    container.innerHTML = emptyState(t('noDownloads'));
+    detailEl.innerHTML = emptyState(t('noDownloads'));
     selectedTaskId = '';
     return;
   }
@@ -446,7 +623,7 @@ async function loadDownloadTasks() {
   });
   // Default selection: first task (the one rendered first).
   if (!selectedTaskId && tasks.length) {
-    selectTask(tasks[0].id);
+    selectTask(null, tasks[0].id);
   } else if (selectedTaskId) {
     renderTaskDetail();
   }
@@ -479,21 +656,9 @@ function connectDownloadSSE() {
 // and, if the task is the selected one, refreshes the detail panel. When the
 // first task appears it also bootstraps the left/right split layout.
 function renderDownloadTask(task, _replaceEmpty) {
-  var container = document.getElementById('dl-tasks');
-  if (!container || !task || !task.id) return;
-  downloadTasksMap[task.id] = task;
-
-  // Lazy-init the split layout (left list + right detail) on first task.
-  if (!container.querySelector('.dl-task-split')) {
-    container.innerHTML =
-      '<div class="dl-task-split">' +
-        '<div class="dl-task-list" id="dl-task-list"></div>' +
-        '<div class="dl-task-detail" id="dl-task-detail"></div>' +
-      '</div>';
-  }
-
   var listEl = document.getElementById('dl-task-list');
-  if (!listEl) return;
+  if (!listEl || !task || !task.id) return;
+  downloadTasksMap[task.id] = task;
 
   var existing = downloadTaskEls[task.id];
   var itemHtml = taskListItemHtml(task);
@@ -508,9 +673,14 @@ function renderDownloadTask(task, _replaceEmpty) {
   }
   downloadTaskEls[task.id] = document.getElementById('dl-task-item-' + task.id);
 
+  var itemEl = downloadTaskEls[task.id];
+  if (itemEl) {
+    itemEl.classList.toggle('selected', selectedTaskIds.indexOf(task.id) >= 0);
+  }
+
   // Default selection to the first task ever rendered.
   if (!selectedTaskId) {
-    selectTask(task.id);
+    selectTask(null, task.id);
   } else if (task.id === selectedTaskId) {
     renderTaskDetail();
   }
@@ -528,31 +698,97 @@ function updateDownloadTask(task) {
   // Refresh the list item in place.
   existing.outerHTML = taskListItemHtml(task);
   downloadTaskEls[task.id] = document.getElementById('dl-task-item-' + task.id);
+
+  var itemEl = downloadTaskEls[task.id];
+  if (itemEl) {
+    itemEl.classList.toggle('selected', selectedTaskIds.indexOf(task.id) >= 0);
+  }
+
   // Refresh the detail panel if this is the selected task.
   if (task.id === selectedTaskId) {
     renderTaskDetail();
   }
 }
 
-// selectTask updates the selected task id, highlights the left list item and
-// refreshes the right-hand detail panel.
-function selectTask(taskId) {
-  selectedTaskId = taskId;
-  var list = document.getElementById('dl-task-list');
-  if (list) {
-    Array.prototype.forEach.call(list.querySelectorAll('.dl-task-item'), function(el) {
-      el.classList.toggle('selected', el.getAttribute('data-task-id') === taskId);
-    });
+// selectTask updates the selected task id, highlights the left list items and
+// refreshes the right-hand detail panel. Supports Ctrl and Shift multi-select.
+function selectTask(event, taskId) {
+  var listEl = document.getElementById('dl-task-list');
+  if (!listEl) return;
+
+  var allItems = Array.prototype.slice.call(listEl.querySelectorAll('.dl-task-item'));
+  var allIds = allItems.map(function(el) { return el.getAttribute('data-task-id'); });
+
+  var isCtrl = event && (event.ctrlKey || event.metaKey);
+  var isShift = event && event.shiftKey;
+
+  if (isShift && selectedTaskId && selectedTaskIds.length > 0) {
+    var startIdx = allIds.indexOf(selectedTaskId);
+    var endIdx = allIds.indexOf(taskId);
+    if (startIdx >= 0 && endIdx >= 0) {
+      var min = Math.min(startIdx, endIdx);
+      var max = Math.max(startIdx, endIdx);
+      var rangeIds = allIds.slice(min, max + 1);
+
+      rangeIds.forEach(function(id) {
+        if (selectedTaskIds.indexOf(id) < 0) {
+          selectedTaskIds.push(id);
+        }
+      });
+    }
+    selectedTaskId = taskId;
+  } else if (isCtrl) {
+    var idx = selectedTaskIds.indexOf(taskId);
+    if (idx >= 0) {
+      if (selectedTaskIds.length > 1) {
+        selectedTaskIds.splice(idx, 1);
+      }
+    } else {
+      selectedTaskIds.push(taskId);
+    }
+    selectedTaskId = taskId;
+  } else {
+    selectedTaskIds = [taskId];
+    selectedTaskId = taskId;
   }
+
+  allItems.forEach(function(el) {
+    var tid = el.getAttribute('data-task-id');
+    el.classList.toggle('selected', selectedTaskIds.indexOf(tid) >= 0);
+  });
+
   renderTaskDetail();
 }
 
+// renderTaskDetail renders the right-hand detail panel for the selected task.
 // renderTaskDetail renders the right-hand detail panel for the selected task.
 function renderTaskDetail() {
   var detail = document.getElementById('dl-task-detail');
   if (!detail) return;
   var task = selectedTaskId ? downloadTasksMap[selectedTaskId] : null;
   detail.innerHTML = taskDetailHtml(task);
+  if (!task) return;
+
+  // Fetch the log content for the pre element.
+  fetch('/api/downloads/' + encodeURIComponent(task.id) + '/log')
+    .then(function(resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.text();
+    })
+    .then(function(text) {
+      var logEl = document.getElementById('dl-detail-log');
+      if (!logEl) return;
+      if (!text || !text.trim()) {
+        logEl.textContent = t('logEmpty');
+      } else {
+        logEl.textContent = text;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    })
+    .catch(function(err) {
+      var logEl = document.getElementById('dl-detail-log');
+      if (logEl) logEl.textContent = 'Failed to load logs: ' + (err && err.message ? err.message : String(err));
+    });
 }
 
 // taskListItemHtml returns the compact left-side list row for a task.
@@ -564,35 +800,20 @@ function taskListItemHtml(task) {
   var pctText = formatProgress(percent);
 
   var status = task.status || 'pending';
-  var statusKey = DL_STATUS_KEYS[status] || 'statusPending';
-  var statusLabel = t(statusKey);
   var title = task.title || task.url || task.id;
   var tid = escapeAttr(task.id);
   var isSelected = task.id === selectedTaskId ? ' selected' : '';
 
-  // Action buttons only on terminal (and error/cancelled) states, plus a
-  // cancel control while active.
-  var actions = '';
-  if (status === 'pending' || status === 'downloading' || status === 'processing') {
-    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="cancelDownload(\'' + tid + '\')">' + escapeHtml(t('cancelDownload')) + '</button>';
-  } else if (status === 'error' || status === 'cancelled') {
-    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="retryDownload(\'' + tid + '\')">' + escapeHtml(t('retry')) + '</button>';
-    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
-  } else if (status === 'completed') {
-    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
+  var pctHtml = '';
+  if (status === 'downloading' || status === 'processing' || status === 'pending') {
+    pctHtml = '<span class="dl-task-item-pct">' + escapeHtml(pctText) + '</span>';
   }
 
   return '' +
-    '<div class="dl-task-item' + isSelected + '" id="dl-task-item-' + tid + '" data-task-id="' + tid + '" onclick="selectTask(\'' + tid + '\')">' +
-      '<div class="dl-task-item-main">' +
-        '<div class="dl-task-item-title">' + escapeHtml(title) + '</div>' +
-        '<div class="dl-task-item-meta">' +
-          '<span class="dl-status-dot ' + escapeAttr('dl-status-' + status) + '"></span>' +
-          '<span class="dl-task-item-pct">' + escapeHtml(pctText) + '</span>' +
-          '<span class="dl-status-badge ' + escapeAttr('dl-status-' + status) + '">' + escapeHtml(statusLabel) + '</span>' +
-        '</div>' +
-      '</div>' +
-      (actions ? '<div class="dl-task-item-actions">' + actions + '</div>' : '') +
+    '<div class="dl-task-item' + isSelected + '" id="dl-task-item-' + tid + '" data-task-id="' + tid + '" onclick="selectTask(event, \'' + tid + '\')">' +
+      '<span class="dl-status-dot ' + escapeAttr('dl-status-' + status) + '"></span>' +
+      '<span class="dl-task-item-title" title="' + escapeAttr(title) + '">' + escapeHtml(title) + '</span>' +
+      pctHtml +
     '</div>';
 }
 
@@ -631,20 +852,17 @@ function taskDetailHtml(task) {
 
   var actions = '';
   if (status === 'pending' || status === 'downloading' || status === 'processing') {
-    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="cancelDownload(\'' + tid + '\')">' + escapeHtml(t('cancelDownload')) + '</button>';
-    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="viewLog(\'' + tid + '\')">' + escapeHtml(t('viewLog')) + '</button>';
+    actions = '<button class="btn btn-ghost" type="button" onclick="cancelDownload(\'' + tid + '\')">' + escapeHtml(t('cancelDownload')) + '</button>';
   } else if (status === 'error' || status === 'cancelled') {
-    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="retryDownload(\'' + tid + '\')">' + escapeHtml(t('retry')) + '</button>';
-    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="viewLog(\'' + tid + '\')">' + escapeHtml(t('viewLog')) + '</button>';
-    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
+    actions = '<button class="btn btn-ghost" type="button" onclick="retryDownload(\'' + tid + '\')">' + escapeHtml(t('retry')) + '</button>';
+    actions += '<button class="btn btn-ghost" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
   } else if (status === 'completed') {
-    actions = '<button class="btn btn-ghost btn-sm" type="button" onclick="openDownloadDir(\'' + tid + '\')">' + escapeHtml(t('openDir')) + '</button>';
-    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="viewLog(\'' + tid + '\')">' + escapeHtml(t('viewLog')) + '</button>';
-    actions += '<button class="btn btn-ghost btn-sm" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
+    actions = '<button class="btn btn-ghost" type="button" onclick="openDownloadDir(\'' + tid + '\')">' + escapeHtml(t('openDir')) + '</button>';
+    actions += '<button class="btn btn-ghost" type="button" onclick="playVideo(\'' + tid + '\')">Play</button>';
+    actions += '<button class="btn btn-ghost" type="button" onclick="removeDownload(\'' + tid + '\')">' + escapeHtml(t('removeDownload')) + '</button>';
   }
 
-  var urlRow = '<div class="dl-detail-url-label">' + escapeHtml(t('downloadUrlPlaceholder')) + '</div>' +
-    '<div class="dl-detail-url" title="' + escapeAttr(task.url || '') + '">' + escapeHtml(task.url || '') + '</div>';
+  var urlRow = '<div class="dl-detail-url" title="' + escapeAttr(task.url || '') + '">' + escapeHtml(task.url || '') + '</div>';
 
   var errorRow = task.error
     ? '<div class="dl-detail-error">' + escapeHtml(task.error) + '</div>'
@@ -654,17 +872,33 @@ function taskDetailHtml(task) {
     ? '<div class="dl-detail-progress">' + escapeHtml(progressText) + '</div>'
     : (statusDetail ? '<div class="dl-detail-status-detail">' + escapeHtml(statusDetail) + '</div>' : '');
 
+  // Meta rows (Path, Size, Resolution)
+  var pathLabel = task.filePath ? escapeHtml(task.filePath) : '-';
+  var sizeVal = task.fileSize || p.totalBytes || 0;
+  var sizeLabel = sizeVal ? formatBytes(sizeVal) : '-';
+  var resLabel = getResolutionLabel(task.quality);
+
+  var metaInfoRows = '' +
+    '<div class="dl-detail-meta-line"><strong>' + escapeHtml(t('path')) + ':</strong> ' + pathLabel + '</div>' +
+    '<div class="dl-detail-meta-line"><strong>' + escapeHtml(t('size')) + ':</strong> ' + sizeLabel + ' · <strong>' + escapeHtml(t('resolution')) + ':</strong> ' + resLabel + '</div>';
+
   return '' +
-    '<div class="dl-detail-card" data-task-id="' + tid + '">' +
-      '<div class="dl-detail-thumb">' + thumb + '</div>' +
-      '<div class="dl-detail-title">' + escapeHtml(title) + '</div>' +
-      '<div class="dl-detail-status">' +
-        '<span class="dl-status-badge ' + escapeAttr('dl-status-' + status) + '">' + escapeHtml(statusLabel) + '</span>' +
+    '<div class="dl-detail-layout" data-task-id="' + tid + '">' +
+      '<div class="dl-detail-left">' +
+        '<div class="dl-detail-thumb">' + thumb + '</div>' +
+        '<div class="dl-detail-title" title="' + escapeAttr(title) + '">' + escapeHtml(title) + '</div>' +
+        metaInfoRows +
+        '<div class="dl-detail-status">' +
+          '<span class="dl-status-badge ' + escapeAttr('dl-status-' + status) + '">' + escapeHtml(statusLabel) + '</span>' +
+        '</div>' +
+        progressRow +
+        urlRow +
+        errorRow +
+        '<div class="dl-detail-actions">' + actions + '</div>' +
       '</div>' +
-      progressRow +
-      urlRow +
-      errorRow +
-      '<div class="dl-detail-actions">' + actions + '</div>' +
+      '<div class="dl-detail-right">' +
+        '<pre class="dl-detail-log" id="dl-detail-log">' + escapeHtml(t('loading')) + '...</pre>' +
+      '</div>' +
     '</div>';
 }
 
@@ -713,9 +947,11 @@ async function removeDownload(taskId) {
   if (downloadTaskEls[taskId]) { downloadTaskEls[taskId].remove(); delete downloadTaskEls[taskId]; }
   delete downloadTasksMap[taskId];
   if (selectedTaskId === taskId) selectedTaskId = '';
-  var container = document.getElementById('dl-tasks');
-  if (container && !Object.keys(downloadTaskEls).length) {
-    container.innerHTML = emptyState(t('noDownloads'));
+  var listEl = document.getElementById('dl-task-list');
+  var detailEl = document.getElementById('dl-task-detail');
+  if (listEl && !Object.keys(downloadTaskEls).length) {
+    listEl.innerHTML = '';
+    if (detailEl) detailEl.innerHTML = emptyState(t('noDownloads'));
     selectedTaskId = '';
     return;
   }
@@ -738,16 +974,12 @@ async function clearCompletedDownloads() {
   loadDownloadTasks();
 }
 
-// openDownloadDir copies the task's output path to the clipboard as a hint,
-// since the browser cannot open a server-side folder directly.
-function openDownloadDir(taskId) {
-  var task = downloadTasksMap[taskId];
-  var path = task && (task.filePath || task.savedFile || task.downloadDir);
-  if (!path) { toast(t('downloadFailed', ['no path']), 'error'); return; }
-  if (typeof copyToClipboard === 'function') {
-    copyToClipboard(path, t('openDir'));
-  } else {
-    toast(path, 'info');
+// openDownloadDir requests the server to open the downloaded file's folder in the system file manager,
+// falling back to copying the path to the clipboard if that fails.
+async function openDownloadDir(taskId) {
+  var res = await apiPost('/downloads/' + encodeURIComponent(taskId) + '/open', {});
+  if (res && res.error) {
+    toast(res.error, 'error');
   }
 }
 
@@ -857,4 +1089,95 @@ function formatProgress(percent) {
 // escapeAttr escapes a value for safe inclusion in a double-quoted attribute.
 function escapeAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// togglePlaylistEntries expands or collapses the playlist list rows in preview.
+function togglePlaylistEntries() {
+  var entries = document.querySelector('.dl-playlist-entries');
+  var heading = document.querySelector('.dl-playlist-entries-heading');
+  var iconUp = document.querySelector('.icon-chevron-up');
+  var iconDown = document.querySelector('.icon-chevron-down');
+  var taskList = document.getElementById('dl-task-list');
+  if (!entries) return;
+  if (entries.style.display === 'none') {
+    entries.style.display = 'flex';
+    isParsedPreviewFolded = false;
+    if (heading) heading.style.display = 'block';
+    if (iconUp) iconUp.style.display = 'block';
+    if (iconDown) iconDown.style.display = 'none';
+    if (taskList) taskList.style.display = 'none';
+  } else {
+    entries.style.display = 'none';
+    isParsedPreviewFolded = true;
+    if (heading) heading.style.display = 'none';
+    if (iconUp) iconUp.style.display = 'none';
+    if (iconDown) iconDown.style.display = 'block';
+    if (taskList) taskList.style.display = 'flex';
+  }
+}
+
+// playVideo - triggers single or multi video playback in Gallery module.
+function playVideo(taskId) {
+  if (taskId && selectedTaskIds.indexOf(taskId) < 0) {
+    selectedTaskIds.push(taskId);
+  }
+
+  var completedTasks = selectedTaskIds.map(function(id) {
+    return downloadTasksMap[id];
+  }).filter(function(t) {
+    return t && t.status === 'completed' && (t.filePath || t.savedFile);
+  });
+
+  if (!completedTasks.length) {
+    toast('No completed videos selected', 'warning');
+    return;
+  }
+
+  var videoObjs = completedTasks.map(function(task) {
+    var fileUrl = '/api/downloads/' + encodeURIComponent(task.id) + '/file';
+    var rawPath = task.filePath || task.savedFile || task.url || '';
+    var normalizedPath = rawPath.replace(/\\/g, '/');
+    return {
+      name: task.title || task.url || task.id,
+      path: normalizedPath,
+      kind: 'plain',
+      mainURL: fileUrl,
+      size: task.fileSize || 0
+    };
+  });
+
+  if (typeof galleryState !== 'undefined') {
+    galleryState.mediaType = 'video';
+    galleryState.focus = 'video';
+    galleryState.videoPlayingState = true;
+    galleryState.videoItems = videoObjs;
+    galleryState.videoIndex = 0;
+    if (typeof updateVideoDirStructure === 'function') updateVideoDirStructure();
+    if (typeof renderTreePanel === 'function') renderTreePanel();
+    if (typeof updateLayoutMode === 'function') updateLayoutMode();
+    if (typeof setVideoActive === 'function') setVideoActive(0);
+  }
+
+  // Redirect to Gallery page and play
+  var playMsg = videoObjs.length > 1
+    ? 'Playing ' + videoObjs.length + ' videos... (Switching to Gallery)'
+    : 'Playing ' + videoObjs[0].name + '... (Switching to Gallery)';
+  toast(playMsg, 'success');
+
+  var galleryBtn = document.querySelector('button[data-page="gallery"]');
+  if (galleryBtn) {
+    galleryBtn.click();
+  }
+}
+
+// getResolutionLabel maps quality preset to display resolution labels.
+function getResolutionLabel(quality) {
+  var map = {
+    best: 'Best',
+    good: '1080p',
+    normal: '720p',
+    bad: '480p',
+    worst: '360p'
+  };
+  return map[quality] || '-';
 }

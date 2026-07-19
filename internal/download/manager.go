@@ -189,17 +189,16 @@ func (m *Manager) processTask(taskID string) {
 	case err != nil:
 		m.finalizeTask(taskID, StatusError, err.Error(), 0)
 	default:
+		m.mu.Lock()
+		if t, ok := m.tasks[taskID]; ok {
+			t.FilePath = filePath
+			t.SavedFile = filePath
+		}
+		m.mu.Unlock()
 		if info, statErr := fileSizeOf(filePath); statErr == nil {
 			m.finalizeTask(taskID, StatusCompleted, "", info)
 		} else {
 			m.finalizeTask(taskID, StatusCompleted, "", 0)
-		}
-		task, _ := m.GetTask(taskID)
-		if task != nil {
-			m.mu.Lock()
-			task.FilePath = filePath
-			task.SavedFile = filePath
-			m.mu.Unlock()
 		}
 	}
 }
@@ -233,9 +232,23 @@ func (m *Manager) updateTaskProgress(taskID string, p Progress) {
 		m.mu.Unlock()
 		return
 	}
-	task.Progress = p
+	task.Progress.Percent = p.Percent
+	task.Progress.SpeedBytes = p.SpeedBytes
+	task.Progress.Downloaded = p.Downloaded
+	task.Progress.TotalBytes = p.TotalBytes
+	task.Progress.ETASeconds = p.ETASeconds
+	task.Progress.Processing = p.Processing
+
 	if p.Processing && task.Status == StatusDownloading {
 		task.Status = StatusProcessing
+	}
+
+	if p.LogLine != "" {
+		task.LogTail += p.LogLine + "\n"
+		const maxLogSize = 64 * 1024
+		if len(task.LogTail) > maxLogSize {
+			task.LogTail = task.LogTail[len(task.LogTail)-maxLogSize:]
+		}
 	}
 	m.mu.Unlock()
 	m.publishEvent(Event{Type: "task-updated", Task: m.snapshot(task)})

@@ -52,6 +52,7 @@ type Progress struct {
 	TotalBytes int64   `json:"totalBytes"` // bytes, 0 未知
 	ETASeconds int     `json:"etaSeconds"` // 0 未知
 	Processing bool    `json:"processing"` // 是否处于 ffmpeg 后处理阶段
+	LogLine    string  `json:"logLine,omitempty"`
 }
 
 // Task 表示一个下载任务。
