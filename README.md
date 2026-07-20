@@ -230,7 +230,7 @@ providers:
   - id: "prov_1"
     name: "My Provider"
     prefix: "my"
-    baseUrl: "https://api.example.com/v1"
+    baseUrl: "https://api.example.com/v1"  # 可含 /v1 或不含，系统智能识别注入
     apiType: "openai-compatible"
     isActive: true
     rotationStrategy: ""          # 空=继承全局

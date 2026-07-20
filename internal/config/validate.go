@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -57,8 +58,8 @@ func validateProviders(cfg *Config) {
 		if !validAPITypes[p.APIType] {
 			fmt.Fprintf(os.Stderr, "[config] warning: provider %q has unknown apiType %q\n", p.ID, p.APIType)
 		}
-		if p.APIType == "anthropic" && !strings.HasSuffix(p.BaseURL, "/v1/messages") && !strings.HasSuffix(p.BaseURL, "*") {
-			fmt.Fprintf(os.Stderr, "[config] warning: anthropic provider %q BaseURL should typically end with /v1/messages or use raw mode (*) suffix\n", p.ID)
+		if p.APIType == "anthropic" && !strings.HasSuffix(p.BaseURL, "/v1/messages") && !strings.HasSuffix(p.BaseURL, "*") && !strings.HasSuffix(p.BaseURL, "/v1") && !isHostRootURL(p.BaseURL) {
+			fmt.Fprintf(os.Stderr, "[config] warning: anthropic provider %q BaseURL should typically end with /v1/messages or /v1, or be a host root (e.g. https://api.anthropic.com), or use raw mode (*) suffix\n", p.ID)
 		}
 		for j := range p.Models {
 			validateModelDef(&p, &p.Models[j])
@@ -82,4 +83,13 @@ func splitModel(s string) (string, string) {
 		}
 	}
 	return "", s
+}
+
+// isHostRootURL reports whether the URL has no path beyond the host.
+func isHostRootURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return u.Path == "" || u.Path == "/"
 }

@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/proxy/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-19，仓库工作区（`main`）。本次新增/核对：(a) 非流式 keep-alive 从**立即 flush** 改为**延迟 flush**（20s 宽限期后才提交 HTTP 200），快速失败（429/5xx/网络错误）现在能正确返回 502；`passThroughResponse` 新增 `headersFlushed` 参数；(b) CORS 预检 `/v1/*` 现在只反射 localhost 来源的 Origin；(c) 修复了 WebView2 及浏览器对 Playground 与核心静态资产（如 `playground.css`/`vendor/*`/`index.html` 等）的强缓存问题。通过在 `router.go` 的 `serveUI` 与 `noCacheHandler` 中统一注入 `Cache-Control: no-store, no-cache, must-revalidate, max-age=0` 响应头，确保每次编译后 WebView 能够立刻加载最新的静态代码。+ test-proto 单协议 endpoint 替换复合探测 + URL 归一化修复。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-20，仓库工作区（`main`）。本次新增/核对：(a) URL 拼接统一并修复——`proxy.BuildUpstreamURL` 成为唯一 endpoint URL 拼接函数，新增启发式 A（自动检测路径中是否含版本段 `/v1`/`/v1beta`/`/v2` 等，有则不注入 `/v1` 前缀，无则注入）；`api/probe_common.go` 删除 `normalizeProbeBaseURL`/`buildProbeURL`/`buildAnthropicURL` 三个私有函数，改用 `proxy.BuildUpstreamURL`。`normalizeBaseURL` 扩展为最长优先剥除完整 endpoint 后缀（含 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 等）。`buildAnthropicUpstreamRequest` 与 `buildResponsesUpstreamRequest` 的 URL 部分变更为一行调用 `BuildUpstreamURL`。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 > **2026-07-18 更新（Anthropic 协议路由 + 软策略 + Responses 路由 + 多协议探测）：** 本轮在 Anthropic 入口基础上进一步：(1) **软策略修正**——proxy 不再因 `provider.APIType` 拒绝请求，客户端用什么协议入口（`/v1/chat/completions` / `/v1/messages` / `/v1/responses`）请求就按该协议转发；已删除 `forward.go` 旧的两处入口协议严格匹配 400 块，同一聚合 provider 可同时被三入口访问；(2) 新增 **OpenAI Responses 入口** `POST /v1/responses`（router.go:207，`proxyHandler.Responses`，`handleProxy(..., EntryFormatOpenAIResponses)`），与 OpenAI Chat / Anthropic Messages **三入口并列、同端口、按路径区分**；`forwardUpstream` 改为按 `entryFormat` 三分支（upstream.go:76-91），Responses 分支 URL 不注入 `/v1` 前缀、鉴权头 `Authorization: Bearer`；(3) **Anthropic usage 提取**——stream.go 新增 `parseAnthropicSSEUsage` 读 `message_start`/`message_delta` 的 input/output tokens 并复用 `recordUsage`，OpenAI `util.ExtractTokens` 加 guard 避免 anthropic `output_tokens` 干扰；(4) **三协议复合探测**——`api/probe_model.go`+`probe_common.go` 对单模型并发探测 OpenAI-compat / OpenAI-Responses / Anthropic 三协议，把成功集合写回 `ModelDef.Protocols`（变化时落 config.yaml）并写 `state.yaml` 的 `probes` map。详见本文第 §1、§3、§3.1、§3.2、§4、§7、§8.8、§13.1、§17、§18 各节。
 
@@ -236,22 +236,21 @@ flowchart TD
 
 ### 7.2 URL 构造（normalizeBaseURL / BuildUpstreamURL）
 
-- `normalizeBaseURL`（upstream.go:17-26）：去除 `/chat/completions`、`/completions`、`/models`、`/images/generations` 等已知后缀，使 URL 止于 API root。
-- `BuildUpstreamURL`（upstream.go:38-56）支持三种 base 形式：
-  1. **Raw 模式：** base 以 `*` 结尾 → 去掉 `*` 并 trim 右 `/` 后原样返回，不做归一化或后缀拼接（upstream.go:42-44）。
-  2. **Host root（无路径）：** `isHostRoot` 为真（`u.Path==""` 或 `"/"`）→ 注入 `/v1` 后追加完整 `endpointPath`（upstream.go:50-52）。
-  3. **Path-bearing：** 去掉 endpointPath 的 `/v1` 前缀，把剩余 suffix 直接拼到归一化 base（upstream.go:47、upstream.go:55）。
-- **Anthropic URL 构造（不注入 `/v1`）：** 见 §7.3。
+- `normalizeBaseURL`（upstream.go:17-53）：按**最长优先**顺序剥除已知 endpoint 后缀（`/v1/chat/completions`、`/v1/images/generations`、`/chat/completions`、`/v1/responses`、`/v1/completions`、`/v1/messages`、`/v1/models`、`/images/generations`、`/completions`、`/responses`、`/messages`、`/models`），命中即 break。**不含**尾部版本段（如 `/v1`、`/v1beta`、`/v2`）的剥离——版本段检测由 `BuildUpstreamURL` 的启发式 A 处理。
+- `BuildUpstreamURL`（upstream.go:55-101）统一按**启发式 A** 构造 URL：
+  1. **Raw 模式：** base 以 `*` 结尾 → 去掉 `*` 并 trim 右 `/` 后原样返回，不做归一化或后缀拼接（upstream.go:76-78）。
+  2. **Host root（无路径）：** `isHostRoot` 为真（`u.Path==""` 或 `"/"`）→ 注入 `/v1` 后追加 `endpointPath` 去掉 `/v1` 前缀后的 suffix（upstream.go:84-86）。
+  3. **Path-bearing base：** 解析归一化 base 的路径段；若**任一**段匹配 `^v\d+(?:beta|alpha)?$`（如 `v1`、`v1beta`、`v2`），则认为 base 已带版本前缀 → **不注入** `/v1`，直接追加 suffix（upstream.go:93-95）；否则视为无版本段 → 注入 `/v1` 后再追加 suffix（upstream.go:101）。
+- 新算法彻底解决了原 bug：
+  - bug A：`buildProbeURL("https://openrouter.ai/api/v1", "/v1/chat/completions")` → 归一化后 `https://openrouter.ai/api/v1` 含 `/v1` 段 → 不注入额外 `/v1` → `https://openrouter.ai/api/v1/chat/completions`（不再重复 `/v1`）。
+  - bug B：`BuildUpstreamURL("https://openrouter.ai/api", "/v1/chat/completions")` → 归一化后 `https://openrouter.ai/api` 无版本段 → 注入 `/v1` → `https://openrouter.ai/api/v1/chat/completions`（不再丢失 `/v1`）。
 
-### 7.3 Anthropic 上游请求构造（upstream.go:135-179）
+### 7.3 Anthropic 上游请求构造（upstream.go:130-139）
 
-`buildAnthropicUpstreamRequest`（upstream.go:135-164）在 `sel.Provider.IsAnthropic()` 为真时由 `forwardUpstream` 调用（upstream.go:72-73），与 OpenAI 路径有两处根本差异：
+`buildAnthropicUpstreamRequest`（upstream.go:130-139）由 `forwardUpstream` 在 `entryFormat == EntryFormatAnthropic` 时调用（upstream.go:77-78），与 OpenAI 路径有两处根本差异：
 
-1. **URL 不注入 `/v1` 前缀：** Anthropic 的 BaseURL 期望本身就是**完整 endpoint**，按以下优先级处理（upstream.go:136-156）：
-   - **Raw 模式：** BaseURL 以 `*` 结尾 → 去掉 `*` 并 trim 右 `/` 后原样作 endpoint（upstream.go:138-146），与 OpenAI raw 模式一致。
-   - **完整 endpoint 形式：** BaseURL 已以 `/v1/messages` 结尾 → 直接用作上游 URL，不做任何拼接（upstream.go:149-152）。推荐配置形如 `https://api.anthropic.com/v1/messages`。
-   - **host-root / path-bearing 形式：** 否则在 trim 尾 `/` 后追加固定路径 `/v1/messages`（upstream.go:153-156）。
-2. **认证头分支（绝不设 `Authorization`）：** `setAnthropicHeaders`（upstream.go:168-179）设置：
+1. **URL 统一由 `BuildUpstreamURL` 构造：** Anthropic 上游 URL 不再单独实现 raw/完整 endpoint/host-root 三分支，而是改为一行调用 `BuildUpstreamURL(sel.Provider.BaseURL, "/v1/messages")`（upstream.go:131）。启发式 A 自动判断 BaseURL 是否含版本段：若已含 `/v1`（如 `https://api.anthropic.com/v1` 或 `https://api.anthropic.com/v1/messages`）则不注入额外 `/v1`；若为 host root（如 `https://api.anthropic.com`）则注入 `/v1`。推荐配置形如 `https://api.anthropic.com` 或 `https://api.anthropic.com/v1` 或 `https://api.anthropic.com/v1/messages`。
+2. **认证头分支（绝不设 `Authorization`）：** `setAnthropicHeaders`（upstream.go:141-152）设置：
    - `Content-Type: application/json`（upstream.go:169）；
    - `x-api-key: <key>`（upstream.go:170）——替代 OpenAI 的 `Authorization: Bearer`；
    - `anthropic-version: <Provider.AnthropicVersion>`，为空时回落默认 `2023-06-01`（upstream.go:171-175）；
@@ -269,17 +268,14 @@ flowchart TD
 
 上述改写作用于当前重试迭代的 body；每次循环都基于原始 `parsed`（combo 传入的同一 map）重新执行，因此重试之间不会互相污染。
 
-### 7.5 OpenAI Responses 上游请求构造（upstream.go:185-225）
+### 7.5 OpenAI Responses 上游请求构造（upstream.go:155-167）
 
-`buildResponsesUpstreamRequest`（upstream.go:203-225）在 `entryFormat == EntryFormatOpenAIResponses` 时由 `forwardUpstream` 调用（upstream.go:79-80），与 OpenAI Chat 路径的差异只在 URL：
+`buildResponsesUpstreamRequest`（upstream.go:155-167）在 `entryFormat == EntryFormatOpenAIResponses` 时由 `forwardUpstream` 调用（upstream.go:79-80），与 OpenAI Chat 路径的差异只在 URL：
 
-1. **URL 不注入 `/v1` 前缀（同 Anthropic 规则）：** 按以下优先级处理（与 §7.3 同形）：
-   - **Raw 模式：** BaseURL 以 `*` 结尾 → 去掉 `*` 并 trim 右 `/` 后原样作 endpoint（upstream.go:138-146）。
-   - **完整 endpoint 形式：** BaseURL 已以 `/v1/responses` 结尾 → 直接用作上游 URL（upstream.go:149-152）。
-   - **host-root / path-bearing 形式：** 否则在 trim 尾 `/` 后追加固定路径 `/v1/responses`（upstream.go:153-156）。
-2. **鉴权头 `Authorization: Bearer <key>`（与 OpenAI Chat 保持一致）：** Responses 分支不设 `x-api-key`，复用 OpenAI Chat 的 Bearer 鉴权；固定头 `Content-Type: application/json`（upstream.go:81、169 同形）。
+1. **URL 统一由 `BuildUpstreamURL` 构造：** 不再单独实现 raw/完整 endpoint/host-root 三分支，改为一行调用 `BuildUpstreamURL(sel.Provider.BaseURL, "/v1/responses")`（upstream.go:156）。启发式 A 自动判断是否需注入 `/v1`：若 BaseURL 已含版本段（如 `/v1`、`/v1beta`）则不注入，否则注入。
+2. **鉴权头 `Authorization: Bearer <key>`（与 OpenAI Chat 保持一致）：** Responses 分支不设 `x-api-key`，复用 OpenAI Chat 的 Bearer 鉴权；固定头 `Content-Type: application/json`（upstream.go:81、160 同形）。
 
-> 设计要点：Responses 入口与 Anthropic 入口**仅在 URL 拼接策略上一致（不注入 `/v1` 前缀、按 raw/完整 endpoint/host-root 三类拼 `/v1/responses`）**，但在鉴权上仍走 OpenAI 的 `Authorization: Bearer` 分支。TinyRouter 不解析 Responses 的 SSE event（如 `response.created`/`response.output_text.delta`/`response.completed`），只透传——但 SSE 数据结构与 OpenAI Chat 兼容，故 usage 提取复用 `util.ExtractTokens`（见 §8.9）。
+> 设计要点：Responses 入口与 Anthropic 入口**现在 URL 均通过 `BuildUpstreamURL` 统一构造**（不再各自实现三分支），启发式 A 自动判断是否注入 `/v1`。鉴权上 Responses 仍走 OpenAI 的 `Authorization: Bearer` 分支。TinyRouter 不解析 Responses 的 SSE event（如 `response.created`/`response.output_text.delta`/`response.completed`），只透传——但 SSE 数据结构与 OpenAI Chat 兼容，故 usage 提取复用 `util.ExtractTokens`（见 §8.9）。
 
 ### 7.6 Anthropic Provider 配置示例
 
@@ -597,7 +593,7 @@ go build -o tinyrouter .
 - `internal/proxy/handler.go`：Handler 结构体（15-36）、构造函数 New（43-80）、ChatCompletions/Completions（159-165）、Messages（179-181，Anthropic 入口，调用 `handleProxy(..., EntryFormatAnthropic)`）、Responses（188-189，OpenAI Responses 入口，调用 `handleProxy(..., EntryFormatOpenAIResponses)`）、SetProxy（102-142）、SetUpstreamTimeout（147-154）、SetDebugModeProvider（215-224）、ImagesGenerations（167-169）、PollTask（171-173）。
 - `internal/proxy/interfaces.go`：6 个能力接口 Logger/KeyProvider/ModelResolver/ComboResolver（`Resolve(name, entryFormat)`，61-64）/UsageRecorder/QuotaTracker（16-81）。
 - `internal/proxy/forward.go`：handleProxy（15-105，软策略：不再做入口协议严格匹配 400 块，仅模型解析 + 透传准备）、handleCombo（102-142，含 `entryFormat` 透传）、forwardWithRetry（139-342，含 `entryFormat` 透传，延迟 keep-alive 217-276）、broadcastRequestStart（344-354）、writeError（356-365）、backfillThoughtSignatures（380-421）、hasThoughtSignature（423-434）。
-- `internal/proxy/upstream.go`：normalizeBaseURL（17-26，suffix 剥离列表含 `"/images/generations"`）、BuildUpstreamURL（38-56）、forwardUpstream（67-121，按 `entryFormat` 三分支：OpenAI Chat / Anthropic / OpenAI Responses）、buildAnthropicUpstreamRequest（135-164，URL 不注入 `/v1` 前缀）、setAnthropicHeaders（168-179，x-api-key/anthropic-version/anthropic-beta，不设 Authorization）、buildResponsesUpstreamRequest（185-225，URL 不注入 `/v1` 前缀、鉴权 `Authorization: Bearer`）。
+- `internal/proxy/upstream.go`：normalizeBaseURL（17-53，最长优先剥除 endpoint 后缀）、BuildUpstreamURL（55-101，启发式 A：判断路径是否含版本段决定注入 `/v1`）、forwardUpstream（113-174，按 `entryFormat` 三分支：OpenAI Chat / Anthropic / OpenAI Responses）、buildAnthropicUpstreamRequest（130-139，URL 由 BuildUpstreamURL 统一构造）、setAnthropicHeaders（141-152，x-api-key/anthropic-version/anthropic-beta，不设 Authorization）、buildResponsesUpstreamRequest（155-167，URL 由 BuildUpstreamURL 统一构造、鉴权 `Authorization: Bearer`）。
 - `internal/proxy/stream.go`：SSELineBuffer（15-41）、SSEDataPayloads（50-64）、normalizeSSEChunk（74-110）、streamResponse（139-305，`entryFormat` 控制 OpenAI 专用 `parseAndBroadcastChunk` 仅 OpenAI 入口调用、anthropic 入口走 `parseAnthropicSSEUsage` 提取 usage）、passThroughResponse（307-341，新增 `headersFlushed bool` 参数，348）、parseAndBroadcastChunk（349-368）、chunkDelta/parseSSEChunkDelta（371-418）、extractThoughtSignature（444-490）、parseAnthropicSSEUsage（415-450，读 message_start/message_delta 的 input/output tokens）。
 - `internal/proxy/retry.go`：retryState（14-21）、maxRetries（33-39）、logRequest（42-49）、handleNetworkError（52-59）、handle429（62-235）、handleUpstreamError（241-305）、classifySenseNova429（318-327）、excludeSameAccountKeys（332-342）。
 - `internal/proxy/recorder.go`：recordUsage（16-66）、parseAndUpdateQuota（68-90）。

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tinyrouter/tinyrouter/internal/proxy"
 )
 
 // Protocol identifiers (mirror config.Protocol* constants; defined locally so
@@ -44,7 +46,7 @@ type probeQuotaHook func(model string, resp *http.Response)
 // max_tokens:16, stream:false}. Auth: Authorization: Bearer <key>.
 func probeOpenAICompat(ctx context.Context, client *http.Client, baseURL, model, apiKey string, onOK probeQuotaHook) ProbeResult {
 	const path = "/v1/chat/completions"
-	url := buildProbeURL(baseURL, path)
+	url := proxy.BuildUpstreamURL(baseURL, path)
 	body := map[string]any{
 		"model":      model,
 		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
@@ -59,7 +61,7 @@ func probeOpenAICompat(ctx context.Context, client *http.Client, baseURL, model,
 // Auth: Authorization: Bearer <key>.
 func probeOpenAIResponses(ctx context.Context, client *http.Client, baseURL, model, apiKey string, onOK probeQuotaHook) ProbeResult {
 	const path = "/v1/responses"
-	url := buildProbeURL(baseURL, path)
+	url := proxy.BuildUpstreamURL(baseURL, path)
 	body := map[string]any{
 		"model":             model,
 		"input":             []map[string]any{{"role": "user", "content": "hi"}},
@@ -74,7 +76,7 @@ func probeOpenAIResponses(ctx context.Context, client *http.Client, baseURL, mod
 // Auth: x-api-key: <key> + anthropic-version: 2023-06-01.
 func probeAnthropic(ctx context.Context, client *http.Client, baseURL, model, apiKey string, onOK probeQuotaHook) ProbeResult {
 	const path = "/v1/messages"
-	url := buildAnthropicURL(baseURL, path)
+	url := proxy.BuildUpstreamURL(baseURL, path)
 	body := map[string]any{
 		"model":      model,
 		"max_tokens": 16,
@@ -82,72 +84,6 @@ func probeAnthropic(ctx context.Context, client *http.Client, baseURL, model, ap
 		"stream":     false,
 	}
 	return doProbe(ctx, client, probeProtocolAnthropic, http.MethodPost, url, "application/json", "x-api-key", apiKey, body, onOK, "anthropic-version", "2023-06-01")
-}
-
-// normalizeProbeBaseURL strips known endpoint suffixes so the URL ends at the
-// API root. Examples:
-//
-//	"https://example.com/v1/chat/completions" → "https://example.com"
-//	"https://example.com/v1/responses"        → "https://example.com"
-//	"https://example.com/v1/messages"         → "https://example.com"
-//	"https://example.com/v1/models"           → "https://example.com"
-//	"https://example.com/v1/images/generations" → "https://example.com"
-func normalizeProbeBaseURL(baseURL string) string {
-	baseURL = strings.TrimSpace(baseURL)
-	baseURL = strings.TrimSuffix(baseURL, "/")
-	for _, suffix := range []string{
-		"/v1/chat/completions",
-		"/chat/completions",
-		"/completions",
-		"/v1/responses",
-		"/responses",
-		"/v1/messages",
-		"/messages",
-		"/v1/models",
-		"/models",
-		"/v1/images/generations",
-		"/images/generations",
-	} {
-		if strings.HasSuffix(baseURL, suffix) {
-			baseURL = baseURL[:len(baseURL)-len(suffix)]
-			break
-		}
-	}
-	return baseURL
-}
-
-// buildProbeURL constructs the OpenAI-style upstream URL from a base URL and an
-// endpoint path. It mirrors proxy.BuildUpstreamURL but avoids depending on the
-// proxy package's normalization: it supports raw mode (trailing '*'),
-// complete-endpoint form, and host-root/path-bearing append.
-func buildProbeURL(baseURL, endpointPath string) string {
-	trimmed := strings.TrimSpace(baseURL)
-	if strings.HasSuffix(trimmed, "*") {
-		return strings.TrimRight(strings.TrimSuffix(trimmed, "*"), "/")
-	}
-	trimmed = normalizeProbeBaseURL(trimmed)
-	trimmed = strings.TrimSuffix(trimmed, "/")
-	if strings.HasSuffix(trimmed, endpointPath) {
-		return trimmed
-	}
-	return trimmed + endpointPath
-}
-
-// buildAnthropicURL constructs the Anthropic /v1/messages upstream URL. The /v1
-// prefix is NOT injected: BaseURL is treated as the complete endpoint when it
-// already ends with the path, otherwise the path is appended. Raw mode (trailing
-// '*') is honored verbatim.
-func buildAnthropicURL(baseURL, endpointPath string) string {
-	trimmed := strings.TrimSpace(baseURL)
-	if strings.HasSuffix(trimmed, "*") {
-		return strings.TrimRight(strings.TrimSuffix(trimmed, "*"), "/")
-	}
-	trimmed = normalizeProbeBaseURL(trimmed)
-	trimmed = strings.TrimSuffix(trimmed, "/")
-	if strings.HasSuffix(trimmed, endpointPath) {
-		return trimmed
-	}
-	return trimmed + endpointPath
 }
 
 // doProbe performs a single JSON POST probe and normalizes the result into a

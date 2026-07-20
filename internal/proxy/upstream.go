@@ -4,19 +4,46 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/tinyrouter/tinyrouter/internal/combo"
 	"github.com/tinyrouter/tinyrouter/internal/rotation"
 )
 
+// versionSegmentRE matches a path segment like "v1", "v1beta", "v2", "v3", etc.
+var versionSegmentRE = regexp.MustCompile(`^v\d+(?:beta|alpha)?$`)
+
 // normalizeBaseURL strips known endpoint suffixes so the URL ends at the API root.
-// e.g. "https://api.example.com/v1/chat/completions" → "https://api.example.com/v1"
+// Stripping is done longest-first so "/v1/chat/completions" is removed before
+// "/chat/completions".  This method does NOT strip trailing version segments
+// (e.g. "/v1", "/v1beta", "/v2"); version-segment detection is handled by
+// BuildUpstreamURL's heuristic A.
 //
-//	"https://api.example.com/v1/models"            → "https://api.example.com/v1"
+// Examples:
+//
+//	"https://api.example.com/v1/chat/completions" → "https://api.example.com"
+//	"https://api.example.com/v1/models"            → "https://api.example.com"
+//	"https://api.example.com/chat/completions"     → "https://api.example.com"
 func normalizeBaseURL(baseURL string) string {
+	baseURL = strings.TrimSpace(baseURL)
 	baseURL = strings.TrimSuffix(baseURL, "/")
-	for _, suffix := range []string{"/chat/completions", "/completions", "/models", "/images/generations"} {
+	// Longest-first ordering avoids partial matches (e.g. "/v1/chat/completions"
+	// must be checked before "/chat/completions").
+	for _, suffix := range []string{
+		"/v1/chat/completions",
+		"/v1/images/generations",
+		"/chat/completions",
+		"/v1/responses",
+		"/v1/completions",
+		"/v1/messages",
+		"/v1/models",
+		"/images/generations",
+		"/completions",
+		"/responses",
+		"/messages",
+		"/models",
+	} {
 		if strings.HasSuffix(baseURL, suffix) {
 			baseURL = baseURL[:len(baseURL)-len(suffix)]
 			break
@@ -26,15 +53,22 @@ func normalizeBaseURL(baseURL string) string {
 }
 
 // BuildUpstreamURL constructs the full upstream URL from a base URL and an endpoint path.
-// endpointPath is like "/v1/chat/completions" or "/v1/models".
+// endpointPath is like "/v1/chat/completions" or "/v1/messages".
 //
 // Three base URL forms are supported:
 //   - Raw mode: a trailing '*' means the trimmed prefix is the exact endpoint and is
 //     returned unchanged (no normalization or suffix handling).
-//   - Host root (no path): the "/v1" prefix is injected and the full endpointPath is
-//     appended, preserving backwards compatibility with old configs.
-//   - Path-bearing base (e.g. ".../v1beta/openai"): the "/v1" prefix of endpointPath is
-//     stripped and the remaining suffix is appended directly.
+//   - Host root (no path, e.g. "https://api.deepseek.com"): the "/v1" prefix is injected
+//     and the endpointPath suffix (after stripping "/v1") is appended.
+//   - Path-bearing base (e.g. "https://generativelanguage.googleapis.com/v1beta/openai"):
+//     heuristic A determines whether the path already contains a version segment (v1,
+//     v1beta, v2, v3, …). If yes, no "/v1" is injected; if no, "/v1" is injected before
+//     the endpointPath suffix.
+//
+// Heuristic A: after normalization, the URL path is split into segments. If any segment
+// matches the pattern /^v\d+(beta|alpha)?$/ (e.g. "v1", "v1beta", "v2"), the base is
+// considered to already carry a version prefix and "/v1" is NOT injected. Otherwise
+// "/v1" is injected to ensure the final URL matches the expected endpoint format.
 func BuildUpstreamURL(baseURL, endpointPath string) string {
 	trimmed := strings.TrimSpace(baseURL)
 
@@ -46,13 +80,25 @@ func BuildUpstreamURL(baseURL, endpointPath string) string {
 	normalized := normalizeBaseURL(trimmed)
 	suffix := strings.TrimPrefix(endpointPath, "/v1") // "/v1/chat/completions" -> "/chat/completions"
 
-	// 2) Host root (no path) -> inject "/v1" then append the full endpointPath.
+	// 2) Host root (no path) -> inject "/v1" then append the endpointPath suffix.
 	if isHostRoot(normalized) {
-		return normalized + endpointPath
+		return normalized + "/v1" + suffix
 	}
 
-	// 3) Path-bearing base -> append the suffix directly.
-	return normalized + suffix
+	// 3) Path-bearing base: check if any path segment is a version identifier.
+	parsed, err := url.Parse(normalized)
+	if err == nil {
+		segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+		for _, seg := range segments {
+			if versionSegmentRE.MatchString(seg) {
+				// Base already has a version segment; do NOT inject "/v1".
+				return normalized + suffix
+			}
+		}
+	}
+
+	// No version segment found -> inject "/v1".
+	return normalized + "/v1" + suffix
 }
 
 // isHostRoot reports whether base has no path beyond the host (e.g. "https://api.deepseek.com").
@@ -131,37 +177,14 @@ func (h *Handler) forwardUpstream(ctx context.Context, sel *rotation.SelectedKey
 // provider speaking the Anthropic Messages API. It differs from the OpenAI path
 // in two ways:
 //
-//   - URL: the /v1 prefix is NOT injected. The provider BaseURL is expected to
-//     already be the complete endpoint (e.g. "https://api.anthropic.com/v1/
-//     messages"). If the BaseURL ends with "/v1/messages" it is used verbatim;
-//     otherwise "/v1/messages" is appended to the base (host-root) form. Raw
-//     mode (BaseURL ending in "*") is honored unchanged, like the OpenAI path.
+//   - URL: built by BuildUpstreamURL with endpointPath "/v1/messages". The
+//     heuristic-A logic handles raw-mode, host-root, and path-bearing bases
+//     uniformly.
 //   - Auth: instead of "Authorization: Bearer <key>", it sets "x-api-key: <key>"
 //     plus "anthropic-version" (default "2023-06-01") and, when configured,
 //     "anthropic-beta". No Authorization header is set.
 func buildAnthropicUpstreamRequest(ctx context.Context, sel *rotation.SelectedKey, body []byte, headers http.Header, isStream bool) (string, *http.Request, error) {
-	// Raw mode: a trailing '*' marks the prefix as the complete endpoint.
-	trimmed := strings.TrimSpace(sel.Provider.BaseURL)
-	if strings.HasSuffix(trimmed, "*") {
-		upstreamURL := strings.TrimRight(strings.TrimSuffix(trimmed, "*"), "/")
-		req, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, strings.NewReader(string(body)))
-		if err != nil {
-			return "", nil, err
-		}
-		setAnthropicHeaders(req, sel)
-		return upstreamURL, req, nil
-	}
-
-	// Complete-endpoint form: BaseURL already contains "/v1/messages".
-	trimmed = strings.TrimSuffix(trimmed, "/")
-	var upstreamURL string
-	if strings.HasSuffix(trimmed, "/v1/messages") {
-		upstreamURL = trimmed
-	} else {
-		// Host-root / path-bearing base: append the fixed endpoint path.
-		upstreamURL = trimmed + "/v1/messages"
-	}
-
+	upstreamURL := BuildUpstreamURL(sel.Provider.BaseURL, "/v1/messages")
 	req, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, strings.NewReader(string(body)))
 	if err != nil {
 		return "", nil, err
@@ -186,44 +209,15 @@ func setAnthropicHeaders(req *http.Request, sel *rotation.SelectedKey) {
 }
 
 // buildResponsesUpstreamRequest constructs an upstream POST request for a
-// provider speaking the OpenAI Responses API (/v1/responses). It mirrors the
-// Anthropic builder in that the /v1 prefix is NOT injected by BuildUpstreamURL
-// (which would mangle a BaseURL that already contains /v1/responses into
-// /v1/v1/responses); instead the endpoint is resolved here:
-//
-//   - Raw mode: a trailing '*' means the trimmed prefix is the complete endpoint
-//     and is returned unchanged.
-//   - Complete-endpoint form: BaseURL already ends with "/v1/responses" → used
-//     verbatim.
-//   - Host-root / path-bearing base: "/v1/responses" is appended.
+// provider speaking the OpenAI Responses API (/v1/responses). URL is built by
+// BuildUpstreamURL with endpointPath "/v1/responses"; the heuristic-A logic
+// handles raw-mode, host-root, and path-bearing bases uniformly.
 //
 // Auth uses the standard "Authorization: Bearer <key>" header (NOT x-api-key),
 // mirroring the OpenAI chat entry. No anthropic-version / anthropic-beta headers
 // are set.
 func buildResponsesUpstreamRequest(ctx context.Context, sel *rotation.SelectedKey, body []byte, isStream bool) (string, *http.Request, error) {
-	// Raw mode: a trailing '*' marks the prefix as the complete endpoint.
-	trimmed := strings.TrimSpace(sel.Provider.BaseURL)
-	if strings.HasSuffix(trimmed, "*") {
-		upstreamURL := strings.TrimRight(strings.TrimSuffix(trimmed, "*"), "/")
-		req, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, strings.NewReader(string(body)))
-		if err != nil {
-			return "", nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+sel.Key.Key)
-		return upstreamURL, req, nil
-	}
-
-	// Complete-endpoint form: BaseURL already contains "/v1/responses".
-	trimmed = strings.TrimSuffix(trimmed, "/")
-	var upstreamURL string
-	if strings.HasSuffix(trimmed, "/v1/responses") {
-		upstreamURL = trimmed
-	} else {
-		// Host-root / path-bearing base: append the fixed endpoint path.
-		upstreamURL = trimmed + "/v1/responses"
-	}
-
+	upstreamURL := BuildUpstreamURL(sel.Provider.BaseURL, "/v1/responses")
 	req, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, strings.NewReader(string(body)))
 	if err != nil {
 		return "", nil, err

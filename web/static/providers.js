@@ -692,14 +692,18 @@ async function runAllKeysTest(pid, mid) {
   }
   var results = [];
   var total = 0;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(function() { controller.abort(); }, 60000);
+  let reader;
   try {
     const resp = await fetch('/api/providers/' + pid + '/models/test-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-      body: JSON.stringify({ model: mid })
+      body: JSON.stringify({ model: mid }),
+      signal: controller.signal
     });
     if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
-    const reader = resp.body.getReader();
+    reader = resp.body.getReader();
     const decoder = new TextDecoder();
     var buffer = '';
     while (true) {
@@ -753,8 +757,15 @@ async function runAllKeysTest(pid, mid) {
       }
     }
   } catch (e) {
-    if (statusEl) statusEl.innerHTML = '<span class="badge badge-invalid">' + escapeHtml(e.message || String(e)) + '</span>';
+    if (e.name === 'AbortError') {
+      if (statusEl) statusEl.innerHTML = '<span class="badge badge-invalid">' + escapeHtml('All keys test timed out (60s)') + '</span>';
+    } else {
+      if (statusEl) statusEl.innerHTML = '<span class="badge badge-invalid">' + escapeHtml(e.message || String(e)) + '</span>';
+    }
   } finally {
+    clearTimeout(timeoutId);
+    controller.abort();
+    if (reader) { reader.cancel().catch(function() {}); }
     if (btn) btn.disabled = false;
   }
 }
@@ -942,17 +953,38 @@ async function testModelProtosSerial(pid, modelId, options) {
   // Show testing state in top result area if applicable
   var resultEl = document.getElementById('m-test-result');
   if (resultEl) resultEl.innerHTML = '<span class="badge badge-testing">' + t('testing', [modelId]) + '</span>';
-  for (var i = 0; i < protos.length; i++) {
-    var p = protos[i];
-    try {
-      var r = await apiPost('/providers/' + pid + '/models/test-proto', {model: modelId, proto: p.endpoint});
-      result[p.key] = r;
-      updateMiniBadge(modelId, p.key, r.ok ? 'ok' : (r.skipped ? 'skip' : 'err'));
-    } catch (e) {
-      result[p.key] = {ok: false, error: e.message, skipped: false};
-      updateMiniBadge(modelId, p.key, 'err');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(function() { controller.abort(); }, 20000);
+  try {
+    for (var i = 0; i < protos.length; i++) {
+      var p = protos[i];
+      try {
+        var r = await apiPost('/providers/' + pid + '/models/test-proto', {model: modelId, proto: p.endpoint}, controller.signal);
+        result[p.key] = r;
+        updateMiniBadge(modelId, p.key, r.ok ? 'ok' : (r.skipped ? 'skip' : 'err'));
+      } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        result[p.key] = {ok: false, error: e.message, skipped: false};
+        updateMiniBadge(modelId, p.key, 'err');
+      }
+      if (i < protos.length - 1) await sleep(2000);
     }
-    if (i < protos.length - 1) await sleep(2000);
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      // Mark any untested protos as timed out
+      for (var si = 0; si < protos.length; si++) {
+        if (!result[protos[si].key]) {
+          result[protos[si].key] = {ok: false, error: 'Timed out', skipped: false};
+          updateMiniBadge(modelId, protos[si].key, 'err');
+        }
+      }
+      if (resultEl) resultEl.innerHTML = '<span class="badge badge-invalid">' + escapeHtml('Protocol test timed out (20s)') + '</span>';
+    } else {
+      throw e;
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    controller.abort();
   }
   // Compute final protocols list
   result.protocols = [];
