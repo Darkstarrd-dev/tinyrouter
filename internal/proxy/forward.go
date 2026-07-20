@@ -154,7 +154,11 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 	for {
 		sel, err := h.selector.SelectKey(providerID, upstreamModel, state.excludeKeyIDs)
 		if err != nil {
-			h.logger.Error("no available keys for %s/%s: %v", providerID, upstreamModel, err)
+			dispName := providerID
+			if cfgProvider != nil && cfgProvider.Name != "" {
+				dispName = cfgProvider.Name
+			}
+			h.logger.Error("no available keys for %s/%s: %v", dispName, upstreamModel, err)
 			return false, ""
 		}
 

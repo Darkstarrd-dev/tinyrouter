@@ -75,7 +75,7 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 		candidates = append(candidates, k)
 	}
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no available keys for provider %s (model %s)", providerID, model)
+		return nil, fmt.Errorf("no available keys for provider %s (model %s)", provider.Name, model)
 	}
 	// Apply NIM per-key request-count filter when NIM throttling is active.
 	if s.IsNIMEnabled(providerID, model) {
@@ -93,7 +93,7 @@ func (s *Selector) SelectKey(providerID, model string, excludeKeyIDs []string) (
 		chosen, chosenOk = s.selectFillFirst(candidates)
 	}
 	if !chosenOk {
-		return nil, fmt.Errorf("no available keys for provider %s (model %s)", providerID, model)
+		return nil, fmt.Errorf("no available keys for provider %s (model %s)", provider.Name, model)
 	}
 	state := s.reg.GetKeyState(provider.ID, chosen.ID)
 	if state != nil {
