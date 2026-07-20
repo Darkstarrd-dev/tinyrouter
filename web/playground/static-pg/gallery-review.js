@@ -15,10 +15,34 @@ function entryIndexToArrayIndex(entryIdx) {
   return -1;
 }
 
+// openReviewModelPicker 确保模型列表已加载后再打开选择器
+function openReviewModelPicker(currentValue, onSelect, opts) {
+  if (pgState && pgState.models && pgState.models.length) {
+    pgOpenModelPicker(currentValue, onSelect, opts || {});
+    return;
+  }
+  if (typeof pgLoadModels === 'function') {
+    pgLoadModels().then(function() {
+      pgOpenModelPicker(currentValue, onSelect, opts || {});
+    });
+  } else {
+    pgOpenModelPicker(currentValue, onSelect, opts || {});
+  }
+}
+
 // ---------- render ---------------------------------------------------------
 
 window.renderReviewPanel = function(panel) {
   var old = document.getElementById('gallery-review-section');
+
+  if (!panel && old) {
+    panel = old.parentNode;
+  }
+  if (!panel) {
+    panel = document.getElementById('gallery-tree-panel');
+  }
+  if (!panel) return;
+
   if (old) old.remove();
 
   var rs = galleryState.reviewState;
@@ -26,7 +50,7 @@ window.renderReviewPanel = function(panel) {
   section.id = 'gallery-review-section';
   section.className = 'gallery-review-section';
 
-  var html = '<div class="gallery-review-header">AI Review</div>';
+  var html = '<div class="gallery-review-header">' + T('galleryReviewHeader') + '</div>';
 
   if (rs.active) {
     html += renderActivePanel(rs);
@@ -36,6 +60,11 @@ window.renderReviewPanel = function(panel) {
 
   section.innerHTML = html;
   panel.appendChild(section);
+
+  if (!galleryState.reviewState.reviewOpen) {
+    section.style.display = 'none';
+  }
+
   bindReviewEvents();
 };
 
@@ -44,80 +73,84 @@ function renderConfigPanel(rs) {
 
   // 1. 预设选择
   html += '<div class="gallery-review-field">' +
-    '<label class="gallery-review-label">Preset</label>' +
+    '<label class="gallery-review-label">' + T('galleryReviewPreset') + '</label>' +
     '<div style="display:flex;gap:4px">' +
     '<select id="gallery-review-preset-select" class="gallery-review-select" style="flex:1">' +
-    '<option value="">— Select preset —</option>';
+    '<option value="">' + T('galleryReviewSelectPreset') + '</option>';
   for (var pi = 0; pi < rs.availablePresets.length; pi++) {
     var p = rs.availablePresets[pi];
     var sel = p.id === rs.selectedPresetId ? ' selected' : '';
     html += '<option value="' + escapeHtml(p.id) + '"' + sel + '>' + escapeHtml(p.name) + '</option>';
   }
   html += '</select>' +
-    '<button class="gallery-review-model-btn" id="gallery-review-delete-preset-btn" style="flex:0 0 auto" title="Delete preset">✕</button>' +
+    '<button class="gallery-review-model-btn" id="gallery-review-delete-preset-btn" style="flex:0 0 auto" title="' + T('galleryReviewDeletePreset') + '">✕</button>' +
     '</div></div>';
 
   // 2. 提示词生成模型
+  var promptLabel = rs.promptModelId ? escapeHtml(rs.promptModelId) : T('galleryReviewNotSelected');
   html += '<div class="gallery-review-field">' +
-    '<label class="gallery-review-label">Prompt Generation Model</label>' +
-    '<div class="gallery-review-model-row">' +
-    '<span class="gallery-review-model-display">' + (rs.promptModelId ? escapeHtml(rs.promptModelId) : 'Not selected') + '</span>' +
-    '<button class="gallery-review-model-btn" id="gallery-review-prompt-model-btn">Select</button>' +
-    '</div></div>';
+    '<label class="gallery-review-label">' + T('galleryReviewPromptModel') + '</label>' +
+    '<button class="pg-btn" id="gallery-review-prompt-model-btn" style="width:100%;text-align:left;justify-content:flex-start;font-size:12px;padding:5px 8px">' +
+    promptLabel + ' <span style="float:right;opacity:0.5">▼</span>' +
+    '</button></div>';
 
   // 3. 审核目标描述
   html += '<div class="gallery-review-field">' +
-    '<label class="gallery-review-label">Judge Target (describe what to detect)</label>' +
-    '<textarea class="gallery-review-textarea" id="gallery-review-judge-target" placeholder="e.g. detect advertisements, identify photos with people...">' + escapeHtml(rs.judgeTarget) + '</textarea>' +
+    '<label class="gallery-review-label">' + T('galleryReviewJudgeTarget') +
+    '<button class="gallery-review-expand-btn" id="gallery-review-expand-judge" type="button" title="Expand">▼</button>' +
+    '</label>' +
+    '<textarea class="gallery-review-textarea" id="gallery-review-judge-target" placeholder="' + T('galleryReviewJudgeTargetPlaceholder') + '">' + escapeHtml(rs.judgeTarget) + '</textarea>' +
     '</div>';
 
   // 4. 生成提示词按钮
   html += '<div class="gallery-review-field">' +
     '<button class="gallery-review-btn gallery-review-start-btn" id="gallery-review-gen-prompt-btn" style="width:100%">' +
-    (rs.generatingPrompt ? 'Generating...' : 'Generate Prompt') +
+    (rs.generatingPrompt ? T('galleryReviewGenerating') : T('galleryReviewGeneratePrompt')) +
     '</button></div>';
 
   // 5. 系统提示词
   html += '<div class="gallery-review-field">' +
-    '<label class="gallery-review-label">System Prompt</label>' +
-    '<textarea class="gallery-review-textarea" id="gallery-review-system-prompt" placeholder="System prompt for the review model (required)">' + escapeHtml(rs.systemPrompt) + '</textarea>' +
+    '<label class="gallery-review-label">' + T('galleryReviewSystemPrompt') +
+    '<button class="gallery-review-expand-btn" id="gallery-review-expand-system" type="button" title="Expand">▼</button>' +
+    '</label>' +
+    '<textarea class="gallery-review-textarea" id="gallery-review-system-prompt" placeholder="' + T('galleryReviewSystemPromptPlaceholder') + '">' + escapeHtml(rs.systemPrompt) + '</textarea>' +
     '</div>';
 
   // 6. 视觉审核模型
+  var reviewLabel = rs.reviewModelId ? escapeHtml(rs.reviewModelId) : T('galleryReviewNotSelected');
   html += '<div class="gallery-review-field">' +
-    '<label class="gallery-review-label">Review Model</label>' +
-    '<div class="gallery-review-model-row">' +
-    '<span class="gallery-review-model-display">' + (rs.reviewModelId ? escapeHtml(rs.reviewModelId) : 'Not selected') + '</span>' +
-    '<button class="gallery-review-model-btn" id="gallery-review-review-model-btn">Select</button>' +
-    '</div></div>';
+    '<label class="gallery-review-label">' + T('galleryReviewReviewModel') + '</label>' +
+    '<button class="pg-btn" id="gallery-review-review-model-btn" style="width:100%;text-align:left;justify-content:flex-start;font-size:12px;padding:5px 8px">' +
+    reviewLabel + ' <span style="float:right;opacity:0.5">▼</span>' +
+    '</button></div>';
 
   // 7. 策略 / 并发 / head-tail 参数
   html += '<div class="gallery-review-field">' +
     '<div class="gallery-review-row">' +
-    '<div><label class="gallery-review-label">Strategy</label>' +
+    '<div><label class="gallery-review-label">' + t('strategy') + '</label>' +
     '<select id="gallery-review-strategy" class="gallery-review-select">' +
-    '<option value="all"' + (rs.strategy === 'all' ? ' selected' : '') + '>All</option>' +
-    '<option value="head-tail"' + (rs.strategy === 'head-tail' ? ' selected' : '') + '>Head-Tail</option>' +
+    '<option value="all"' + (rs.strategy === 'all' ? ' selected' : '') + '>' + T('galleryReviewStrategyAll') + '</option>' +
+    '<option value="head-tail"' + (rs.strategy === 'head-tail' ? ' selected' : '') + '>' + T('galleryReviewStrategyHeadTail') + '</option>' +
     '</select></div>' +
-    '<div><label class="gallery-review-label">Concurrency</label>' +
+    '<div><label class="gallery-review-label">' + T('galleryReviewConcurrency') + '</label>' +
     '<input type="number" id="gallery-review-concurrency" class="gallery-review-input" value="' + rs.concurrency + '" min="1" max="10">' +
     '</div></div>' +
     '<div id="gallery-review-headtail-params" style="' + (rs.strategy === 'head-tail' ? 'display:flex' : 'display:none') + ';gap:4px;margin-top:4px">' +
-    '<div style="flex:1"><label class="gallery-review-label">Head Size</label>' +
+    '<div style="flex:1"><label class="gallery-review-label">' + T('galleryReviewHeadSize') + '</label>' +
     '<input type="number" id="gallery-review-headsize" class="gallery-review-input" value="' + rs.headSize + '" min="1" max="50">' +
     '</div>' +
-    '<div style="flex:1"><label class="gallery-review-label">Tail Size</label>' +
+    '<div style="flex:1"><label class="gallery-review-label">' + T('galleryReviewTailSize') + '</label>' +
     '<input type="number" id="gallery-review-tailsize" class="gallery-review-input" value="' + rs.tailSize + '" min="1" max="50">' +
     '</div></div></div>';
 
   // 8. Start Review 按钮
   html += '<div class="gallery-review-field">' +
-    '<button class="gallery-review-btn gallery-review-start-btn" id="gallery-review-start-btn" style="width:100%">Start Review</button>' +
+    '<button class="gallery-review-btn gallery-review-start-btn" id="gallery-review-start-btn" style="width:100%">' + T('galleryReviewStartReview') + '</button>' +
     '</div>';
 
   // 9. 保存为预设按钮
   html += '<div class="gallery-review-field">' +
-    '<button class="gallery-review-btn" id="gallery-review-save-preset-btn" style="width:100%">Save as Preset</button>' +
+    '<button class="gallery-review-btn" id="gallery-review-save-preset-btn" style="width:100%">' + T('galleryReviewSavePreset') + '</button>' +
     '</div>';
 
   return html;
@@ -131,26 +164,26 @@ function renderActivePanel(rs) {
     var pct = rs.total > 0 ? (rs.processed / rs.total * 100) : 0;
     html += '<div style="padding:4px 8px;font-size:11px">' +
       '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
-      '<span style="color:var(--text-secondary)">Processing...</span>' +
+      '<span style="color:var(--text-secondary)">' + T('galleryReviewProcessing') + '</span>' +
       '<span style="color:var(--text-muted)">' + rs.processed + '/' + rs.total + '</span>' +
       '</div>';
     if (rs.failed > 0) {
-      html += '<div style="color:var(--danger);font-size:10px;margin-bottom:2px">Failed: ' + rs.failed + '</div>';
+      html += '<div style="color:var(--danger);font-size:10px;margin-bottom:2px">' + T('galleryReviewFailed') + rs.failed + '</div>';
     }
     html += '<div class="gallery-review-progress">' +
       '<div class="gallery-review-progress-bar" style="width:' + pct + '%"></div>' +
       '</div>' +
-      '<button class="gallery-review-btn" id="gallery-review-cancel-btn" style="margin-top:6px;width:100%">Cancel</button>' +
+      '<button class="gallery-review-btn" id="gallery-review-cancel-btn" style="margin-top:6px;width:100%">' + t('cancel') + '</button>' +
       '</div>';
   } else if (rs.status === 'completed' || rs.status === 'error') {
     // 完成 / 错误
     var foundCount = rs.results.length;
     html += '<div style="padding:4px 8px;font-size:11px">' +
       '<div style="margin-bottom:6px">' +
-      '<span style="color:' + (foundCount > 0 ? 'var(--danger)' : 'var(--text-muted)') + ';font-weight:600">' + foundCount + ' matched</span>' +
-      '<span style="color:var(--text-muted)"> / ' + rs.total + ' total</span>';
+      '<span style="color:' + (foundCount > 0 ? 'var(--danger)' : 'var(--text-muted)') + ';font-weight:600">' + foundCount + T('galleryReviewMatched') + '</span>' +
+      '<span style="color:var(--text-muted)"> / ' + rs.total + T('galleryReviewTotal') + '</span>';
     if (rs.failed > 0) {
-      html += '<span style="color:var(--danger);font-size:10px;margin-left:4px">(' + rs.failed + ' failed)</span>';
+      html += '<span style="color:var(--danger);font-size:10px;margin-left:4px">(' + rs.failed + T('galleryReviewFailedCount') + ')</span>';
     }
     html += '</div>';
 
@@ -169,15 +202,15 @@ function renderActivePanel(rs) {
       html += '<div style="margin-bottom:4px;font-size:10px;color:var(--text-muted)">' +
         '<label style="display:flex;align-items:center;gap:4px;cursor:pointer">' +
         '<input type="checkbox" id="gallery-review-mode-toggle" ' + (rs.reviewMode ? 'checked' : '') + '>' +
-        'Show matched only' +
+        T('galleryReviewShowMatched') +
         '</label></div>';
     }
 
     if (rs.status === 'error') {
-      html += '<div style="color:var(--danger);font-size:10px;margin-bottom:4px">Error during review</div>';
+      html += '<div style="color:var(--danger);font-size:10px;margin-bottom:4px">' + T('galleryReviewError') + '</div>';
     }
 
-    html += '<button class="gallery-review-btn" id="gallery-review-reset-btn" style="width:100%">Reset Review</button>' +
+    html += '<button class="gallery-review-btn" id="gallery-review-reset-btn" style="width:100%">' + T('galleryReviewReset') + '</button>' +
       '</div>';
   }
 
@@ -200,7 +233,7 @@ function bindReviewEvents() {
   if (deletePresetBtn) {
     deletePresetBtn.onclick = function() {
       var rs = galleryState.reviewState;
-      if (!rs.selectedPresetId) { showMsg('No preset selected'); return; }
+      if (!rs.selectedPresetId) { showMsg(T('galleryReviewNoPreset')); return; }
       deletePreset(rs.selectedPresetId);
     };
   }
@@ -210,7 +243,7 @@ function bindReviewEvents() {
   if (promptModelBtn) {
     promptModelBtn.onclick = function() {
       var rs = galleryState.reviewState;
-      pgOpenModelPicker(rs.promptModelId, function(v) {
+      openReviewModelPicker(rs.promptModelId, function(v) {
         rs.promptModelId = v;
         renderReviewPanel();
       }, { kindFilter: 'text' });
@@ -241,12 +274,31 @@ function bindReviewEvents() {
     };
   }
 
+  // 文本框展开/折叠按钮
+  var expandBtns = document.querySelectorAll('.gallery-review-expand-btn');
+  expandBtns.forEach(function(btn) {
+    btn.onclick = function(e) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      var textareaId = this.id === 'gallery-review-expand-judge' ? 'gallery-review-judge-target' : 'gallery-review-system-prompt';
+      var textarea = document.getElementById(textareaId);
+      if (!textarea) return;
+      var expanded = textarea.classList.toggle('expanded');
+      if (expanded) {
+        textarea.style.height = textarea.scrollHeight + 'px';
+        this.textContent = '\u25b2';
+      } else {
+        textarea.style.height = '';
+        this.textContent = '\u25bc';
+      }
+    };
+  });
+
   // 视觉审核模型选择按钮
   var reviewModelBtn = document.getElementById('gallery-review-review-model-btn');
   if (reviewModelBtn) {
     reviewModelBtn.onclick = function() {
       var rs = galleryState.reviewState;
-      pgOpenModelPicker(rs.reviewModelId, function(v) {
+      openReviewModelPicker(rs.reviewModelId, function(v) {
         rs.reviewModelId = v;
         renderReviewPanel();
       }, {});
@@ -392,11 +444,11 @@ function deletePreset(presetId) {
     }
   }
   var html = '<div style="text-align:center;padding:8px">' +
-    '<div style="font-size:15px;margin-bottom:8px">Delete Preset</div>' +
+    '<div style="font-size:15px;margin-bottom:8px">' + T('galleryReviewDeletePresetTitle') + '</div>' +
     '<div style="font-size:12px;color:#888;margin-bottom:14px;word-break:break-all">' + escapeHtml(presetName) + '</div>' +
     '<div style="display:flex;justify-content:center;gap:8px">' +
-    '<button class="pg-btn" id="gallery-preset-del-ok" style="padding:6px 16px">Delete</button>' +
-    '<button class="pg-btn" id="gallery-preset-del-cancel" style="padding:6px 16px">Cancel</button>' +
+    '<button class="pg-btn" id="gallery-preset-del-ok" style="padding:6px 16px">' + t('delete') + '</button>' +
+    '<button class="pg-btn" id="gallery-preset-del-cancel" style="padding:6px 16px">' + t('cancel') + '</button>' +
     '</div></div>';
   pgShowModal(html);
   document.getElementById('gallery-preset-del-ok').onclick = function() {
@@ -418,10 +470,10 @@ function doDeletePreset(presetId) {
       var rs = galleryState.reviewState;
       rs.selectedPresetId = '';
       loadReviewPresets();
-      showMsg('Preset deleted');
+      showMsg(T('galleryReviewPresetDeleted'));
     })
     .catch(function(err) {
-      showMsg('Delete preset failed: ' + err.message);
+      showMsg(T('galleryReviewDeletePresetFailed') + err.message);
     });
 }
 
@@ -429,17 +481,17 @@ function savePreset() {
   var rs = galleryState.reviewState;
   var nameInput = document.createElement('input');
   nameInput.type = 'text';
-  nameInput.placeholder = 'Preset name';
+  nameInput.placeholder = T('galleryReviewPresetNamePlaceholder');
   nameInput.style.cssText = 'width:100%;box-sizing:border-box;padding:6px 8px;border-radius:var(--radius-xs);background:rgba(0,0,0,0.2);border:1px solid var(--glass-border);color:var(--text);font-size:13px;font-family:inherit;outline:none;margin-bottom:8px';
 
   var html = '<div style="text-align:center;padding:8px">' +
-    '<div style="font-size:15px;margin-bottom:8px">Save Preset</div>' +
-    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Name this preset</div>' +
+    '<div style="font-size:15px;margin-bottom:8px">' + T('galleryReviewSavePresetTitle') + '</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">' + T('galleryReviewNamePreset') + '</div>' +
     '</div>' +
     '<div style="padding:0 8px"><div id="gallery-preset-name-container"></div></div>' +
     '<div style="display:flex;justify-content:center;gap:8px;padding:8px">' +
-    '<button class="pg-btn" id="gallery-preset-save-btn" style="padding:6px 16px">Save</button>' +
-    '<button class="pg-btn" id="gallery-preset-cancel-btn" style="padding:6px 16px">Cancel</button>' +
+    '<button class="pg-btn" id="gallery-preset-save-btn" style="padding:6px 16px">' + t('save') + '</button>' +
+    '<button class="pg-btn" id="gallery-preset-cancel-btn" style="padding:6px 16px">' + t('cancel') + '</button>' +
     '</div>';
 
   pgShowModal(html);
@@ -448,7 +500,7 @@ function savePreset() {
 
   document.getElementById('gallery-preset-save-btn').onclick = function() {
     var name = nameInput.value.trim();
-    if (!name) { showMsg('Please enter a preset name'); return; }
+    if (!name) { showMsg(T('galleryReviewEnterPresetName')); return; }
     pgCloseModal();
     doSavePreset(name);
   };
@@ -479,10 +531,10 @@ function doSavePreset(name) {
       var preset = data.preset;
       rs.selectedPresetId = preset.id;
       loadReviewPresets();
-      showMsg('Preset saved');
+      showMsg(T('galleryReviewPresetSaved'));
     })
     .catch(function(err) {
-      showMsg('Save preset failed: ' + err.message);
+      showMsg(T('galleryReviewSavePresetFailed') + err.message);
     });
 }
 
@@ -491,11 +543,11 @@ function doSavePreset(name) {
 function generatePrompt() {
   var rs = galleryState.reviewState;
   if (!rs.promptModelId) {
-    showMsg('Please select a prompt generation model first');
+    showMsg(T('galleryReviewSelectPromptModel'));
     return;
   }
   if (!rs.judgeTarget.trim()) {
-    showMsg('Please enter a judge target description');
+    showMsg(T('galleryReviewEnterJudgeTarget'));
     return;
   }
 
@@ -532,7 +584,7 @@ function generatePrompt() {
     .catch(function(err) {
       rs.generatingPrompt = false;
       renderReviewPanel();
-      showMsg('Generate prompt failed: ' + err.message);
+      showMsg(T('galleryReviewGenPromptFailed') + err.message);
     });
 }
 
@@ -542,17 +594,17 @@ function startReview() {
   var rs = galleryState.reviewState;
 
   if (!rs.reviewModelId) {
-    showMsg('Please select a review model');
+    showMsg(T('galleryReviewSelectReviewModel'));
     return;
   }
   if (!rs.systemPrompt.trim()) {
-    showMsg('System prompt is required');
+    showMsg(T('galleryReviewSystemPromptRequired'));
     return;
   }
 
   var sessionId = galleryState.zipSessionId;
   if (!sessionId) {
-    showMsg('No ZIP session loaded');
+    showMsg(T('galleryReviewNoSession'));
     return;
   }
 
@@ -602,7 +654,7 @@ function startReview() {
       startPolling();
     })
     .catch(function(err) {
-      showMsg('Review start failed: ' + err.message);
+      showMsg(T('galleryReviewStartFailed') + err.message);
     });
 }
 
@@ -682,10 +734,10 @@ function cancelReview() {
       galleryState.reviewState.status = 'cancelled';
       galleryState.reviewState.active = false;
       renderReviewPanel();
-      showMsg('Review cancelled');
+      showMsg(T('galleryReviewCancelled'));
     })
     .catch(function(err) {
-      showMsg('Cancel failed: ' + err.message);
+      showMsg(T('galleryReviewCancelFailed') + err.message);
     });
 }
 
@@ -704,7 +756,7 @@ function resetReview() {
   rs.originalIndices = [];
   renderReviewPanel();
   renderThumbnails();
-  showMsg('Review reset');
+  showMsg(T('galleryReviewResetMsg'));
 }
 
 // ---------- filter ---------------------------------------------------------

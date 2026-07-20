@@ -194,6 +194,7 @@ var galleryState = {
     // 运行时
     pollTimer: null,         // 轮询定时器
     reviewMode: false,       // 审核完成后的浏览模式（仅显示 matched）
+    reviewOpen: false,       // 左侧面板是否展开审核配置
     originalIndices: [],     // 审核前的完整索引列表（用于恢复）
     // 生成中标志
     generatingPrompt: false,  // 正在调用 gen-prompt

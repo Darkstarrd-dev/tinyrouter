@@ -1914,6 +1914,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 .gallery-tree-header{display:flex;align-items:center;justify-content:flex-end;gap:4px;padding:4px 6px 6px;border-bottom:1px solid var(--glass-border);margin-bottom:4px;flex:0 0 auto}
 .gallery-tree-clear-btn{display:inline-flex;align-items:center;justify-content:center;height:24px;min-width:24px;padding:0 8px;border-radius:var(--radius-xs);background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);color:var(--text-secondary);font-size:11px;font-weight:600;cursor:pointer;transition:all var(--transition-fast);user-select:none;font-family:inherit}
 .gallery-tree-clear-btn:hover{background:var(--glass-hover);border-color:var(--danger);color:var(--danger)}
+.gallery-tree-clear-btn.active{background:var(--glass-hover);border-color:var(--primary);color:var(--primary)}
 .gallery-tree-node{display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:12px;color:var(--text-secondary);border-radius:var(--radius-xs);cursor:pointer;transition:all var(--transition-fast);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gallery-tree-node:hover{background:var(--glass-hover);color:var(--text)}
 .gallery-tree-node.active{background:var(--accent-glow);color:var(--accent);font-weight:600}
@@ -2006,6 +2007,9 @@ body.gallery-fullscreen-active #page-content{height:100vh!important}
 .gallery-review-header{font-size:12px;font-weight:600;color:var(--text-secondary);padding:4px 8px;margin-bottom:4px}
 .gallery-review-textarea{width:100%;box-sizing:border-box;min-height:60px;max-height:200px;padding:4px 6px;border-radius:var(--radius-xs);background:rgba(0,0,0,0.2);border:1px solid var(--glass-border);color:var(--text);font-size:11px;font-family:inherit;outline:none;resize:vertical}
 .gallery-review-textarea:focus{border-color:var(--accent)}
+.gallery-review-textarea.expanded{max-height:60vh;overflow-y:auto;resize:none}
+.gallery-review-expand-btn{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;padding:0;margin-left:4px;border:none;border-radius:2px;background:transparent;color:var(--text-muted);font-size:8px;cursor:pointer;vertical-align:middle;line-height:1}
+.gallery-review-expand-btn:hover{color:var(--accent);background:var(--glass-hover)}
 .gallery-review-model-row{display:flex;align-items:center;gap:4px;margin-bottom:4px}
 .gallery-review-model-display{flex:1;min-width:0;height:24px;padding:0 6px;border-radius:var(--radius-xs);background:rgba(0,0,0,0.2);border:1px solid var(--glass-border);color:var(--text-secondary);font-size:11px;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gallery-review-model-btn{flex:0 0 auto;height:24px;padding:0 8px;border-radius:var(--radius-xs);background:rgba(255,255,255,0.06);border:1px solid var(--glass-border);color:var(--text);font-size:11px;cursor:pointer;font-family:inherit}

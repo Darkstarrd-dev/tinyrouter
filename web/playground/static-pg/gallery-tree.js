@@ -47,7 +47,8 @@ function renderTreePanel() {
   if (!panel) return;
 
   var headerHTML = '<div class="gallery-tree-header">' +
-    '<button class="gallery-tree-clear-btn" type="button" title="Clear (C)">Clear</button>' +
+    '<button class="gallery-tree-clear-btn" type="button" title="' + T('galleryClearTitle') + '">' + T('galleryClear') + '</button>' +
+    (isVidActive ? '' : '<button class="gallery-tree-clear-btn' + (galleryState.reviewState.reviewOpen ? ' active' : '') + '" type="button" id="gallery-ai-review-btn" title="' + T('galleryReviewBtn') + '">' + T('galleryReviewBtn') + '</button>') +
     '</div>';
   var contentHTML = '';
   var needVideoNodeBinding = false;
@@ -189,6 +190,10 @@ function renderTreePanel() {
   // 审核面板由 gallery-review.js 接管渲染，此处只暴露容器。
   if (typeof window.renderReviewPanel === 'function' && !isVidActive) {
     window.renderReviewPanel(panel);
+    var reviewSection = document.getElementById('gallery-review-section');
+    if (reviewSection) {
+      reviewSection.style.display = galleryState.reviewState.reviewOpen ? '' : 'none';
+    }
   }
 
   // Bind Clear button
@@ -196,6 +201,19 @@ function renderTreePanel() {
   if (clearBtn) clearBtn.onclick = function(e) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     clearActiveSideTree();
+  };
+
+  // Bind AI Review toggle button
+  var aiBtn = panel.querySelector('#gallery-ai-review-btn');
+  if (aiBtn) aiBtn.onclick = function(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    var rs = galleryState.reviewState;
+    rs.reviewOpen = !rs.reviewOpen;
+    var section = document.getElementById('gallery-review-section');
+    if (section) {
+      section.style.display = rs.reviewOpen ? '' : 'none';
+    }
+    this.classList.toggle('active', rs.reviewOpen);
   };
 
   if (needVideoNodeBinding) {
