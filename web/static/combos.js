@@ -3,6 +3,8 @@
 var comboEditingModels = [];
 var comboEditingDisabledModels = [];
 var comboProvidersCache = null;
+var comboSpeedCache = {};
+var currentEditingComboId = null;
 
 async function renderCombos(c) {
   showSkeleton(c, 3);
@@ -162,7 +164,14 @@ async function showEditCombo(id) {
   }
   comboEditingModels = (cb.models || []).slice();
   comboEditingDisabledModels = (cb.disabledModels || []).slice();
+  currentEditingComboId = id;
   loadComboProvidersAndRender();
+  apiGet('/combos/' + id + '/speed-results').then(function(data) {
+    if (data && data.results && data.results.length > 0) {
+      comboSpeedCache[id] = data.results;
+      renderComboModelsList();
+    }
+  }).catch(function() {});
 }
 
 async function saveEditCombo(id) {
@@ -295,13 +304,20 @@ function findProviderByPrefix(prefix) {
 function renderComboModelsList() {
   var container = document.getElementById('c-models-list');
   if (!container) return;
-  if (comboEditingModels.length === 0) {
+  var displayModels = comboEditingModels.slice();
+  var extraDisabled = [];
+  for (var d = 0; d < comboEditingDisabledModels.length; d++) {
+    var m = comboEditingDisabledModels[d];
+    if (displayModels.indexOf(m) < 0) extraDisabled.push(m);
+  }
+  displayModels = displayModels.concat(extraDisabled);
+  if (displayModels.length === 0) {
     container.innerHTML = emptyState(t('noModels'));
     return;
   }
   var html = '';
-  for (var i = 0; i < comboEditingModels.length; i++) {
-    var fullId = comboEditingModels[i];
+  for (var i = 0; i < displayModels.length; i++) {
+    var fullId = displayModels[i];
     var slashIdx = fullId.indexOf('/');
     var prefix = slashIdx > 0 ? fullId.substring(0, slashIdx) : '';
     var modelId = slashIdx > 0 ? fullId.substring(slashIdx + 1) : fullId;
@@ -312,23 +328,27 @@ function renderComboModelsList() {
     var modelIdEsc = escapeHtml(modelId);
     var pidEsc = escapeHtml(pid);
     var isDisabled = comboEditingDisabledModels.indexOf(fullId) >= 0;
+    var isInMain = comboEditingModels.indexOf(fullId) >= 0;
+    var mainIdx = comboEditingModels.indexOf(fullId);
     var note = provider ? findModelNote(provider, modelId) : '';
     var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
     var hasNoteCls = note ? ' has-model-note' : '';
     var disabledRowStyle = isDisabled ? ' style="opacity:0.5"' : '';
-    var isFirst = i === 0;
-    var isLast = i === comboEditingModels.length - 1;
-    html += '<div class="model-row' + hasNoteCls + '" data-index="' + i + '" draggable="true"' + disabledRowStyle + ' id="combo-row-' + i + '" data-fullid="' + fullIdEsc + '">' +
+    var isFirst = mainIdx === 0;
+    var isLast = mainIdx === comboEditingModels.length - 1;
+    html += '<div class="model-row' + hasNoteCls + '" data-index="' + i + '" draggable="' + (isInMain ? 'true' : 'false') + '"' + disabledRowStyle + ' id="combo-row-' + i + '" data-fullid="' + fullIdEsc + '">' +
       '<div class="model-row-main"' + noteAttr + '>' +
         '<span class="drag-handle" title="' + t('dragToReorder') + '" draggable="false">⠿</span>' +
-        (isDisabled
-          ? '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('enable') + '</button>'
-          : '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + i + ')">' + t('disable') + '</button>') +
-        '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '"' + (isDisabled ? ' disabled' : '') + ' onclick="withLoading(this, () => testComboModel(' + i + '))">' + t('test') + '</button>' +
-        buildMiniProtocolBadges(ts, modelId) +
-        '<button type="button" class="btn btn-sm ' + (isFirst ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
-        '<button type="button" class="btn btn-sm ' + (isLast ? 'disabled ' : '') + 'onclick="moveComboModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
-        '<button type="button" class="btn btn-sm btn-danger" onclick="removeComboModel(' + i + ')">' + t('delete') + '</button>' +
+        (isDisabled && isInMain
+          ? '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + mainIdx + ')">' + t('enable') + '</button>'
+          : isDisabled
+            ? '<button type="button" class="btn btn-sm" onclick="enableComboModel(\'' + escapeForJsString(fullId) + '\')">' + t('enable') + '</button>'
+            : '<button type="button" class="btn btn-sm" onclick="toggleComboModelDisabled(' + mainIdx + ')">' + t('disable') + '</button>') +
+        (isInMain ? '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '"' + (isDisabled ? ' disabled' : '') + ' onclick="withLoading(this, () => testComboModel(' + mainIdx + '))">' + t('test') + '</button>' : '') +
+        (isInMain ? buildMiniProtocolBadges(ts, modelId) : '') +
+        (isInMain ? '<button type="button" class="btn btn-sm ' + (isFirst ? 'disabled ' : '') + 'onclick="moveComboModel(' + mainIdx + ',' + (mainIdx - 1) + ')">' + t('moveUp') + '</button>' : '') +
+        (isInMain ? '<button type="button" class="btn btn-sm ' + (isLast ? 'disabled ' : '') + 'onclick="moveComboModel(' + mainIdx + ',' + (mainIdx + 1) + ')">' + t('moveDown') + '</button>' : '') +
+        (isInMain ? '<button type="button" class="btn btn-sm btn-danger" onclick="removeComboModel(' + mainIdx + ')">' + t('delete') + '</button>' : '') +
         '<span class="model-id copyable" onclick="copyToClipboard(\'' + fullIdEsc + '\')" title="' + t('clickToCopy') + '">' + fullIdEsc + '</span>' +
       '</div>' +
       '<span class="combo-speed-status" data-fullid="' + fullIdEsc + '"></span>' +
@@ -336,6 +356,28 @@ function renderComboModelsList() {
   }
   container.innerHTML = html;
   attachComboRowDragHandlers(container);
+  if (currentEditingComboId && comboSpeedCache[currentEditingComboId]) {
+    var results = comboSpeedCache[currentEditingComboId];
+    var resultMap = {};
+    for (var ri = 0; ri < results.length; ri++) {
+      resultMap[results[ri].fullId] = results[ri];
+    }
+    var statusSpans = container.querySelectorAll('.combo-speed-status');
+    for (var si = 0; si < statusSpans.length; si++) {
+      var span = statusSpans[si];
+      var fid = span.getAttribute('data-fullid');
+      var result = resultMap[fid];
+      if (result) {
+        if (result.ok) {
+          span.textContent = result.ttftMs + 'ms \u00b7 ' + (result.tokensPerSec ? result.tokensPerSec.toFixed(1) : '?') + ' tok/s';
+          span.style.color = '#4caf50';
+        } else {
+          span.textContent = 'ERROR: ' + (result.error || 'unknown');
+          span.style.color = '#e53e3e';
+        }
+      }
+    }
+  }
 }
 
 var comboDragFromIndex = -1;
@@ -395,6 +437,13 @@ function toggleComboModelDisabled(i) {
   renderComboModelsList();
 }
 
+function enableComboModel(fullId) {
+  var idx = comboEditingDisabledModels.indexOf(fullId);
+  if (idx >= 0) comboEditingDisabledModels.splice(idx, 1);
+  if (comboEditingModels.indexOf(fullId) < 0) comboEditingModels.push(fullId);
+  renderComboModelsList();
+}
+
 async function testComboModel(idx) {
   var fullId = comboEditingModels[idx];
   if (!fullId) return;
@@ -430,6 +479,7 @@ async function runComboSpeedTest(comboId) {
   var statusEl = document.getElementById('combo-speed-test-status');
   if (btn) { btn.disabled = true; btn.textContent = t('comboSpeedTesting'); }
   if (statusEl) statusEl.innerHTML = '';
+  delete comboSpeedCache[comboId];
   var total = 0;
   var count = 0;
   var failedModels = [];
@@ -498,6 +548,9 @@ async function runComboSpeedTest(comboId) {
           try { summary = JSON.parse(dataStr); } catch (_) { summary = {}; }
           if (summary.newModels) comboEditingModels = summary.newModels.slice();
           if (summary.newDisabled) comboEditingDisabledModels = summary.newDisabled.slice();
+          if (summary.results) {
+            comboSpeedCache[comboId] = summary.results;
+          }
           renderComboModelsList();
           var newRows = document.querySelectorAll('#c-models-list .model-row');
           for (var ri = 0; ri < newRows.length; ri++) {

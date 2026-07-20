@@ -25,6 +25,11 @@ const (
 	speedTestMaxSec    = 30   // early-stop: max streaming seconds per model
 )
 
+var comboSpeedCache = struct {
+	mu      sync.RWMutex
+	results map[string][]comboSpeedTestResult
+}{results: make(map[string][]comboSpeedTestResult)}
+
 // comboSpeedTestInput is a resolved probe input for a single model in the combo.
 type comboSpeedTestInput struct {
 	fullId   string // "prefix/modelId"
@@ -222,6 +227,11 @@ func (rt *Router) speedTestCombo(w http.ResponseWriter, r *http.Request) {
 		return ri.LatencyMs < rj.LatencyMs
 	})
 
+	// Cache the full sorted results for the GET endpoint.
+	comboSpeedCache.mu.Lock()
+	comboSpeedCache.results[comboID] = append([]comboSpeedTestResult{}, results...)
+	comboSpeedCache.mu.Unlock()
+
 	// Split sorted results into enabled/disabled, preserving each model's original
 	// disabled flag. Both groups are sorted by measured speed (failures at the end
 	// within each group), so the relative order of enabled vs disabled is preserved
@@ -233,7 +243,7 @@ func (rt *Router) speedTestCombo(w http.ResponseWriter, r *http.Request) {
 	newModels := make([]string, 0, len(combo.Models))
 	newDisabledModels := make([]string, 0, len(combo.DisabledModels))
 	for _, res := range results {
-		if disabledSet[res.FullId] {
+		if !res.Ok {
 			newDisabledModels = append(newDisabledModels, res.FullId)
 		} else {
 			newModels = append(newModels, res.FullId)
@@ -254,14 +264,15 @@ func (rt *Router) speedTestCombo(w http.ResponseWriter, r *http.Request) {
 		rt.logger.Error("SPEED-TEST %s | %s", combo.Name, saveErr)
 		// Push a partial error event so the frontend knows the order was not saved.
 		if doneJSON, jErr := json.Marshal(map[string]any{
-			"ok":              okCount,
-			"fail":            failCount,
-			"total":           len(results),
-			"newOrder":        fullSortedOrder(results),
-			"newModels":       newModels,
-			"newDisabled":     newDisabledModels,
-			"warning":         saveErr,
-		}); jErr == nil {
+				"ok":              okCount,
+				"fail":            failCount,
+				"total":           len(results),
+				"results":         results,
+				"newOrder":        fullSortedOrder(results),
+				"newModels":       newModels,
+				"newDisabled":     newDisabledModels,
+				"warning":         saveErr,
+			}); jErr == nil {
 			fmt.Fprintf(w, "event: done\ndata: %s\n\n", doneJSON)
 			flusher.Flush()
 		}
@@ -272,13 +283,14 @@ func (rt *Router) speedTestCombo(w http.ResponseWriter, r *http.Request) {
 
 	// done event
 	if doneJSON, err := json.Marshal(map[string]any{
-		"ok":          okCount,
-		"fail":        failCount,
-		"total":       len(results),
-		"newOrder":    fullSortedOrder(results),
-		"newModels":   newModels,
-		"newDisabled": newDisabledModels,
-	}); err == nil {
+			"ok":          okCount,
+			"fail":        failCount,
+			"total":       len(results),
+			"results":     results,
+			"newOrder":    fullSortedOrder(results),
+			"newModels":   newModels,
+			"newDisabled": newDisabledModels,
+		}); err == nil {
 		fmt.Fprintf(w, "event: done\ndata: %s\n\n", doneJSON)
 		flusher.Flush()
 	}
@@ -419,4 +431,18 @@ func probeComboModel(ctx context.Context, rt *Router, input comboSpeedTestInput,
 	res.OutputTokens = outputTokens
 	res.TokensPerSec = tokensPerSec
 	return res
+}
+
+func (rt *Router) getComboSpeedResults(w http.ResponseWriter, r *http.Request) {
+	comboID := chi.URLParam(r, "id")
+	comboSpeedCache.mu.RLock()
+	results, ok := comboSpeedCache.results[comboID]
+	comboSpeedCache.mu.RUnlock()
+	if !ok || len(results) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"results": nil})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"results": results})
 }

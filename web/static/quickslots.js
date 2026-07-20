@@ -107,7 +107,7 @@ async function showEditQuickSlot(id) {
   var qs = (data.quickslots || []).find(function(x) { return x.id === id; });
   if (!qs) return;
   var overlay = document.getElementById('modal-overlay');
-  overlay.innerHTML = '<div class="modal" style="max-width:520px">\
+  overlay.innerHTML = '<div class="modal" style="max-width:70vw;width:70vw">\
     <div class="modal-title">' + t('quickSlotEdit') + '</div>\
     <div class="form-group"><label for="qs-name">' + t('name') + '</label><input id="qs-name" value="' + escapeHtml(qs.name) + '"></div>\
     <div class="form-group"><label for="qs-order">' + t('quickSlotOrder') + '</label>\
@@ -159,7 +159,9 @@ async function saveEditQuickSlot(id) {
 async function importModelsForQuickSlot() {
   var providers = await apiGet('/providers');
   providers = providers.providers || [];
-  if (providers.length === 0) {
+  var combosData = await apiGet('/combos');
+  var combos = (combosData.combos || []).filter(function(c) { return !c.disabled; });
+  if (providers.length === 0 && combos.length === 0) {
     toast(t('noModelsAvailable'), 'warning');
     return;
   }
@@ -188,6 +190,16 @@ async function importModelsForQuickSlot() {
         var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
         html += '<div class="' + itemCls + '"' + noteAttr + ' data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
       }
+    }
+    html += '</div>';
+  }
+  if (combos.length > 0) {
+    html += '<div class="import-provider-group" style="margin-bottom:12px">';
+    html += '<div><strong>' + t('combos') + '</strong></div>';
+    for (var c = 0; c < combos.length; c++) {
+      var comboName = combos[c].name;
+      var isInList = qsEditingModels.indexOf(comboName) >= 0;
+      html += '<div class="import-model-item' + (isInList ? ' selected' : '') + '" data-value="' + escapeHtml(comboName) + '" data-is-combo="1" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent"><span class="badge badge-combo" style="margin-right:6px">' + t('combo') + '</span>' + escapeHtml(comboName) + '</div>';
     }
     html += '</div>';
   }
@@ -290,14 +302,16 @@ function renderQuickSlotModelsList() {
     var disabledRowStyle = isDisabled ? ' style="opacity:0.5"' : '';
     var isFirst = i === 0;
     var isLast = i === qsEditingModels.length - 1;
+    var isCombo = slashIdx <= 0;
     html += '<div class="model-row' + hasNoteCls + '" data-index="' + i + '" draggable="true"' + disabledRowStyle + '>' +
       '<div class="model-row-main"' + noteAttr + '>' +
         '<span class="drag-handle" title="' + t('dragToReorder') + '" draggable="false">⠿</span>' +
-        '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="withLoading(this, () => testQuickSlotModel(' + i + '))">' + t('test') + '</button>' +
-        buildMiniProtocolBadges(ts, modelId) +
+        (isCombo ? '' : '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="withLoading(this, () => testQuickSlotModel(' + i + '))">' + t('test') + '</button>') +
+        (isCombo ? '' : buildMiniProtocolBadges(ts, modelId)) +
         '<button type="button" class="btn btn-sm ' + (isFirst ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i - 1) + ')">' + t('moveUp') + '</button>' +
         '<button type="button" class="btn btn-sm ' + (isLast ? 'disabled ' : '') + 'onclick="moveQuickSlotModel(' + i + ',' + (i + 1) + ')">' + t('moveDown') + '</button>' +
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeQuickSlotModel(' + i + ')">' + t('delete') + '</button>' +
+        (isCombo ? '<span class="badge badge-combo" style="margin-right:6px">' + t('combo') + '</span>' : '') +
         '<span class="model-id copyable" onclick="copyToClipboard(\'' + escapeForJsString(fullIdEsc) + '\')" title="' + t('clickToCopy') + '">' + fullIdEsc + '</span>' +
       '</div>' +
     '</div>';
@@ -364,6 +378,10 @@ function toggleQuickSlotModelDisabled(i) {
 async function testQuickSlotModel(idx) {
   var fullId = qsEditingModels[idx];
   if (!fullId) return;
+  if (fullId.indexOf('/') < 0) {
+    toast(t('comboCannotTest'), 'warning');
+    return;
+  }
   var slashIdx = fullId.indexOf('/');
   var prefix = slashIdx > 0 ? fullId.substring(0, slashIdx) : '';
   var modelId = slashIdx > 0 ? fullId.substring(slashIdx + 1) : fullId;
@@ -417,11 +435,15 @@ async function renderHeaderQuickSlots() {
       var fullId = models[idx] || '';
       if (models.length > 0) {
         var slashIdx = fullId.indexOf('/');
-        var prefix = slashIdx > 0 ? fullId.substring(0, slashIdx) : fullId;
-        var modelPart = slashIdx > 0 ? fullId.substring(slashIdx + 1) : '';
-        var lastSlashIdx = modelPart.lastIndexOf('/');
-        var lastSegment = lastSlashIdx >= 0 ? modelPart.substring(lastSlashIdx + 1) : modelPart;
-        bottom = lastSegment ? prefix + '/' + lastSegment : prefix;
+        if (slashIdx > 0) {
+          var prefix = fullId.substring(0, slashIdx);
+          var modelPart = fullId.substring(slashIdx + 1);
+          var lastSlashIdx = modelPart.lastIndexOf('/');
+          var lastSegment = lastSlashIdx >= 0 ? modelPart.substring(lastSlashIdx + 1) : modelPart;
+          bottom = lastSegment ? prefix + '/' + lastSegment : prefix;
+        } else {
+          bottom = fullId;
+        }
       }
       var nameEsc = escapeHtml(qs.name);
       var bottomEsc = escapeHtml(bottom);

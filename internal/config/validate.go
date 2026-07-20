@@ -73,6 +73,20 @@ func validateProviders(cfg *Config) {
 			}
 		}
 	}
+	comboNames := make(map[string]bool, len(cfg.Combos))
+	for _, c := range cfg.Combos {
+		comboNames[c.Name] = true
+	}
+	for _, qs := range cfg.QuickSlots {
+		for _, m := range qs.Models {
+			prefix, model := splitModel(m)
+			if prefix == "" || model == "" {
+				if !comboNames[m] {
+					fmt.Fprintf(os.Stderr, "[config] warning: quickslot %q model %q is not in prefix/model format and is not a known combo name\n", qs.Name, m)
+				}
+			}
+		}
+	}
 }
 
 // splitModel parses "prefix/model" into (prefix, model).

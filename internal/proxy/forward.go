@@ -63,6 +63,11 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 		}
 	}
 
+	if h.comboRes.IsComboName(modelStr) {
+		h.handleCombo(w, r, modelStr, bodyBytes, parsed, isStream, msgCount, path, entryFormat)
+		return
+	}
+
 	providerID, upstreamModel := util.SplitModel(modelStr)
 	if providerID == "" {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid model format: %s (expected provider/model)", modelStr))
