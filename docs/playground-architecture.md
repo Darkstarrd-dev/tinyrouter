@@ -1,8 +1,8 @@
-# TinyRouter Playground 架构
+﻿# TinyRouter Playground 架构
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-19，仓库工作区（`main`，`v1.7.8`）。本次新增/核对：(a) 实施 UI/UX 视觉与交互现代化改版；(b) 重构 Gallery 布局与单行控制栏（`.gallery-layout` 固定尺寸禁止图片撑开、`.main` 启用 `main-no-scroll`、`gallery-main` 占据主区域、`gallery-thumbnails` 居中其下、`gallery-controls` 居最底部一排）；(c) 升级 Zip 后端支持 Index / Path 双重比对与 Windows 反斜杠/转义清洗，消除非 UTF-8 中文“副本”乱码与 404 报错；(d) 架构支持多 Zip 文件 / 包含 Zip 文件夹的滑动懒加载队列；(e) 引入自然路径分段排序算法（Natural Segment Path Order），彻底解决子目录错乱排序；(f) 新增原生 WebView2 JS 桥 `toggleNativeFullscreen` 实现全屏；(g) 控制栏最左侧新增目录树切换按钮与侧边栏面板（`.gallery-tree-panel`，绑定快捷键 `T`），按子目录缩进显示，点击直达对应目录直属第 1 张图片；(h) 控制栏新增 `<|` 与 `|>` 跨文件夹跳转按钮（绑定快捷键 `Up` / `Down`）；(i) 缩略图条与 Info 计数改为按当前直属目录层级过滤显示；(j) 全屏模式下拦截鼠标右键并自动退出全屏；(k) 支持进程生命周期内的内存会话留存（In-Memory Session Preservation）；(l) 重构双屏与单屏架构为**左右独立 Sub-Panel 面板（左图右视频，各自拥有独立视口、独立控制栏与侧边栏）**；(m) 取消过渡闪烁动画，采用全屏双屏左边缘亮蓝 Accent 细线条做 focus 标识；(n) 修正亮色 Theme 模式下 `<video>` 容器背景为 `var(--bg-main)`；(o) **升级版本号至 v1.7.8**；(p) **键盘快捷键集中化**——新增 `web/static/shortcuts.js` 作为系统预设与用户覆盖的单一来源（`Shortcuts.matchEvent`），Playground 输入框（`pg-ui.js::pgOnInputKey` 发送、`pg-ui.js:22` 编辑/取消编辑）、Gallery 页面与全屏（`gallery-fullscreen.js::onGalleryKeyDown`/`onFullscreenKey`）的硬编码 `e.key === 'Enter'` / `'Escape'` / `'a'` / `'f'` / `'t'` / `'ArrowLeft'` 等改用 `Shortcuts.matchEvent('<actionID>', e)`；用户覆盖经 Settings 页左侧新增的 "Shortcut Settings" → `openShortcutsModal()` 弹窗可按区域（Global/Playground/Gallery tab）枚举、捕获按键、冲突校验、单条/全部恢复默认，仅被覆盖项持久化到 `config.yaml` 的 `shortcuts:` 段（详见 `docs/config-registry-state-architecture.md`"变更维护清单"-"新增/修改快捷键"）。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-20，仓库工作区（`main`，`v1.7.8`）。本次新增/核对：(a) 实施 UI/UX 视觉与交互现代化改版；(b) 重构 Gallery 布局与单行控制栏（`.gallery-layout` 固定尺寸禁止图片撑开、`.main` 启用 `main-no-scroll`、`gallery-main` 占据主区域、`gallery-thumbnails` 居中其下、`gallery-controls` 居最底部一排）；(c) 升级 Zip 后端支持 Index / Path 双重比对与 Windows 反斜杠/转义清洗，消除非 UTF-8 中文"副本"乱码与 404 报错；(d) 架构支持多 Zip 文件 / 包含 Zip 文件夹的滑动懒加载队列；(e) 引入自然路径分段排序算法（Natural Segment Path Order），彻底解决子目录错乱排序；(f) 新增原生 WebView2 JS 桥 `toggleNativeFullscreen` 实现全屏；(g) 控制栏最左侧新增目录树切换按钮与侧边栏面板（`.gallery-tree-panel`，绑定快捷键 `T`），按子目录缩进显示，点击直达对应目录直属第 1 张图片；(h) 控制栏新增 `<|` 与 `|>` 跨文件夹跳转按钮（绑定快捷键 `Up` / `Down`）；(i) 缩略图条与 Info 计数改为按当前直属目录层级过滤显示；(j) 全屏模式下拦截鼠标右键并自动退出全屏；(k) 支持进程生命周期内的内存会话留存（In-Memory Session Preservation）；(l) 重构双屏与单屏架构为**左右独立 Sub-Panel 面板（左图右视频，各自拥有独立视口、独立控制栏与侧边栏）**；(m) 取消过渡闪烁动画，采用全屏双屏左边缘亮蓝 Accent 细线条做 focus 标识；(n) 修正亮色 Theme 模式下 `<video>` 容器背景为 `var(--bg-main)`；(o) **升级版本号至 v1.7.8**；(p) **键盘快捷键集中化**——新增 `web/static/shortcuts.js` 作为系统预设与用户覆盖的单一来源（`Shortcuts.matchEvent`），Playground 输入框（`pg-ui.js::pgOnInputKey` 发送、`pg-ui.js:22` 编辑/取消编辑）、Gallery 页面与全屏（`gallery-fullscreen.js::onGalleryKeyDown`/`onFullscreenKey`）的硬编码 `e.key === 'Enter'` / `'Escape'` / `'a'` / `'f'` / `'t'` / `'ArrowLeft'` 等改用 `Shortcuts.matchEvent('<actionID>', e)`；用户覆盖经 Settings 页左侧新增的 "Shortcut Settings" → `openShortcutsModal()` 弹窗可按区域（Global/Playground/Gallery tab）枚举、捕获按键、冲突校验、单条/全部恢复默认，仅被覆盖项持久化到 `config.yaml` 的 `shortcuts:` 段（详见 `docs/config-registry-state-architecture.md`"变更维护清单"-"新增/修改快捷键"）；(q) **AI Review 功能泛化**——从硬编码"广告审核"泛化为通用二值判断审核系统：提示词用户可配置（可通过调用 LLM 自动生成），LLM 返回字段统一为 `match`，预设持久化到 `config.yaml`，提示词生成模型与视觉审核模型可分别选择，前端抽出独立文件 `gallery-review.js`。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 > **2026-07-14 更新：** Playground 请求详情弹窗改为复用 Usage 页面的 `info-modal-overlay` + `renderInfoSection` 基础设施，具备 pretty/raw 切换和 copy 按钮；服务端 `recorder.go`、`forward.go`、`stream.go` 不再依赖 debug mode 门控，始终捕获请求/响应 payload 与 headers，使弹窗在 debug mode 关闭时也能显示完整信息。`app.js` 的 `topOpenModal()`/`dismissTopModal()` 扩展支持 `pg-modal-overlay`，修复 Playground 弹窗 ESC 穿透触发关闭应用的问题。图片发送改为在 `pgUserSend` 阶段将用户消息构建为多模态 content parts 并清空 `imageUrls`/`imageEnabled`，使发送后输入区缩略图消失、图片随用户气泡渲染。Reasoning 气泡改为 markdown 渲染、移除滚动条约束、随内容自然增长，reasoning 结束后自动折叠。Recent Requests 面板新增 SSE 订阅（`/api/usage/events`），请求发送即实时出现、完成后实时更新，轮询降为 10 秒后备。新增 Custom Endpoint 面板（普通模式），启用后直接 fetch 自定义 URL + Key，绕过 TinyRouter 代理栈。Image Preview 弹窗新增 Copy/Save/Reset 按钮、鼠标滚轮缩放（以图片中心为轴心，最小不低于 auto-fit）、鼠标拖拽平移、图片 auto-fit 容器；聊天气泡图片缩略图可点击打开预览；新增 `POST /api/save-image` 后端端点保存图片到 `imgs/` 目录。
 
@@ -663,6 +663,39 @@ Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器
 ### 缩略图
 前端懒生成：IntersectionObserver 触发 → `createImageBitmap(blob)` + `OffscreenCanvas(THUMB_SIZE=300)` 等比例缩放 → `convertToBlob('image/jpeg',0.8)` → createObjectURL；失败回退原 blob。
 
+### AI Review（图片审核）
+
+AI Review 从硬编码"广告审核"（`is_ad` 字段）泛化为通用二值判断审核系统。用户可配置提示词或通过调用 LLM 自动生成，提示词生成模型与视觉审核模型可分别选择，预设持久化到 `config.yaml`。LLM 返回字段统一为 `match`，同时向后兼容旧 `is_ad` 字段（`ParseReviewResponse` 按顺序回退 `matchField` → `match` → `is_ad`）。
+
+#### 后端架构
+
+- **`internal/gallery/review.go`**：定义 `ReviewStrategy`（`all`/`head-tail`）、`ReviewStatus`（`running`/`completed`/`cancelled`/`error`）、`ReviewResult`（`Index`/`Path`/`IsMatch`/`Reason`）、`ReviewResponse`（`Match`/`Reason`）类型；`ParseReviewResponse(body, matchField)` 解析 LLM 返回的 JSON，按 `matchField` → `match` → `is_ad` 尝试读取 bool 字段；`PromptGenSystemPrompt` 常量定义提示词生成器的 system prompt，`PromptGenUserPromptTemplate` 是用户消息模板，`DefaultUserPrompt` 是审核启动时的默认 user prompt。
+- **`internal/api/gallery_review.go`**：`galleryStartReview`（`POST /api/gallery/review/start`）接受 `{sessionId, provider, model, systemPrompt, userPrompt, matchField, strategy, headSize, tailSize, concurrency}` 启动审核；`galleryReviewStatus`（`GET /api/gallery/review/status/{sessionId}`）返回 `{status, total, processed, failed, results}`（results 只含 `isMatch=true` 的条目）；`galleryCancelReview`（`POST /api/gallery/review/cancel/{sessionId}`）取消审核；`galleryGeneratePrompt`（`POST /api/gallery/review/gen-prompt`）接受 `{provider, model, judgeTarget}`，调用 LLM 生成审核提示词。审核引擎使用 worker pool 并发处理图片，每张图片经 `analyzeImage` → `resizeImage`（max 1024px）→ `sendVisionRequest`（经 `httptest` 调用 `/v1/chat/completions` 代理转发）→ `ParseReviewResponse` 解析结果。
+- **`internal/api/review_presets.go`**：`listReviewPresets`（`GET /api/review-presets`）、`upsertReviewPreset`（`POST /api/review-presets` 创建/更新）、`deleteReviewPreset`（`DELETE /api/review-presets/{id}`）。
+- **`internal/config/types.go:265-272`**：`ReviewPreset` 结构体（`ID`/`Name`/`SystemPrompt`/`UserPrompt`）；`Config.ReviewPresets` 字段（`config/types.go:290`）。
+- **`internal/config/defaults.go:168-177`**：首次启动（`ReviewPresets == nil`）注入内置"广告审核"预设。
+- **`internal/registry/review_presets.go`**：`ListReviewPresets`/`AddReviewPreset`/`UpdateReviewPreset`/`DeleteReviewPreset` CRUD 方法，线程安全（`cfgMu` 保护）。
+- **`internal/api/router.go:306-309`**：`/api/review-presets` 路由块；`router.go:377`：`POST /api/gallery/review/gen-prompt` 路由；`router.go:374-377`：review start/status/cancel 路由；`router.go:401`：`pgJSFiles` 含 `gallery-review.js`。
+
+#### 前端架构
+
+- **`web/playground/static-pg/gallery-review.js`**（757 行，独立 IIFE 模块）：提供 `window.renderReviewPanel`（渲染审核面板）、`window.startReviewPolling`（800ms 轮询审核进度）、`window.loadReviewPresets`（加载预设列表）、`window.cleanupReview`（停止轮询）四个全局钩子。面板分配置态（预设选择、提示词生成模型选择、审核目标描述、生成提示词、审核模型选择、策略/并发/首尾参数、启动按钮、保存预设）和运行态（进度条、取消按钮、结果列表、过滤模式切换、重置按钮）。
+- **`web/playground/static-pg/gallery-state.js:170-194`**：`reviewState` 对象包含 `active`/`status`/`total`/`processed`/`failed`/`results`/`sessionId`/`promptModelId`/`reviewModelId`/`judgeTarget`/`systemPrompt`/`userPrompt`/`matchField`/`availablePresets`/`selectedPresetId`/`strategy`/`headSize`/`tailSize`/`concurrency`/`reviewMode`/`pollTimer`/`originalIndices`。
+- **`web/playground/static-pg/gallery-tree.js:189-192`**：审核面板渲染由 `gallery-review.js` 接管，此处只暴露容器（`<div id="gallery-review-section">`）并调用 `window.renderReviewPanel`。
+- **`web/playground/static-pg/gallery.js:30-40,76-77`**：初始化时恢复运行中审核的轮询、加载预设；`cleanupGallery` 时调用 `window.cleanupReview`。
+- **`web/playground/static-pg/gallery-fullscreen.js:471-474`**：`toggleReviewItemMark` 在全屏 review 模式下切换当前项的删除标记并前进。
+- **`web/static/style.css:1996-2021`**：`.gallery-review-*` 样式类（按钮、输入框、选择框、进度条、结果列表、标签、字段、行等）。
+- **`web/static/index.html:137`**：在 `gallery-tree.js` 后插入 `<script src="/gallery-review.js">`。
+
+#### 数据流
+
+1. 用户选择预设或填写审核目标描述 → 可选择"提示词生成模型"调用 `POST /api/gallery/review/gen-prompt` 自动生成 system prompt
+2. 用户选择"视觉审核模型"、填写/确认 system prompt、选择策略/并发数
+3. 点击 Start Review → `POST /api/gallery/review/start` → 后端启动 worker pool 并发处理图片
+4. 前端每 800ms 轮询 `GET /api/gallery/review/status/{sessionId}` 获取进度
+5. 完成后结果列表只显示 `isMatch=true` 的条目；用户可切换过滤模式（`reviewMode`）仅显示匹配图片
+6. 预设可保存（`POST /api/review-presets`）或删除（`DELETE /api/review-presets/{id}`）
+
 ### 配套改动
 - `internal/api/compress.go` `skipTypes` 追加 `image/tiff`
 - `internal/api/router.go` `pgJSFiles` 数组追加 `gallery.js`
@@ -674,8 +707,12 @@ Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器
 
 ### 源码锚点
 - `web/playground/static-pg/gallery.js`（playground 静态资源，由 embed_playground.go 注入）
-- `internal/gallery/{gallery,zip,tiff}.go` + 测试
+- `web/playground/static-pg/gallery-review.js`（AI Review 独立面板模块）
+- `internal/gallery/{gallery,zip,tiff,review}.go` + 测试
 - `internal/api/gallery.go` + `gallery_session.go`
+- `internal/api/gallery_review.go`（审核启动/状态/取消/提示词生成处理器）
+- `internal/api/review_presets.go`（ReviewPreset HTTP CRUD）
+- `internal/registry/review_presets.go`（ReviewPreset CRUD 数据层）
 - `internal/api/router.go::Gallery` 路由块与 `pgJSFiles`
 - `internal/api/compress.go::skipTypes`
 
@@ -690,4 +727,7 @@ Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器
 | 修改全屏快捷键集 | `web/playground/static-pg/gallery.js::onFullscreenKey` |
 | 修改 Gallery i18n 文案 | `web/static/i18n.js` (`gallery*` 键) |
 | Gallery 不再随 playground 编译 | `internal/api/router.go::pgJSFiles` 移除 `gallery.js`、`web/embed_playground.go`、`web/static/index.html` |
-
+| 修改 AI Review 提示词逻辑 | `internal/gallery/review.go`（`ParseReviewResponse`/`PromptGenSystemPrompt`/`DefaultUserPrompt`）、`internal/api/gallery_review.go`（`galleryGeneratePrompt`/`analyzeImage`/`sendVisionRequest`） |
+| 修改审核策略/并发 | `internal/api/gallery_review.go`（`galleryStartReview`/`runReview`/`selectReviewIndices`/`selectHeadTailIndices`） |
+| 修改审核前端交互 | `web/playground/static-pg/gallery-review.js`（`renderReviewPanel`/`startPolling`/`applyReviewFilter`）、`web/playground/static-pg/gallery-state.js`（`reviewState`）、`web/static/style.css`（`.gallery-review-*`） |
+| 修改审核预设 CRUD | `internal/api/review_presets.go`、`internal/registry/review_presets.go`、`internal/config/types.go`（`ReviewPreset`）、`internal/config/defaults.go`（内置预设） |
