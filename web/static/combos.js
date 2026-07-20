@@ -137,6 +137,8 @@ async function showEditCombo(id) {
     <div class="form-group"><label>' + t('comboModels') + '</label>\
       <div style="display:flex;gap:8px;margin-bottom:8px">\
         <button type="button" class="btn btn-sm" onclick="importModelsFromProvider(\'models\')">' + t('importFromProvider') + '</button>\
+        <button type="button" class="btn btn-sm" id="combo-speed-test-btn" onclick="runComboSpeedTest(\'' + escapeAttr(id) + '\')">' + t('comboSpeedTest') + '</button>\
+        <span id="combo-speed-test-status" style="margin-left:8px;font-size:12px;"></span>\
       </div>\
       <div id="c-models-list"></div>\
     </div>\
@@ -316,7 +318,7 @@ function renderComboModelsList() {
     var disabledRowStyle = isDisabled ? ' style="opacity:0.5"' : '';
     var isFirst = i === 0;
     var isLast = i === comboEditingModels.length - 1;
-    html += '<div class="model-row' + hasNoteCls + '" data-index="' + i + '" draggable="true"' + disabledRowStyle + '>' +
+    html += '<div class="model-row' + hasNoteCls + '" data-index="' + i + '" draggable="true"' + disabledRowStyle + ' id="combo-row-' + i + '" data-fullid="' + fullIdEsc + '">' +
       '<div class="model-row-main"' + noteAttr + '>' +
         '<span class="drag-handle" title="' + t('dragToReorder') + '" draggable="false">⠿</span>' +
         (isDisabled
@@ -329,6 +331,7 @@ function renderComboModelsList() {
         '<button type="button" class="btn btn-sm btn-danger" onclick="removeComboModel(' + i + ')">' + t('delete') + '</button>' +
         '<span class="model-id copyable" onclick="copyToClipboard(\'' + fullIdEsc + '\')" title="' + t('clickToCopy') + '">' + fullIdEsc + '</span>' +
       '</div>' +
+      '<span class="combo-speed-status" data-fullid="' + fullIdEsc + '"></span>' +
     '</div>';
   }
   container.innerHTML = html;
@@ -420,4 +423,112 @@ async function testComboModel(idx) {
 function removeComboModel(idx) {
   comboEditingModels.splice(idx, 1);
   renderComboModelsList();
+}
+
+async function runComboSpeedTest(comboId) {
+  var btn = document.getElementById('combo-speed-test-btn');
+  var statusEl = document.getElementById('combo-speed-test-status');
+  if (btn) { btn.disabled = true; btn.textContent = t('comboSpeedTesting'); }
+  if (statusEl) statusEl.innerHTML = '';
+  var total = 0;
+  var count = 0;
+  var failedModels = [];
+  const controller = new AbortController();
+  const timeoutId = setTimeout(function() { controller.abort(); }, 60000);
+  let reader;
+  try {
+    const resp = await fetch('/api/combos/' + comboId + '/speed-test', {
+      method: 'POST',
+      headers: { 'Accept': 'text/event-stream' },
+      signal: controller.signal
+    });
+    if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
+    reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    var buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      var events = buffer.split('\n\n');
+      buffer = events.pop();
+      for (var i = 0; i < events.length; i++) {
+        var ev = events[i];
+        var lines = ev.split('\n');
+        var eventType = '', dataStr = '';
+        for (var j = 0; j < lines.length; j++) {
+          if (lines[j].indexOf('event:') === 0) eventType = lines[j].slice(6).trim();
+          else if (lines[j].indexOf('data:') === 0) dataStr += lines[j].slice(5).trim();
+        }
+        if (eventType === 'meta') {
+          try { total = JSON.parse(dataStr).total; } catch (_) {}
+          if (statusEl) statusEl.innerHTML = '0/' + total;
+        } else if (eventType === 'model') {
+          var r;
+          try { r = JSON.parse(dataStr); } catch (_) { continue; }
+          count++;
+          if (statusEl) statusEl.innerHTML = count + '/' + total;
+          var rows = document.querySelectorAll('#c-models-list .model-row');
+          var targetRow = null;
+          for (var ri = 0; ri < rows.length; ri++) {
+            if (rows[ri].getAttribute('data-fullid') === r.fullId) {
+              targetRow = rows[ri];
+              break;
+            }
+          }
+          if (targetRow) {
+            var statusSpan = targetRow.querySelector('.combo-speed-status');
+            if (r.ok) {
+              if (statusSpan) {
+                statusSpan.textContent = r.ttftMs + 'ms · ' + (r.tokensPerSec ? r.tokensPerSec.toFixed(1) : '?') + ' tok/s';
+                statusSpan.style.color = '#4caf50';
+              }
+            } else {
+              if (statusSpan) {
+                statusSpan.textContent = 'ERROR: ' + (r.error || 'unknown');
+                statusSpan.style.color = '#e53e3e';
+              }
+              targetRow.style.borderLeft = '3px solid #e53e3e';
+              targetRow.style.backgroundColor = 'rgba(229,62,62,0.05)';
+              if (failedModels.indexOf(r.fullId) < 0) failedModels.push(r.fullId);
+            }
+          }
+        } else if (eventType === 'done') {
+          var summary;
+          try { summary = JSON.parse(dataStr); } catch (_) { summary = {}; }
+          if (summary.newModels) comboEditingModels = summary.newModels.slice();
+          if (summary.newDisabled) comboEditingDisabledModels = summary.newDisabled.slice();
+          renderComboModelsList();
+          var newRows = document.querySelectorAll('#c-models-list .model-row');
+          for (var ri = 0; ri < newRows.length; ri++) {
+            var fullId = newRows[ri].getAttribute('data-fullid');
+            if (failedModels.indexOf(fullId) >= 0) {
+              var statusSpan = newRows[ri].querySelector('.combo-speed-status');
+              if (statusSpan) {
+                statusSpan.textContent = 'ERROR';
+                statusSpan.style.color = '#e53e3e';
+              }
+              newRows[ri].style.borderLeft = '3px solid #e53e3e';
+              newRows[ri].style.backgroundColor = 'rgba(229,62,62,0.05)';
+            }
+          }
+          var ok = summary.ok || 0;
+          var fail = summary.fail || 0;
+          if (statusEl) statusEl.innerHTML = '<span style="color:' + (fail > 0 ? '#e53e3e' : '#4caf50') + '">' + t('comboSpeedTestDone', [ok, fail]) + '</span>';
+          if (btn) { btn.disabled = false; btn.textContent = t('comboSpeedTest'); }
+        }
+      }
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      if (statusEl) statusEl.innerHTML = '<span style="color:#e53e3e">' + t('comboSpeedTestTimeout') + '</span>';
+    } else {
+      if (statusEl) statusEl.innerHTML = '<span style="color:#e53e3e">' + escapeHtml(e.message || String(e)) + '</span>';
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    controller.abort();
+    if (reader) { reader.cancel().catch(function() {}); }
+    if (btn) { btn.disabled = false; btn.textContent = t('comboSpeedTest'); }
+  }
 }

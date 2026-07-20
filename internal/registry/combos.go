@@ -69,3 +69,16 @@ func (r *Registry) DeleteCombo(id string) bool {
 	}
 	return false
 }
+
+// GetComboByID returns a pointer to the combo with the given ID, or nil if not found.
+func (r *Registry) GetComboByID(id string) (*config.Combo, bool) {
+	r.cfgMu.RLock()
+	defer r.cfgMu.RUnlock()
+	for i := range r.config.Combos {
+		if r.config.Combos[i].ID == id {
+			c := r.config.Combos[i]
+			return &c, true
+		}
+	}
+	return nil, false
+}

@@ -295,6 +295,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Post("/combos", rt.createCombo)
 			r.Put("/combos/{id}", rt.updateCombo)
 			r.Delete("/combos/{id}", rt.deleteCombo)
+			r.Post("/combos/{id}/speed-test", rt.speedTestCombo)
 
 			// QuickSlots
 			r.Get("/quickslots", rt.listQuickSlots)

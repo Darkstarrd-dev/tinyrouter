@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/combo/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-19，当前 HEAD。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-20，当前 HEAD。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
 
 ## 1. 范围与结论
 
@@ -304,10 +304,22 @@ go build -o tinyrouter .
 - `internal/proxy/forward.go`：handleProxy 先判 IsComboName（46-49）、handleCombo 按策略驱动（87-122，含 fallback 100-106、round-robin 108-111、greedy-squirrel 112-118、未知策略 400 119-120、disabled error 400 89-91）。
 - `internal/config/types.go`：Combo（129-136）、ModelDef（32-34）、Combos 字段（211）。
 - `internal/config/defaults.go`：Combos 默认空（55）、ModelDef 空 QuotaType 填 limited（98-100）。
-- `internal/registry/combos.go`：GetComboByName（15-25）、ListCombos（7-13）。
+- `internal/registry/combos.go`：GetComboByName（15-25）、**GetComboByID（73-84，供 combo 批量测速排序 handler 使用）**、ListCombos（7-13）。
 - `internal/util/util.go`：SplitModel 首个 `/` 切分（6-13）。
 - `internal/state/state.go`：ComboSnapshot（41-44）、Snapshot.Combos（17-22）、Save 原子写（79-96）。
 - `internal/app/app.go`：combo 接线 New（127）、WithComboStateProvider（165）、SetStateHook（168）、Restore（200-208）。
+
+### 13.1 关联功能：Combo 批量测速排序（不在本包，但读写 Combo 模型顺序）
+
+`internal/api/combo_speedtest.go` 实现的 `speedTestCombo` handler（`POST /api/combos/{id}/speed-test`，SSE 流式）不属于 `internal/combo` 包，但**直接读写 Combo 的 `Models` 与 `DisabledModels` 字段顺序**：
+
+- 调 `registry.GetComboByID` 取 combo，把 `Models` + `DisabledModels` 拼成全部待测模型列表。
+- 全并发（goroutine + channel）对每个模型发起流式 `/v1/chat/completions` 请求（prompt "请写一篇约1000字的短篇小说"、`max_tokens:1200`、`stream:true`），测量 TTFT 与 TokensPerSec；单模型早停 60 chunks 或 30 秒；整体 60 秒超时。
+- 复用 `proxy.BuildUpstreamURL` / `proxy.SSELineBuffer` / `proxy.SSEDataPayloads` / `util.ExtractTokens` / `internal/api/probe_common.go::extractContentFromSSE` / `firstActiveKey` / `proxyHandler.ManagementClient`；**不**走 `proxy/handleProxy` 转发路径（无重试/故障转移/配额记账副作用）。
+- **持久化排序结果**：按 `TokensPerSec` 降序（失败排末尾）排序后，分别回填到 `Models` 与 `DisabledModels`（保留各模型原 disabled 标识），再调 `registry.UpdateCombo` + `saveConfig` 写入 `config.yaml`。
+- SSE 事件：`meta`（total） → 每个 `model` 完成时推送 → `done`（含 `newModels` / `newDisabled` / `newOrder`）。
+
+前端入口：`web/static/combos.js` 的编辑模态框"批量测速并排序"按钮调 `runComboSpeedTest`，按 `event: model` 实时更新行内速度状态，`event: done` 后重置 `comboEditingModels/DisabledModels` 并 `renderComboModelsList()`。
 
 ## 14. 变更维护清单
 
@@ -317,5 +329,6 @@ go build -o tinyrouter .
 | 修改配额层级 | sortTargetsByTier（207-216）+ config/types.go ModelDef.QuotaType（32-34）+ defaults.go（98-100）+ resolver.go 兜底 limited（107-109）+ alias 解析 resolver.go:97-99 |
 | 修改 combo 配置 | config/types.go Combo（129-136）+ defaults.go Combos（55）+ registry/combos.go 读写 |
 | 修改状态持久化 | resolver.go SnapshotComboStates（170-183）/RestoreComboState（185-202）+ state/state.go ComboSnapshot（41-44）+ app.go 接线（165、168） |
+| 修改 Combo 批量测速排序 | api/combo_speedtest.go（speedTestCombo + probeComboModel）+ registry/combos.go GetComboByID + api/router.go（路由注册）+ web/static/combos.js runComboSpeedTest + web/static/i18n.js comboSpeedTest* 键 |
 | 修改 model 字符串格式 | util/util.go SplitModel（6-13）+ resolver.go Resolve 遍历与 SplitModel 调用（79-111） |
 | 修改接口契约 | proxy/interfaces.go ComboResolver（61-64）须与 resolver.go 方法签名同步 |
