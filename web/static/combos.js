@@ -369,7 +369,7 @@ function renderComboModelsList() {
       var result = resultMap[fid];
       if (result) {
         if (result.ok) {
-          span.textContent = result.ttftMs + 'ms \u00b7 ' + (result.tokensPerSec ? result.tokensPerSec.toFixed(1) : '?') + ' tok/s';
+          span.textContent = result.ttftMs + 'ms \u00b7 ' + (result.tokensPerSec ? result.tokensPerSec.toFixed(1) : '?') + ' tok/s \u00b7 ' + (result.score ? result.score.toFixed(1) : '?');
           span.style.color = '#4caf50';
         } else {
           span.textContent = 'ERROR: ' + (result.error || 'unknown');
@@ -530,7 +530,7 @@ async function runComboSpeedTest(comboId) {
             var statusSpan = targetRow.querySelector('.combo-speed-status');
             if (r.ok) {
               if (statusSpan) {
-                statusSpan.textContent = r.ttftMs + 'ms · ' + (r.tokensPerSec ? r.tokensPerSec.toFixed(1) : '?') + ' tok/s';
+                statusSpan.textContent = r.ttftMs + 'ms · ' + (r.tokensPerSec ? r.tokensPerSec.toFixed(1) : '?') + ' tok/s · ' + (r.score ? r.score.toFixed(1) : '?');
                 statusSpan.style.color = '#4caf50';
               }
             } else {

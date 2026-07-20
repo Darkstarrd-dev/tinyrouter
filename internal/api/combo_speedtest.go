@@ -49,6 +49,7 @@ type comboSpeedTestResult struct {
 	InputTokens  int     `json:"inputTokens"`
 	OutputTokens int     `json:"outputTokens"`
 	TokensPerSec float64 `json:"tokensPerSec"`
+	Score        float64 `json:"score"`
 	Status       int     `json:"status"`
 	Error        string  `json:"error,omitempty"`
 }
@@ -210,17 +211,18 @@ func (rt *Router) speedTestCombo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sort: ok models by TokensPerSec desc, then LatencyMs asc; failures at the end.
+	// Sort: ok models by composite Score desc, then TokensPerSec desc, then LatencyMs asc; failures at the end.
 	sort.SliceStable(results, func(i, j int) bool {
 		ri, rj := results[i], results[j]
 		if ri.Ok != rj.Ok {
-			return ri.Ok // ok models come before failures
+			return ri.Ok
 		}
 		if !ri.Ok {
-			// Both failures: stable order (preserve original index)
 			return false
 		}
-		// Both ok: sort by TokensPerSec desc, then LatencyMs asc
+		if ri.Score != rj.Score {
+			return ri.Score > rj.Score
+		}
 		if ri.TokensPerSec != rj.TokensPerSec {
 			return ri.TokensPerSec > rj.TokensPerSec
 		}
@@ -430,6 +432,7 @@ func probeComboModel(ctx context.Context, rt *Router, input comboSpeedTestInput,
 	res.InputTokens = inputTokens
 	res.OutputTokens = outputTokens
 	res.TokensPerSec = tokensPerSec
+	res.Score = tokensPerSec / (1 + float64(ttftMs)/1500.0)
 	return res
 }
 
