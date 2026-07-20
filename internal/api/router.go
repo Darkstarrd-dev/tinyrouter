@@ -302,6 +302,11 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Put("/quickslots/{id}", rt.updateQuickSlot)
 			r.Delete("/quickslots/{id}", rt.deleteQuickSlot)
 
+			// ReviewPresets
+			r.Get("/review-presets", rt.listReviewPresets)
+			r.Post("/review-presets", rt.upsertReviewPreset)
+			r.Delete("/review-presets/{id}", rt.deleteReviewPreset)
+
 			// Usage
 			r.Get("/usage", rt.getUsage)
 			r.Get("/usage/summary", rt.getUsageSummary)
@@ -365,6 +370,10 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 		r.Get("/zip/{sessionId}/*", rt.galleryGetZipEntry)
 		r.Delete("/zip/{sessionId}/*", rt.galleryDeleteZipEntry)
 		r.Post("/tiff", rt.galleryConvertTiff)
+		r.Post("/review/start", rt.galleryStartReview)
+		r.Get("/review/status/{sessionId}", rt.galleryReviewStatus)
+		r.Post("/review/cancel/{sessionId}", rt.galleryCancelReview)
+		r.Post("/review/gen-prompt", rt.galleryGeneratePrompt)
 	})
 
 	// Embedded UI (fallback to index.html)
@@ -388,7 +397,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 				"pg-autochat.js",
 				"pg-setup.js", "pg-director.js",
 				"gallery-state.js", "gallery-io.js", "gallery-layout.js",
-				"gallery-tree.js", "gallery-video.js", "gallery-fullscreen.js",
+				"gallery-tree.js", "gallery-review.js", "gallery-video.js", "gallery-fullscreen.js",
 				"gallery.js",
 			}
 			for _, f := range pgJSFiles {

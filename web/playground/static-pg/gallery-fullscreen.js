@@ -168,7 +168,12 @@ function onFullscreenKey(e) {
     } else if (e.ctrlKey) {
       if (typeof window.deleteItemPrompt === 'function') window.deleteItemPrompt();
     } else {
-      deleteItemMark();
+      // 在 review 模式下：切换删除/保留状态（toggle）
+      if (galleryState.reviewState.reviewMode) {
+        toggleReviewItemMark();
+      } else {
+        deleteItemMark();
+      }
     }
     return;
   }
@@ -279,7 +284,12 @@ function onGalleryKeyDown(e) {
     } else if (e.ctrlKey) {
       if (typeof window.deleteItemPrompt === 'function') window.deleteItemPrompt();
     } else {
-      deleteItemMark();
+      // 在 review 模式下：切换删除/保留状态（toggle）
+      if (galleryState.reviewState.reviewMode) {
+        toggleReviewItemMark();
+      } else {
+        deleteItemMark();
+      }
     }
     return;
   }
@@ -455,6 +465,28 @@ async function deleteMarkedFromDisk(marked) {
     showMsg('已处理（' + plainCount + ' 张无法从磁盘移除，仅移除列表）');
   } else {
     showMsg('已从磁盘移除 ' + marked.length + ' 张');
+  }
+}
+
+// toggleReviewItemMark toggles the deletion mark for the current item and
+// advances to the next item (used in review mode with IsMatch results, where
+// Delete toggles rather than merely marks). 用户预期：在 review 模式下流畅地"切换并前进"。
+function toggleReviewItemMark() {
+  if (!galleryState.items.length) return;
+  var idx = galleryState.index;
+  var item = galleryState.items[idx];
+  if (!item) return;
+  item.markedForDeletion = !item.markedForDeletion;
+  updateDeleteOverlay(item);
+  if (item.thumbDivEl) {
+    item.thumbDivEl.classList.toggle('thumb-marked-for-deletion', item.markedForDeletion);
+  }
+  // 切换后自动前进到过滤后的下一张（与 deleteItemMark 一致的行为）。
+  // getAllowedNextIndex 只在 currentFolderIndices 内前进，避免跳到非疑似项。
+  var folderIndices = galleryState.currentFolderIndices || [];
+  var curPos = folderIndices.indexOf(idx);
+  if (curPos >= 0 && curPos < folderIndices.length - 1) {
+    setActive(folderIndices[curPos + 1]);
   }
 }
 

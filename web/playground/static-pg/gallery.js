@@ -24,6 +24,21 @@ window.renderGallery = function(container) {
       var targetIndex = (galleryState.index >= 0 && galleryState.index < galleryState.items.length) ? galleryState.index : 0;
       setActive(targetIndex);
     }
+
+    // 恢复 AI Review 轮询：若离开页面时审核仍在运行，需重新轮询同步进度。
+    // 注意：审核完成后 backend 会自动删除任务，所以这里仅在 running 时恢复。
+    if (galleryState.reviewState && galleryState.reviewState.active &&
+        galleryState.reviewState.status === 'running' && !galleryState.reviewState.pollTimer) {
+      if (typeof window.startReviewPolling === 'function') {
+        window.startReviewPolling();
+      }
+    }
+    // 进入 Gallery 页面时若预设列表为空，主动拉取一次。
+    // autoLoadPresets 的 IIFE 只在脚本解析时跑一次，SPA 切换回来不会重跑。
+    if (galleryState.reviewState && !galleryState.reviewState.availablePresets.length &&
+        typeof window.loadReviewPresets === 'function') {
+      window.loadReviewPresets();
+    }
   } catch (e) {
     console.warn('renderGallery failed:', e);
   }
@@ -57,5 +72,9 @@ window.cleanupGallery = function() {
   var c = galleryState.container;
   galleryState.container = null;
   if (c) c.classList.remove('gallery-page');
+  // 清理 AI Review 状态
+  if (typeof window.cleanupReview === 'function') {
+    window.cleanupReview();
+  }
   clearObjectURLs();
 };

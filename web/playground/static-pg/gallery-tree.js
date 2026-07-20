@@ -185,6 +185,12 @@ function renderTreePanel() {
 
   panel.innerHTML = headerHTML + contentHTML;
 
+  // ---- AI Review Section ----
+  // 审核面板由 gallery-review.js 接管渲染，此处只暴露容器。
+  if (typeof window.renderReviewPanel === 'function' && !isVidActive) {
+    window.renderReviewPanel(panel);
+  }
+
   // Bind Clear button
   var clearBtn = panel.querySelector('.gallery-tree-clear-btn');
   if (clearBtn) clearBtn.onclick = function(e) {
@@ -622,3 +628,4 @@ function removeVideoItem(removedIndex) {
   updateVideoDirStructure();
   renderTreePanel();
 }
+

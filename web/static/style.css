@@ -1992,6 +1992,34 @@ body.gallery-fullscreen-active #page-content{height:100vh!important}
 .gallery-delete-overlay{position:absolute;inset:0;background:rgba(255,0,0,0.45);pointer-events:none;display:none;z-index:5}
 .gallery-delete-overlay.active{display:block}
 
+/* AI Review panel styles */
+.gallery-review-btn{display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 10px;border-radius:var(--radius-xs);background:rgba(255,255,255,0.06);border:1px solid var(--glass-border);color:var(--text);font-size:11px;font-weight:500;cursor:pointer;transition:all var(--transition-fast);user-select:none;font-family:inherit}
+.gallery-review-btn:hover{background:var(--glass-hover);border-color:var(--accent);color:var(--accent)}
+.gallery-review-btn.gallery-review-start-btn{background:var(--accent-glow);border-color:var(--accent);color:var(--accent)}
+.gallery-review-btn.gallery-review-start-btn:hover{background:var(--accent);color:var(--bg)}
+.gallery-review-input{width:100%;box-sizing:border-box;height:24px;padding:0 6px;border-radius:var(--radius-xs);background:rgba(0,0,0,0.2);border:1px solid var(--glass-border);color:var(--text);font-size:11px;font-family:inherit;outline:none}
+.gallery-review-input:focus{border-color:var(--accent)}
+.gallery-review-select{width:100%;box-sizing:border-box;height:24px;padding:0 4px;border-radius:var(--radius-xs);background:rgba(0,0,0,0.2);border:1px solid var(--glass-border);color:var(--text);font-size:11px;font-family:inherit;outline:none;cursor:pointer}
+.gallery-review-select:focus{border-color:var(--accent)}
+.gallery-review-result-item:hover{background:var(--glass-hover)}
+.gallery-review-section{border-top:1px solid var(--glass-border);margin-top:8px;padding-top:8px}
+.gallery-review-header{font-size:12px;font-weight:600;color:var(--text-secondary);padding:4px 8px;margin-bottom:4px}
+.gallery-review-textarea{width:100%;box-sizing:border-box;min-height:60px;max-height:200px;padding:4px 6px;border-radius:var(--radius-xs);background:rgba(0,0,0,0.2);border:1px solid var(--glass-border);color:var(--text);font-size:11px;font-family:inherit;outline:none;resize:vertical}
+.gallery-review-textarea:focus{border-color:var(--accent)}
+.gallery-review-model-row{display:flex;align-items:center;gap:4px;margin-bottom:4px}
+.gallery-review-model-display{flex:1;min-width:0;height:24px;padding:0 6px;border-radius:var(--radius-xs);background:rgba(0,0,0,0.2);border:1px solid var(--glass-border);color:var(--text-secondary);font-size:11px;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gallery-review-model-btn{flex:0 0 auto;height:24px;padding:0 8px;border-radius:var(--radius-xs);background:rgba(255,255,255,0.06);border:1px solid var(--glass-border);color:var(--text);font-size:11px;cursor:pointer;font-family:inherit}
+.gallery-review-model-btn:hover{background:var(--glass-hover);border-color:var(--accent);color:var(--accent)}
+.gallery-review-label{color:var(--text-muted);display:block;margin-bottom:2px;font-size:10px}
+.gallery-review-field{margin-bottom:6px;padding:0 8px}
+.gallery-review-progress{height:4px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden;margin:4px 0}
+.gallery-review-progress-bar{height:100%;background:var(--accent);border-radius:2px;transition:width 0.3s}
+.gallery-review-result-list{max-height:200px;overflow-y:auto;margin-bottom:6px}
+.gallery-review-result-item{padding:3px 6px;cursor:pointer;border-radius:3px;font-size:11px;display:flex;align-items:center;gap:4px}
+.gallery-review-result-item:hover{background:var(--glass-hover)}
+.gallery-review-row{display:flex;gap:4px;margin-bottom:4px}
+.gallery-review-row > div{flex:1}
+
 /* =====================================================================
    Shortcut Settings modal
    ===================================================================== */

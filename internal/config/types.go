@@ -262,6 +262,15 @@ type ShortcutBinding struct {
 // returns {} rather than null.
 type ShortcutsConfig map[string]ShortcutBinding
 
+// ReviewPreset 是用户保存的审核预设，包含提示词与判定目标名称。
+// 通过 /api/review-presets CRUD 端点持久化到 config.yaml。
+type ReviewPreset struct {
+	ID           string `yaml:"id" json:"id"`
+	Name         string `yaml:"name" json:"name"`
+	SystemPrompt string `yaml:"systemPrompt" json:"systemPrompt"`
+	UserPrompt   string `yaml:"userPrompt,omitempty" json:"userPrompt,omitempty"`
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Port               int             `yaml:"port" json:"port"`
@@ -278,4 +287,5 @@ type Config struct {
 	Server             ServerConfig    `yaml:"server" json:"server"`
 	Download           DownloadConfig  `yaml:"download" json:"download"`
 	Shortcuts          ShortcutsConfig `yaml:"shortcuts,omitempty" json:"shortcuts,omitempty"`
+	ReviewPresets      []ReviewPreset  `yaml:"reviewPresets,omitempty" json:"reviewPresets,omitempty"`
 }

@@ -163,5 +163,17 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 	if cfg.Shortcuts == nil {
 		cfg.Shortcuts = ShortcutsConfig{}
 	}
+	// 若 reviewPresets 为 nil（首次启动），注入内置广告审核预设。
+	// 是 nil 而非 len==0 判断：用户清空后存为 []，不应再次注入。
+	if cfg.ReviewPresets == nil {
+		cfg.ReviewPresets = []ReviewPreset{
+			{
+				ID:           "builtin-ad",
+				Name:         "广告审核",
+				SystemPrompt: "You review images and judge whether each image matches the criterion below. The criterion is: the image is an advertisement or promotion page. Treat as a match (match=true) if it contains QR codes, URLs, store/product promotions, coupons/discounts, game downloads, gambling, recruitment, or Chinese marketing text such as '关注公众号', '扫码', '推广', '促销', '下载游戏', '官方微博', '官方QQ群', '加群领取', '长按扫码'. Also treat pure-color or near-pure-color pages (solid white/black separator or blank pages) as a match. Ignore normal story pages. Respond JSON only: {\"match\": true/false, \"reason\": string}.",
+				UserPrompt:   "Does this image match the criterion? Return JSON only.",
+			},
+		}
+	}
 	return cfg
 }

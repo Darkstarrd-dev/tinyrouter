@@ -165,7 +165,39 @@ var galleryState = {
   dirMap: {},
   dirPathList: [],
   currentFolderIndices: [],
-  currentSubIndex: -1
+  currentSubIndex: -1,
+  // AI Review 状态
+  reviewState: {
+    active: false,           // 是否正在审核或已审核完成
+    status: null,            // 'running' | 'completed' | 'cancelled' | 'error' | null
+    total: 0,                // 总图片数
+    processed: 0,            // 已处理数
+    failed: 0,               // 审核失败数
+    results: [],             // 审核结果 [{index, path, isMatch, reason}]（只含 isMatch=true）
+    sessionId: null,         // 当前审核的 sessionId
+    // 模型选择（两个独立模型）
+    promptModelId: '',       // 提示词生成模型 id (prefix/model)
+    reviewModelId: '',        // 视觉审核模型 id (prefix/model)
+    // 提示词
+    judgeTarget: '',         // 用户填写的审核目标描述（用于生成提示词）
+    systemPrompt: '',         // 当前系统提示词（生成后/预设加载后/手动编辑后）
+    userPrompt: '',           // 用户消息提示词（可选，空时后端用默认）
+    matchField: 'match',     // LLM 返回的 bool 字段名，固定 'match'
+    // 预设
+    availablePresets: [],    // 从后端加载的预设列表
+    selectedPresetId: '',    // 当前选中的预设 id
+    // 配置
+    strategy: 'all',         // 'all' | 'head-tail'
+    headSize: 5,             // 首部审核张数
+    tailSize: 5,             // 尾部审核张数
+    concurrency: 3,          // 并发数
+    // 运行时
+    pollTimer: null,         // 轮询定时器
+    reviewMode: false,       // 审核完成后的浏览模式（仅显示 matched）
+    originalIndices: [],     // 审核前的完整索引列表（用于恢复）
+    // 生成中标志
+    generatingPrompt: false,  // 正在调用 gen-prompt
+  }
 };
 
 var GALLERY_ICONS = {

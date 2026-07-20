@@ -18,11 +18,13 @@ const (
 )
 
 // zipSession holds an uploaded zip archive in memory along with bookkeeping
-// for LRU eviction.
+// for LRU eviction. pinCount prevents the session from being evicted while
+// an AI review task is in progress.
 type zipSession struct {
 	data       []byte
 	createdAt  time.Time
 	lastAccess time.Time
+	pinCount   int32
 }
 
 // gallerySessionStore is a thread-safe, bounded LRU store of in-memory zip
@@ -57,7 +59,17 @@ func (s *gallerySessionStore) put(sessionID string, data []byte) {
 	s.order = append(s.order, sessionID)
 
 	for len(s.order) > galleryMaxSessions {
-		s.removeLocked(s.order[0])
+		evicted := false
+		for i, id := range s.order {
+			if sess, ok := s.sessions[id]; ok && sess.pinCount == 0 {
+				s.removeLocked(s.order[i])
+				evicted = true
+				break
+			}
+		}
+		if !evicted {
+			break // 所有剩余会话都被固定，无法淘汰
+		}
 	}
 }
 
@@ -105,6 +117,32 @@ func (s *gallerySessionStore) removeLocked(sessionID string) {
 			break
 		}
 	}
+}
+
+// pin 增加会话的固定计数，防止 LRU 淘汰
+func (s *gallerySessionStore) pin(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return false
+	}
+	sess.pinCount++
+	return true
+}
+
+// unpin 减少会话的固定计数
+func (s *gallerySessionStore) unpin(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return false
+	}
+	if sess.pinCount > 0 {
+		sess.pinCount--
+	}
+	return true
 }
 
 // bumpLocked moves sessionID to the most-recently-used position (caller holds mu).
