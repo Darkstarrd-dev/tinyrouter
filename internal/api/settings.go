@@ -32,6 +32,10 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 			"passwordEnabled": cfg.Security.PasswordEnabled,
 			"hasPassword":     cfg.Security.PasswordEncrypted != "",
 		},
+		"anySearch": map[string]any{
+			"apiKey":     cfg.AnySearch.APIKey,
+			"maxResults": cfg.AnySearch.MaxResults,
+		},
 	})
 }
 
@@ -51,6 +55,10 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 			PasswordEnabled *bool  `json:"passwordEnabled"`
 			Password        string `json:"password"`
 		} `json:"security"`
+		AnySearch *struct {
+			APIKey     *string `json:"apiKey"`
+			MaxResults *int    `json:"maxResults"`
+		} `json:"anySearch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
@@ -180,6 +188,15 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		cfg.Shortcuts = *updates.Shortcuts
 		if cfg.Shortcuts == nil {
 			cfg.Shortcuts = config.ShortcutsConfig{}
+		}
+	}
+
+	if updates.AnySearch != nil {
+		if updates.AnySearch.APIKey != nil {
+			cfg.AnySearch.APIKey = *updates.AnySearch.APIKey
+		}
+		if updates.AnySearch.MaxResults != nil {
+			cfg.AnySearch.MaxResults = *updates.AnySearch.MaxResults
 		}
 	}
 

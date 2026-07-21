@@ -42,7 +42,7 @@ var pgState = {
   activeWin: 0,
   windows: [],
   models: [],
-  mode: 'normal',  // 'normal' | 'autochat' | 'image'
+  mode: 'normal',  // 'normal' | 'autochat' | 'image' | 'search'
   // Auto chat (group-chat) mode
   autoChat: {
     enabled: false,        // auto chat switch (not persisted; off after reload)
@@ -63,7 +63,10 @@ var pgState = {
       maxNarrations: 0,       // max narrator injections (0 = infinite)
     },
   },
+  search: { maxResults: 5, apiKey: '' },
 };
+
+var pgSearchSavedSplit = 0;
 
 function pgWin() { return pgState.windows[pgState.activeWin]; }
 function pgWinAt(i) { return pgState.windows[i]; }

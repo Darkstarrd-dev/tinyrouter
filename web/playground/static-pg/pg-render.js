@@ -189,6 +189,15 @@ function pgRenderHtmlPreview(pre, html) {
 }
 
 function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
+  if (msg.status === 'loading' && msg.searchStep) {
+    var stepText = '';
+    if (msg.searchStep === 'classifying') stepText = pgT('pgSearchClassifying');
+    else if (msg.searchStep === 'searching') stepText = pgT('pgSearchSearching');
+    else if (msg.searchStep === 'synthesizing') stepText = pgT('pgSearchSynthesizing');
+    var sec = msg.startedAt ? Math.max(0, Math.floor((Date.now() - msg.startedAt) / 1000)) : 0;
+    pgEnsureWaitingTicker();
+    return '<div class="pg-bubble"><span class="pg-toast-inline">⏳ ' + pgEscapeHtml(stepText) + ' <span class="pg-wait-sec" id="pg-wait-' + i + '-' + idx + '">' + sec + 's</span></span></div>';
+  }
   if (msg.status === 'loading') {
     var sec = msg.startedAt ? Math.max(0, Math.floor((Date.now() - msg.startedAt) / 1000)) : 0;
     pgEnsureWaitingTicker();
@@ -229,6 +238,18 @@ function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
     inner += '<div class="pg-bubble" data-system-badge="' + pgEscapeHtml(pgT('pgSystemBadge')) + '">'
       + pgRenderMarkdown(pgTextContent(msg.content), false) + '</div>';
     return inner;
+  }
+  if (msg.searchClassification) {
+    inner += '<div class="pg-search-strategy collapsed" onclick="event.stopPropagation();this.classList.toggle(\'collapsed\')">' +
+      '<div class="pg-search-raw-head">' + pgEscapeHtml(pgT('pgSearchStrategy')) + ' <span class="pg-think-chev">▾</span></div>' +
+      '<div class="pg-search-raw-body"><pre>' + pgEscapeHtml(JSON.stringify(msg.searchClassification, null, 2)) + '</pre></div>' +
+      '</div>';
+  }
+  if (msg.searchRaw) {
+    inner += '<div class="pg-search-raw collapsed" onclick="event.stopPropagation();this.classList.toggle(\'collapsed\')">' +
+      '<div class="pg-search-raw-head">' + pgEscapeHtml(pgT('pgSearchRawResults')) + ' <span class="pg-think-chev">▾</span></div>' +
+      '<div class="pg-search-raw-body"><pre>' + pgEscapeHtml(msg.searchRaw) + '</pre></div>' +
+      '</div>';
   }
   var isError = msg.status === 'error';
   var cls = 'pg-bubble' + (isError ? ' pg-bubble-error' : '');

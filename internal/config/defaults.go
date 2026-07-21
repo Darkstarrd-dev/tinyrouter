@@ -175,5 +175,8 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 			},
 		}
 	}
+	if cfg.AnySearch.MaxResults == 0 {
+		cfg.AnySearch.MaxResults = 5
+	}
 	return cfg
 }

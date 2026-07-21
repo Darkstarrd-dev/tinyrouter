@@ -360,6 +360,11 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Delete("/downloads/{id}", rt.removeDownload)
 			r.Post("/open-url", rt.openExternalURL)
 			r.Post("/browse", rt.browseSystemPath)
+
+			// AnySearch
+			r.Post("/anysearch/search", rt.anySearchHandler)
+			r.Post("/anysearch/subdomains", rt.anySearchSubDomainsHandler)
+			r.Post("/anysearch/extract", rt.anySearchExtractHandler)
 		})
 	})
 
@@ -397,7 +402,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 				"pg-request.js", "pg-stream.js", "pg-render.js",
 				"pg-ui.js", "pg-modal.js", "pg-lifecycle.js",
 				"pg-autochat.js",
-				"pg-setup.js", "pg-director.js",
+				"pg-setup.js", "pg-director.js", "pg-search.js",
 				"gallery-state.js", "gallery-io.js", "gallery-layout.js",
 				"gallery-tree.js", "gallery-review.js", "gallery-video.js", "gallery-fullscreen.js",
 				"gallery.js",

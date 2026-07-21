@@ -271,6 +271,12 @@ type ReviewPreset struct {
 	UserPrompt   string `yaml:"userPrompt,omitempty" json:"userPrompt,omitempty"`
 }
 
+// AnySearchConfig stores the configuration for the AnySearch web search feature.
+type AnySearchConfig struct {
+	APIKey     string `yaml:"apiKey,omitempty" json:"apiKey,omitempty"`
+	MaxResults int    `yaml:"maxResults,omitempty" json:"maxResults,omitempty"`
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Port               int             `yaml:"port" json:"port"`
@@ -288,4 +294,5 @@ type Config struct {
 	Download           DownloadConfig  `yaml:"download" json:"download"`
 	Shortcuts          ShortcutsConfig `yaml:"shortcuts,omitempty" json:"shortcuts,omitempty"`
 	ReviewPresets      []ReviewPreset  `yaml:"reviewPresets,omitempty" json:"reviewPresets,omitempty"`
+	AnySearch          AnySearchConfig `yaml:"anySearch,omitempty" json:"anySearch,omitempty"`
 }

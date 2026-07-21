@@ -168,6 +168,17 @@ function pgUserSend() {
     return;
   }
 
+  // Search mode
+  if (pgState.mode === 'search') {
+    if (pgIsGenerating()) return;
+    if (!pgAnyWindowHasModel()) { pgToast(pgT('pgSearchNoModel'), 'warning'); return; }
+    var searchQuery = text.trim();
+    if (!searchQuery) return;
+    ta.value = '';
+    pgSearchSend(searchQuery);
+    return;
+  }
+
   if (pgIsGenerating()) return;
   if (!pgAnyWindowHasModel()) {
     pgToast(pgT('pgSelectModel'), 'warning'); return;
@@ -288,7 +299,7 @@ function pgRenderPanes() {
   if (inner) {
     inner.classList.toggle('pg-split', n > 1);
   }
-  var showReqLeft = !pgState.autoChat.enabled && n === 1;
+  var showReqLeft = !pgState.autoChat.enabled && n === 1 && pgState.mode !== 'search';
   var layout = document.querySelector('.pg-layout');
   if (layout) {
     layout.classList.toggle('pg-req-left-mode', showReqLeft);
@@ -305,6 +316,18 @@ function pgSetMode(mode) {
     pgAutoChatToggle(true);
   } else {
     if (pgState.mode === 'autochat') pgAutoChatToggle(false);
+    if (mode === 'search') {
+      if (pgState.splitCount > 1) {
+        pgSearchSavedSplit = pgState.splitCount;
+        pgState.splitCount = 1;
+      }
+      pgSearchLoadSettings();
+    } else if (pgState.mode === 'search') {
+      if (pgSearchSavedSplit > 1) {
+        pgState.splitCount = pgSearchSavedSplit;
+        pgSearchSavedSplit = 0;
+      }
+    }
     pgState.mode = mode;
     pgRenderSidebar();
     pgRenderPanes();
@@ -368,6 +391,7 @@ function pgRenderSidebar() {
           '<button class="pg-mode-btn' + (pgState.mode === 'normal' ? ' active' : '') + '" onclick="pgSetMode(\'normal\')">' + pgEscapeHtml(pgT('pgModeNormal')) + '</button>' +
           '<button class="pg-mode-btn' + (pgState.mode === 'autochat' ? ' active' : '') + '" onclick="pgSetMode(\'autochat\')">' + pgEscapeHtml(pgT('pgModeAutoChat')) + '</button>' +
           '<button class="pg-mode-btn' + (pgState.mode === 'image' ? ' active' : '') + '" onclick="pgSetMode(\'image\')">' + pgEscapeHtml(pgT('pgModeImage')) + '</button>' +
+          '<button class="pg-mode-btn' + (pgState.mode === 'search' ? ' active' : '') + '" onclick="pgSetMode(\'search\')">' + pgEscapeHtml(pgT('pgModeSearch')) + '</button>' +
         '</div>' +
       '</div>' +
       '<div class="pg-winbar-row">' +
@@ -536,6 +560,13 @@ function pgRenderSidebar() {
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
       imgParams +
       '<div class="pg-panel' + dimCls + '"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgImage')) + '</div>' + imgBlock + '</div>' +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
+  } else if (pgState.mode === 'search') {
+    var searchSettings = pgRenderSearchSettings(cfg);
+    side.innerHTML =
+      winbar +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSearchSettings')) + '</div>' + searchSettings + '</div>' +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
   } else {
     side.innerHTML =
@@ -1022,14 +1053,14 @@ function pgRenderInputBar() {
   if (pgIsGenerating() && !(pgState.autoChat.enabled && pgState.autoChat.isRunning)) {
     sendBtn = '<button class="pg-send stop" onclick="pgStop()">' + pgEscapeHtml(pgT('pgStop')) + '</button>';
   } else {
-    var sendLabel = pgState.mode === 'image' ? pgT('pgGenerate') : pgT('pgSendMessage');
+    var sendLabel = pgState.mode === 'image' ? pgT('pgGenerate') : (pgState.mode === 'search' ? pgT('pgSearchButton') : pgT('pgSendMessage'));
     sendBtn = '<button class="pg-send" onclick="pgUserSend()" ' + (!pgAnyWindowHasModel() ? 'disabled' : '') + '>' + pgEscapeHtml(sendLabel) + '</button>';
   }
    bar.innerHTML =
     '<div class="pg-input-card">' +
       '<div class="pg-input-thumbs" id="pg-input-thumbs"></div>' +
       '<div class="pg-input-right">' +
-        '<textarea class="pg-input" id="pg-input" placeholder="' + pgEscapeHtml(pgState.mode === 'image' ? pgT('pgImagePromptPlaceholder') : pgT('pgEnterMessage')) + '" onkeydown="pgOnInputKey(event)"></textarea>' +
+        '<textarea class="pg-input" id="pg-input" placeholder="' + pgEscapeHtml(pgState.mode === 'image' ? pgT('pgImagePromptPlaceholder') : (pgState.mode === 'search' ? pgT('pgSearchPlaceholder') : pgT('pgEnterMessage'))) + '" onkeydown="pgOnInputKey(event)"></textarea>' +
         '<div class="pg-input-bar-toolbar"></div>' +
       '</div>' +
     '</div>' +
