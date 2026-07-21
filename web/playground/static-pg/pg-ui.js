@@ -271,6 +271,12 @@ function pgPasteImage(e) {
 function pgRenderPanes() {
   var panes = document.getElementById('pg-panes');
   if (!panes) return;
+  if (pgState.mode === 'search') {
+    pgState.splitCount = 2;
+    while (pgState.windows.length < 2) {
+      pgState.windows.push(makeWin());
+    }
+  }
   var n = pgState.splitCount;
   var cols = n === 1 ? '1fr' : (n === 2 ? '1fr 1fr' : (n === 3 ? '1fr 1fr 1fr' : '1fr 1fr'));
   var rows = n === 4 ? '1fr 1fr' : '1fr';
@@ -282,13 +288,16 @@ function pgRenderPanes() {
     var modelLabel = w && w.config && w.config.model ? w.config.model : pgEscapeHtml(pgT('pgSelectModel'));
     if (modelLabel.length > 30) modelLabel = modelLabel.substring(0, 30) + '…';
     var paneLabel = (w && w.config.agentName) ? w.config.agentName : pgT('pgPaneName', [i + 1]);
+    if (pgState.mode === 'search') {
+      paneLabel = i === 0 ? pgT('pgSearchPaneLeft') : pgT('pgSearchPaneRight');
+    }
     html += '<div class="pg-pane" data-win="' + i + '">' +
       '<div class="pg-pane-head">' +
         '<span class="pg-pane-idx">' + pgEscapeHtml(paneLabel) +
           '<span class="pg-pane-typing" style="display:none"></span>' +
         '</span>' +
         '<span class="pg-pane-model">' + modelLabel + '</span>' +
-        '<button class="pg-pane-btn" onclick="event.stopPropagation();pgClearWindowMessages(' + i + ')" title="' + pgEscapeHtml(pgT('pgClearWin')) + '">' + PG_ICON_DELETE + '</button>' +
+        (pgState.mode !== 'search' ? '<button class="pg-pane-btn" onclick="event.stopPropagation();pgClearWindowMessages(' + i + ')" title="' + pgEscapeHtml(pgT('pgClearWin')) + '">' + PG_ICON_DELETE + '</button>' : '') +
         '<button class="pg-pane-btn" onclick="event.stopPropagation();pgOpenDebugModal(' + i + ')" title="' + pgEscapeHtml(pgT('pgDebugWin')) + '">' + PG_ICON_DEBUG + '</button>' +
       '</div>' +
       '<div class="pg-messages" id="pg-messages-' + i + '"></div>' +
@@ -317,17 +326,16 @@ function pgSetMode(mode) {
   } else {
     if (pgState.mode === 'autochat') pgAutoChatToggle(false);
     if (mode === 'search') {
-      if (pgState.splitCount > 1) {
-        pgSearchSavedSplit = pgState.splitCount;
-        pgState.splitCount = 1;
+      pgSearchSavedSplit = pgState.splitCount;
+      pgState.splitCount = 2;
+      while (pgState.windows.length < 2) {
+        pgState.windows.push(makeWin());
       }
       pgSearchLoadSettings();
-      // Sync search messages into w.messages for display
       pgSyncSearchMessages();
     } else if (pgState.mode === 'search') {
-      // Leaving search mode: restore normal window messages from localStorage
       pgLoad();
-      if (pgSearchSavedSplit > 1) {
+      if (pgSearchSavedSplit > 0) {
         pgState.splitCount = pgSearchSavedSplit;
         pgSearchSavedSplit = 0;
       }
@@ -389,6 +397,15 @@ function pgRenderSidebar() {
   for (var s = 1; s <= 4; s++) {
     splitOpts += '<option value="' + s + '"' + (pgState.splitCount === s ? ' selected' : '') + '>' + s + '</option>';
   }
+  var winbarRow = pgState.mode === 'search' ? '' : (
+    '<div class="pg-winbar-row">' +
+      '<div class="pg-winbar-btns">' + winBtns + '</div>' +
+      '<select onchange="pgSetSplitCount(parseInt(this.value,10))"' + (generating ? ' disabled' : '') + '>' + splitOpts + '</select>' +
+    '</div>' +
+    '<div class="pg-winbar-hint">' + pgEscapeHtml(pgT('pgEditWindow', [pgState.activeWin + 1])) + '</div>' +
+    '<button class="pg-btn" style="width:100%;margin-top:6px" onclick="pgResetSettings()">' + pgEscapeHtml(pgT('pgResetCfg')) + '</button>'
+  );
+
   var winbar =
     '<div class="pg-panel pg-winbar">' +
       '<div class="pg-panel-title">' + pgEscapeHtml(pgT('pgWinBarTitle')) +
@@ -399,12 +416,7 @@ function pgRenderSidebar() {
           '<button class="pg-mode-btn' + (pgState.mode === 'search' ? ' active' : '') + '" onclick="pgSetMode(\'search\')">' + pgEscapeHtml(pgT('pgModeSearch')) + '</button>' +
         '</div>' +
       '</div>' +
-      '<div class="pg-winbar-row">' +
-        '<div class="pg-winbar-btns">' + winBtns + '</div>' +
-        '<select onchange="pgSetSplitCount(parseInt(this.value,10))"' + (generating ? ' disabled' : '') + '>' + splitOpts + '</select>' +
-      '</div>' +
-      '<div class="pg-winbar-hint">' + pgEscapeHtml(pgT('pgEditWindow', [pgState.activeWin + 1])) + '</div>' +
-      '<button class="pg-btn" style="width:100%;margin-top:6px" onclick="pgResetSettings()">' + pgEscapeHtml(pgT('pgResetCfg')) + '</button>' +
+      winbarRow +
     '</div>';
 
   // --- Model select ---
@@ -417,7 +429,7 @@ function pgRenderSidebar() {
     var on = en[key];
     var val = cfg[key];
     var disabled = !on || customMode;
-    var valAttr = isNum ? 'value="' + (val || 0) + '"' : 'value="' + (val != null ? val : 0) + '"';
+    var valAttr = typeof val === 'number' ? 'value="' + val + '"' : 'value=""';
     var input = isNum
       ? '<input type="number" min="' + min + '" step="' + step + '" ' + valAttr + ' onchange="pgOnParam(\'' + key + '\', this.value==\'\'?0:'+ (min < 0 ? 'parseFloat(this.value)' : 'parseInt(this.value,10)||0') + ')">'
       : '<input type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" oninput="pgOnParam(\'' + key + '\', parseFloat(this.value))"><span class="pg-val" id="pg-val-' + key + '">' + (typeof val === 'number' ? val.toFixed(2) : val) + '</span>';
@@ -466,8 +478,8 @@ function pgRenderSidebar() {
   var customErrLine = (!customValid && customErr) ? '<div class="pg-custom-error-msg">' + pgEscapeHtml(pgT('pgCustomJsonError', [customErr])) + '</div>' : '';
   var custom =
     '<div class="pg-custom-toolbar">' +
-      '<div class="pg-switch" style="margin-bottom:0"><input type="checkbox" id="pg-customtoggle" ' + (cfg.useCustomBody ? 'checked' : '') + ' onchange="pgOnCustomToggle(this.checked)"><label for="pg-customtoggle">' + pgEscapeHtml(pgT('pgUseCustomBody')) + '</label></div>' +
-      '<div style="display:flex;gap:4px;align-items:center">' + customStatus + formatBtn + '</div>' +
+      '<div class="pg-switch" style="margin-bottom:0"><input type="checkbox" id="pg-custombody-toggle" ' + (cfg.useCustomBody ? 'checked' : '') + ' onchange="pgOnParam(\'useCustomBody\', this.checked); pgRenderSidebar()"><label for="pg-custombody-toggle">' + pgEscapeHtml(pgT('pgUseCustomBody')) + '</label></div>' +
+      customStatus +
     '</div>' +
     customWarning +
     '<div class="pg-custom-editor">' +
@@ -572,8 +584,7 @@ function pgRenderSidebar() {
       winbar +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSearchSettings')) + '<button class="pg-btn" onclick="window.open(\'https://www.anysearch.com/pricing\',\'_blank\')">' + pgEscapeHtml(pgT('pgSearchGetKey')) + '</button></div>' + searchSettings + '</div>' +
-      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSearchHistory')) + '</div>' + pgRenderSearchHistory() + '</div>' +
-      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSearchHistory')) + '</div>' + pgRenderSearchHistory() + '</div>';
   } else {
     side.innerHTML =
       winbar +
@@ -1080,7 +1091,28 @@ function pgRenderInputBar() {
       '</div>' +
     '</div>';
   var ta = document.getElementById('pg-input');
-  if (ta) ta.addEventListener('paste', pgPasteImage);
+  if (ta) {
+    ta.addEventListener('paste', pgPasteImage);
+    if (pgState.mode === 'search') {
+      var activeSearch = typeof pgActiveSearch === 'function' ? pgActiveSearch() : null;
+      if (activeSearch && activeSearch.query) {
+        if (!ta.value || ta.value === activeSearch.query) {
+          ta.value = activeSearch.query;
+          ta.classList.add('pg-input-search-submitted');
+        }
+      }
+      if (pgIsGenerating()) {
+        ta.readOnly = true;
+        ta.classList.add('pg-input-search-locked');
+      }
+      ta.addEventListener('input', function() {
+        var s2 = typeof pgActiveSearch === 'function' ? pgActiveSearch() : null;
+        if (!s2 || ta.value !== s2.query) {
+          ta.classList.remove('pg-input-search-submitted');
+        }
+      });
+    }
+  }
   pgRenderInputThumbs();
 }
 function pgUpdateInputBar() { pgRenderInputBar(); }

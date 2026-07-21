@@ -189,15 +189,107 @@ function pgRenderHtmlPreview(pre, html) {
 }
 
 function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
-  if (msg.status === 'loading' && msg.searchStep) {
-    var stepText = '';
-    if (msg.searchStep === 'classifying') stepText = pgT('pgSearchClassifying');
-    else if (msg.searchStep === 'searching') stepText = pgT('pgSearchSearching');
-    else if (msg.searchStep === 'synthesizing') stepText = pgT('pgSearchSynthesizing');
-    var sec = msg.startedAt ? Math.max(0, Math.floor((Date.now() - msg.startedAt) / 1000)) : 0;
-    pgEnsureWaitingTicker();
-    return '<div class="pg-bubble"><span class="pg-toast-inline">⏳ ' + pgEscapeHtml(stepText) + ' <span class="pg-wait-sec" id="pg-wait-' + i + '-' + idx + '">' + sec + 's</span></span></div>';
+  var isSearch = pgState.mode === 'search';
+  if (isSearch && msg.role === 'user') return '';
+
+  if (isSearch) {
+    // Left pane (win 0): Strategy & Raw Results
+    if (i === 0) {
+      var leftInner = '';
+      if (msg.searchClassification) {
+        leftInner += '<div class="pg-search-strategy">' +
+          '<div class="pg-search-raw-head"><span class="pg-search-raw-title">' + pgEscapeHtml(pgT('pgSearchStrategy')) + '</span></div>' +
+          '<div class="pg-search-raw-body"><pre>' + pgEscapeHtml(JSON.stringify(msg.searchClassification, null, 2)) + '</pre></div>' +
+          '</div>';
+      }
+      if (msg.searchRaw) {
+        var rawNormalized = typeof pgNormalizeSearchMarkdown === 'function' ? pgNormalizeSearchMarkdown(msg.searchRaw) : msg.searchRaw;
+        var prettyHtml = pgRenderMarkdown(rawNormalized, false);
+        leftInner += '<div class="pg-search-raw">' +
+          '<div class="pg-search-raw-head">' +
+            '<span class="pg-search-raw-title">' + pgEscapeHtml(pgT('pgSearchRawResults')) + '</span>' +
+            '<span class="pg-search-toggle">' +
+              '<button class="pg-search-toggle-btn pg-search-toggle-btn-active" data-view="pretty" onclick="event.stopPropagation();pgToggleSearchRaw(this,\'pretty\')">' + pgEscapeHtml(pgT('pgSearchPretty')) + '</button>' +
+              '<button class="pg-search-toggle-btn" data-view="raw" onclick="event.stopPropagation();pgToggleSearchRaw(this,\'raw\')">' + pgEscapeHtml(pgT('pgSearchRaw')) + '</button>' +
+            '</span>' +
+          '</div>' +
+          '<div class="pg-search-raw-body">' +
+            '<div class="pg-search-pretty-view">' + prettyHtml + '</div>' +
+            '<pre class="pg-search-raw-view" style="display:none">' + pgEscapeHtml(msg.searchRaw) + '</pre>' +
+          '</div>' +
+        '</div>';
+      }
+      if (!leftInner) {
+        if (msg.status === 'loading') {
+          var stepText = pgT('pgSearchSearching');
+          if (msg.searchStep === 'classifying') stepText = pgT('pgSearchClassifying');
+          var sec = msg.startedAt ? Math.max(0, Math.floor((Date.now() - msg.startedAt) / 1000)) : 0;
+          pgEnsureWaitingTicker();
+          return '<div class="pg-bubble"><span class="pg-toast-inline">⏳ ' + pgEscapeHtml(stepText) + ' <span class="pg-wait-sec" id="pg-wait-' + i + '-' + idx + '">' + sec + 's</span></span></div>';
+        }
+        return '<div class="pg-pane-empty">' + pgEscapeHtml(pgT('pgSearchRawResults')) + '</div>';
+      }
+      return leftInner;
+    }
+
+    // Right pane (win 1): Synthesized Result
+    if (i === 1) {
+      if (msg.status === 'loading' && !msg.content) {
+        var sec2 = msg.startedAt ? Math.max(0, Math.floor((Date.now() - msg.startedAt) / 1000)) : 0;
+        pgEnsureWaitingTicker();
+        return '<div class="pg-bubble"><span class="pg-toast-inline">⏳ ' + pgEscapeHtml(pgT('pgSearchSynthesizing')) + ' <span class="pg-wait-sec" id="pg-wait-' + i + '-' + idx + '">' + sec2 + 's</span></span></div>';
+      }
+      var rightInner = '';
+      if (msg.sources && msg.sources.length) {
+        rightInner += '<div class="pg-sources collapsed" onclick="this.classList.toggle(\'collapsed\')">' +
+          '<div class="pg-sources-head">' + pgEscapeHtml(pgT('pgSourcesCount', [msg.sources.length])) + ' ▾</div>' +
+          '<div class="pg-sources-list">' +
+            msg.sources.map(function(s, si) {
+              return '<a class="pg-source-item" href="' + pgEscapeHtml(pgSafeHref(s.href)) + '" target="_blank" rel="noreferrer noopener">' +
+                '<span class="pg-source-idx">[' + (si + 1) + ']</span>' +
+                '<span>' + pgEscapeHtml(s.title || s.href) + '</span></a>';
+            }).join('') +
+          '</div></div>';
+      }
+      if (msg.reasoning) {
+        var lbl;
+        var streamingThink = msg.status === 'streaming' && msg.reasoningStartedAt && !msg.reasoningCompletedAt;
+        if (streamingThink) {
+          lbl = '<span class="pg-thinking-spinner"></span> ' + pgEscapeHtml(pgT('pgThinkingTitle')) + '...';
+        } else if (msg.reasoningDurationMs != null) {
+          var dstr = pgFormatDuration(msg.reasoningDurationMs);
+          lbl = '💭 ' + (dstr ? pgEscapeHtml(pgT('pgThinkingSec', [dstr])) : pgEscapeHtml(pgT('pgThinkingDone')));
+        } else {
+          lbl = '💭 ' + pgEscapeHtml(pgT('pgThinkingDone'));
+        }
+        var thinkCls = streamingThink ? 'pg-thinking' : 'pg-thinking collapsed';
+        rightInner += '<div class="' + thinkCls + '" onclick="this.classList.toggle(\'collapsed\')">' +
+          '<div class="pg-thinking-head"><span class="pg-think-label">' + lbl + '</span>' +
+          '<span class="pg-think-chev">▾</span></div>' +
+          '<div class="pg-thinking-body">' + pgRenderMarkdown(msg.reasoning, false) + '</div>' +
+        '</div>';
+      }
+      var isError2 = msg.status === 'error';
+      var cls2 = 'pg-bubble' + (isError2 ? ' pg-bubble-error' : '');
+      var bodyMd2;
+      if (isError2) {
+        bodyMd2 = msg.content ? pgRenderMarkdown(pgTextContent(msg.content), false) : '';
+        if (msg.error) {
+          bodyMd2 += (bodyMd2 ? '<br>' : '') + '<span style="color:#ffcdd2">[' + pgEscapeHtml(pgT('pgError')) + '] ' + pgEscapeHtml(msg.error) + '</span>';
+        }
+      } else if (isSourceVisible) {
+        var rawSrc2 = pgTextContent(msg.content);
+        bodyMd2 = '<pre><code class="language-markdown">' + pgEscapeHtml(rawSrc2) + '</code></pre>';
+      } else {
+        bodyMd2 = pgRenderMarkdown(pgTextContent(msg.content), false);
+      }
+      if (bodyMd2) {
+        rightInner += '<div class="' + cls2 + '">' + bodyMd2 + '</div>';
+      }
+      return rightInner;
+    }
   }
+
   if (msg.status === 'loading') {
     var sec = msg.startedAt ? Math.max(0, Math.floor((Date.now() - msg.startedAt) / 1000)) : 0;
     pgEnsureWaitingTicker();
@@ -348,7 +440,40 @@ function pgEnsureWaitingTicker() {
   if (!pgWaitingTimer) pgWaitingTimer = setInterval(pgTickWaiting, 1000);
 }
 
+function pgSaveActiveSearchResultMarkdown() {
+  var s = pgActiveSearch();
+  if (!s) return;
+  var msg = s.messages && s.messages[s.messages.length - 1];
+  var content = msg ? (msg.content || '') : '';
+  if (!content) {
+    pgToast(pgT('pgError'), 'warning');
+    return;
+  }
+  var query = s.query || 'search_result';
+  var cleanQuery = query.replace(/[\\/:*?"<>|]/g, '_').trim();
+  if (cleanQuery.length > 30) cleanQuery = cleanQuery.substring(0, 30);
+  var filename = (cleanQuery || 'search_result') + '.md';
+  pgSaveMarkdownFile(content, filename);
+}
+
+function pgSaveActiveSearchRawMarkdown() {
+  var s = pgActiveSearch();
+  if (!s) return;
+  var msg = s.messages && s.messages[s.messages.length - 1];
+  var raw = msg ? (msg.searchRaw || '') : '';
+  if (!raw) {
+    pgToast(pgT('pgError'), 'warning');
+    return;
+  }
+  var query = s.query || 'search_raw';
+  var cleanQuery = query.replace(/[\\/:*?"<>|]/g, '_').trim();
+  if (cleanQuery.length > 30) cleanQuery = cleanQuery.substring(0, 30);
+  var filename = (cleanQuery || 'search_raw') + '_raw.md';
+  pgSaveMarkdownFile(raw, filename);
+}
+
 function pgMsgMetaInnerHTML(i, idx, msg) {
+  var isSearch = pgState.mode === 'search';
   var metaTime = pgFormatTime(msg.createdAt || msg.completedAt || msg.startedAt);
   var metaLines = '';
   if (msg.role === 'assistant' && msg.durationMs != null) {
@@ -367,19 +492,31 @@ function pgMsgMetaInnerHTML(i, idx, msg) {
   html += '<div class="pg-msg-actions">';
   if (msg.role === 'assistant' && msg.status !== 'loading') {
     html += '<button class="pg-action" onclick="pgActionCopy(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
-    html += '<button class="pg-action" onclick="pgToggleSource(' + i + ',' + idx + ')" title="' + pgEscapeHtml(msg.sourceVisible ? pgT('pgShowPreview') : pgT('pgShowSource')) + '">' + PG_ICON_SRC + '</button>';
-    html += '<button class="pg-action" onclick="pgRegenerate(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgRegenerate')) + '">' + PG_ICON_REGEN + '</button>';
+    if (!isSearch || i === 1) {
+      html += '<button class="pg-action" onclick="pgToggleSource(' + i + ',' + idx + ')" title="' + pgEscapeHtml(msg.sourceVisible ? pgT('pgShowPreview') : pgT('pgShowSource')) + '">' + PG_ICON_SRC + '</button>';
+    }
+    if (isSearch && i === 0) {
+      html += '<button class="pg-action" onclick="pgSaveActiveSearchRawMarkdown()" title="' + pgEscapeHtml(pgT('pgSaveMarkdown')) + '">' + PG_ICON_SAVE + '</button>';
+    }
+    if (isSearch && i === 1) {
+      html += '<button class="pg-action" onclick="pgSaveActiveSearchResultMarkdown()" title="' + pgEscapeHtml(pgT('pgSaveMarkdown')) + '">' + PG_ICON_SAVE + '</button>';
+    }
+    if (!isSearch) {
+      html += '<button class="pg-action" onclick="pgRegenerate(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgRegenerate')) + '">' + PG_ICON_REGEN + '</button>';
+    }
     if (msg.status === 'error') {
       html += '<button class="pg-action" onclick="pgRetryError(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgRetry')) + '">' + PG_ICON_RETRY + '</button>';
       html += '<button class="pg-action" onclick="pgEditPromptForError(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgEditPrompt')) + '">' + PG_ICON_EDIT + '</button>';
     }
-    html += '<button class="pg-action danger" onclick="pgActionDelete(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
-  } else if (msg.role === 'user') {
+    if (!isSearch) {
+      html += '<button class="pg-action danger" onclick="pgActionDelete(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
+    }
+  } else if (!isSearch && msg.role === 'user') {
     html += '<button class="pg-action" onclick="pgActionCopy(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgCopy')) + '">' + PG_ICON_COPY + '</button>';
     html += '<button class="pg-action" onclick="pgToggleRole(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
     html += '<button class="pg-action" onclick="pgBeginEdit(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
     html += '<button class="pg-action danger" onclick="pgActionDelete(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
-  } else if (msg.role === 'system') {
+  } else if (!isSearch && msg.role === 'system') {
     html += '<button class="pg-action" onclick="pgToggleRole(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgToggleRole')) + '">' + PG_ICON_ROLE + '</button>';
     html += '<button class="pg-action" onclick="pgBeginEdit(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgEdit')) + '">' + PG_ICON_EDIT + '</button>';
     html += '<button class="pg-action danger" onclick="pgActionDelete(' + i + ',' + idx + ')" title="' + pgEscapeHtml(pgT('pgDelete')) + '">' + PG_ICON_DELETE + '</button>';
@@ -416,7 +553,12 @@ function pgActionCopy(i, idx) {
   var w = pgWinAt(i);
   var msg = w.messages[idx];
   if (!msg) return;
-  var txt = pgTextContent(msg.content);
+  var txt;
+  if (pgState.mode === 'search' && i === 0) {
+    txt = msg.searchRaw || '';
+  } else {
+    txt = pgTextContent(msg.content);
+  }
   if (!txt) { pgToast(pgT('pgCopy'), 'warning'); return; }
   pgCopyToClipboard(txt, pgT('pgCopiedMsg'));
 }

@@ -92,13 +92,12 @@ function pgActiveSearch() {
 // Mirror the active search's messages into w.messages for rendering.
 // If no active search, clear w.messages.
 function pgSyncSearchMessages() {
-  var w = pgWinAt(0);
-  if (!w) return;
   var s = pgActiveSearch();
-  if (s) {
-    w.messages = s.messages;
-  } else {
-    w.messages = [];
+  var msgs = s ? s.messages : [];
+  for (var i = 0; i < pgState.windows.length; i++) {
+    if (i < 2) {
+      pgState.windows[i].messages = msgs;
+    }
   }
 }
 

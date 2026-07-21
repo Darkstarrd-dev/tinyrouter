@@ -4,21 +4,23 @@ var PG_SEARCH_CLASSIFY_PROMPT = 'You are a search query classifier. Given a user
 var PG_SEARCH_SYNTHESIZE_PROMPT = 'You are a search result synthesizer. Given a user\'s original query and raw search results from a search engine, provide a comprehensive, well-formatted Markdown summary that answers the user\'s question. Include relevant details, organize information with headers/lists/tables as appropriate, and mention sources where available. Write in the same language as the user\'s query.';
 
 function pgSearchSend(query) {
-  var w = pgWinAt(0);
-  if (!w) return;
+  var w0 = pgWinAt(0);
+  var w1 = pgWinAt(1);
+  if (!w0) return;
   var now = Date.now();
-  // Create new search entry; archive the previous active search in-place.
   var searchId = pgNextSearchId();
   var searchEntry = { id: searchId, query: query, messages: [], ts: now };
   pgState.searchHistory.push(searchEntry);
   pgState.activeSearchId = searchId;
-  // Mirror into w.messages for rendering/streaming
   searchEntry.messages.push({ role: 'user', content: query, createdAt: now });
   searchEntry.messages.push({ role: 'assistant', content: '', status: 'loading', startedAt: now, searchStep: 'classifying' });
-  w.messages = searchEntry.messages;
-  w.streaming = true;
-  w.abortCtrl = new AbortController();
+  
+  pgSyncSearchMessages();
+  w0.streaming = true;
+  if (w1) w1.streaming = true;
+  w0.abortCtrl = new AbortController();
   pgRenderMessages(0);
+  if (w1) pgRenderMessages(1);
   pgUpdateInputBar();
   pgRenderSidebar();
 
@@ -27,14 +29,14 @@ function pgSearchSend(query) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-TinyRouter-Source': 'playground' },
     body: JSON.stringify({
-      model: w.config.model,
+      model: w0.config.model,
       messages: [
         { role: 'system', content: PG_SEARCH_CLASSIFY_PROMPT },
         { role: 'user', content: query }
       ],
       stream: false
     }),
-    signal: w.abortCtrl.signal,
+    signal: w0.abortCtrl.signal,
   }).then(function(resp) {
     if (!resp.ok) {
       return resp.text().then(function(text) {
@@ -51,17 +53,16 @@ function pgSearchSend(query) {
     try {
       var cleaned = classifyText.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
       classification = JSON.parse(cleaned);
-    } catch (e) {
-      // Fallback to general
-    }
+    } catch (e) {}
     if (!classification || typeof classification !== 'object' || !classification.strategy) {
       classification = { strategy: 'general', domain: null, sub_domain: null, sub_domain_params: null, query: query };
     }
     msg.searchClassification = classification;
     msg.searchStep = 'searching';
     pgRenderBubble(0, w2.messages.length - 1);
+    pgRenderBubble(1, w2.messages.length - 1);
 
-    // Step 2: Search (pure general, no domain/sub_domain to avoid API tag errors)
+    // Step 2: Search (pure general)
     return fetch('/api/anysearch/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -88,7 +89,10 @@ function pgSearchSend(query) {
       msg2.searchStep = 'synthesizing';
       msg2.status = 'streaming';
       w3.pendingContent = '';
+      w3.lastRenderedRawLen = rawResult.length;
       pgRenderBubble(0, w3.messages.length - 1);
+      pgRenderBubble(1, w3.messages.length - 1);
+      pgScrollBottom(0, w3.messages.length - 1);
 
       // Step 3: Synthesize (streaming)
       var synthBody = {
@@ -166,22 +170,35 @@ function pgSearchFlushRender() {
     if (!w2.streaming) return;
     var msg = w2.messages[w2.messages.length - 1];
     if (!msg) return;
+
+    // Only re-render left pane if left content (searchRaw/strategy) actually changed
+    var rawLen = msg.searchRaw ? msg.searchRaw.length : 0;
+    var rawChanged = w2.lastRenderedRawLen !== rawLen;
+    if (rawChanged || msg.searchStep === 'classifying' || msg.searchStep === 'searching') {
+      w2.lastRenderedRawLen = rawLen;
+      pgRenderBubble(0, w2.messages.length - 1);
+      pgScrollBottom(0, w2.messages.length - 1);
+    }
+
+    // Right pane (synthesized result) is updated during streaming
     msg.content = w2.pendingContent;
     msg.status = 'streaming';
-    pgRenderBubble(0, w2.messages.length - 1);
-    pgScrollBottom(0, w2.messages.length - 1);
+    pgRenderBubble(1, w2.messages.length - 1);
+    pgScrollBottom(1, w2.messages.length - 1);
   }, 50);
 }
 
 function pgSearchFinish() {
-  var w = pgWinAt(0);
-  if (!w.streaming) return;
-  w.streaming = false;
-  if (w.renderTimer) { clearTimeout(w.renderTimer); w.renderTimer = null; }
-  w.abortCtrl = null;
-  var msg = w.messages[w.messages.length - 1];
+  var w0 = pgWinAt(0);
+  var w1 = pgWinAt(1);
+  if (!w0.streaming) return;
+  w0.streaming = false;
+  if (w1) w1.streaming = false;
+  if (w0.renderTimer) { clearTimeout(w0.renderTimer); w0.renderTimer = null; }
+  w0.abortCtrl = null;
+  var msg = w0.messages[w0.messages.length - 1];
   if (msg) {
-    msg.content = w.pendingContent || msg.content;
+    msg.content = w0.pendingContent || msg.content;
     msg.status = 'complete';
     msg.searchStep = 'done';
     if (!msg.completedAt) {
@@ -189,19 +206,22 @@ function pgSearchFinish() {
       if (msg.startedAt) msg.durationMs = msg.completedAt - msg.startedAt;
     }
   }
-  w.pendingContent = '';
-  pgRenderBubble(0, w.messages.length - 1);
+  w0.pendingContent = '';
+  pgRenderBubble(0, w0.messages.length - 1);
+  pgRenderBubble(1, w0.messages.length - 1);
   pgRenderDebug();
   pgSave();
   pgUpdateInputBar();
 }
 
 function pgSearchFail(errMsg) {
-  var w = pgWinAt(0);
-  w.streaming = false;
-  if (w.renderTimer) { clearTimeout(w.renderTimer); w.renderTimer = null; }
-  w.abortCtrl = null;
-  var msg = w.messages[w.messages.length - 1];
+  var w0 = pgWinAt(0);
+  var w1 = pgWinAt(1);
+  w0.streaming = false;
+  if (w1) w1.streaming = false;
+  if (w0.renderTimer) { clearTimeout(w0.renderTimer); w0.renderTimer = null; }
+  w0.abortCtrl = null;
+  var msg = w0.messages[w0.messages.length - 1];
   if (msg) {
     msg.error = errMsg;
     msg.status = 'error';
@@ -211,7 +231,8 @@ function pgSearchFail(errMsg) {
       if (msg.startedAt) msg.durationMs = msg.completedAt - msg.startedAt;
     }
   }
-  pgRenderBubble(0, w.messages.length - 1);
+  pgRenderBubble(0, w0.messages.length - 1);
+  pgRenderBubble(1, w0.messages.length - 1);
   pgRenderDebug();
   pgUpdateInputBar();
 }
