@@ -1,5 +1,5 @@
 // pg-search.js
-var PG_SEARCH_CLASSIFY_PROMPT = 'You are a search query classifier. Given a user\'s search query, determine the best search strategy.\n\nAvailable domains: general, resource, social_media, finance, academic, legal, health, business, security, ip, code, energy, environment, agriculture, travel, film, gaming\n\nRules:\n- If the query is about a specific domain (e.g. stock prices, academic papers, legal cases), use "vertical" strategy with the appropriate domain.\n- If the query is general knowledge or you are unsure, use "general" strategy.\n- For vertical search, identify the most specific sub_domain if possible.\n\nRespond with ONLY a JSON object (no markdown fences, no explanation):\n{"strategy":"general"|"vertical","domain":"<domain_name>"|null,"sub_domain":"<sub_domain>"|null,"sub_domain_params":{}|null,"query":"<refined search query>"}';
+var PG_SEARCH_CLASSIFY_PROMPT = 'You are a search query classifier. Given a user\'s search query, determine the best search strategy.\n\nRules:\n- Always use "general" strategy for all queries.\n- Do NOT output sub_domain or sub_domain_params; always set them to null.\n\nRespond with ONLY a JSON object (no markdown fences, no explanation):\n{"strategy":"general","domain":null,"sub_domain":null,"sub_domain_params":null,"query":"<original search query>"}';
 
 var PG_SEARCH_SYNTHESIZE_PROMPT = 'You are a search result synthesizer. Given a user\'s original query and raw search results from a search engine, provide a comprehensive, well-formatted Markdown summary that answers the user\'s question. Include relevant details, organize information with headers/lists/tables as appropriate, and mention sources where available. Write in the same language as the user\'s query.';
 
@@ -7,12 +7,20 @@ function pgSearchSend(query) {
   var w = pgWinAt(0);
   if (!w) return;
   var now = Date.now();
-  w.messages.push({ role: 'user', content: query, createdAt: now });
-  w.messages.push({ role: 'assistant', content: '', status: 'loading', startedAt: now, searchStep: 'classifying' });
+  // Create new search entry; archive the previous active search in-place.
+  var searchId = pgNextSearchId();
+  var searchEntry = { id: searchId, query: query, messages: [], ts: now };
+  pgState.searchHistory.push(searchEntry);
+  pgState.activeSearchId = searchId;
+  // Mirror into w.messages for rendering/streaming
+  searchEntry.messages.push({ role: 'user', content: query, createdAt: now });
+  searchEntry.messages.push({ role: 'assistant', content: '', status: 'loading', startedAt: now, searchStep: 'classifying' });
+  w.messages = searchEntry.messages;
   w.streaming = true;
   w.abortCtrl = new AbortController();
   pgRenderMessages(0);
   pgUpdateInputBar();
+  pgRenderSidebar();
 
   // Step 1: Classify query
   fetch('/v1/chat/completions', {
@@ -53,15 +61,12 @@ function pgSearchSend(query) {
     msg.searchStep = 'searching';
     pgRenderBubble(0, w2.messages.length - 1);
 
-    // Step 2: Search
+    // Step 2: Search (pure general, no domain/sub_domain to avoid API tag errors)
     return fetch('/api/anysearch/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        query: classification.query,
-        domain: classification.domain,
-        sub_domain: classification.sub_domain,
-        sub_domain_params: classification.sub_domain_params,
+        query: classification.query || query,
         max_results: pgState.search.maxResults
       }),
       signal: w2.abortCtrl.signal,
@@ -261,4 +266,55 @@ function pgSearchSliderChange(val) {
   var valEl = document.getElementById('pg-search-slider-val');
   if (valEl) valEl.textContent = val;
   pgApiPatch('/settings', { anySearch: { maxResults: pgState.search.maxResults } }).catch(function() {});
+}
+
+function pgRenderSearchHistory() {
+  var history = pgState.searchHistory;
+  if (!history.length) {
+    return '<div class="pg-search-history-empty">' + pgEscapeHtml(pgT('pgSearchHistoryEmpty')) + '</div>';
+  }
+  var html = '<ul class="pg-search-history-list">';
+  // Render newest first (top-to-bottom)
+  for (var i = history.length - 1; i >= 0; i--) {
+    var entry = history[i];
+    var isActive = entry.id === pgState.activeSearchId;
+    var display = entry.query.length > 40 ? entry.query.substring(0, 40) + '…' : entry.query;
+    var timeStr = pgFormatTime(entry.ts);
+    var num = i + 1;  // search number: 1 = first, N = latest
+    html += '<li class="pg-search-history-item' + (isActive ? ' active' : '') + '" title="' + pgEscapeAttr(entry.query) + '" onclick="pgSwitchSearch(' + entry.id + ')">' +
+      '<span class="pg-search-history-num">' + num + '</span>' +
+      '<span class="pg-search-history-text">' + pgEscapeHtml(display) + '</span>' +
+      '<span class="pg-search-history-time">' + pgEscapeHtml(timeStr) + '</span>' +
+    '</li>';
+  }
+  html += '</ul>';
+  return html;
+}
+
+function pgSwitchSearch(searchId) {
+  // Don't allow switching away from an active (streaming) search
+  if (pgState.mode !== 'search') return;
+  var w = pgWinAt(0);
+  if (!w) return;
+  if (w.streaming) return;
+  // Find the entry
+  for (var i = 0; i < pgState.searchHistory.length; i++) {
+    if (pgState.searchHistory[i].id === searchId) {
+      pgState.activeSearchId = searchId;
+      pgSyncSearchMessages();
+      pgRenderMessages(0);
+      pgRenderSidebar();
+      pgUpdateInputBar();
+      return;
+    }
+  }
+}
+
+// Kept for backward compat — no longer used by history items.
+function pgScrollToSearchMsg(msgIdx) {
+  var el = document.getElementById('pg-msg-0-' + msgIdx);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.focus();
+  }
 }

@@ -542,6 +542,23 @@ function pgStop() {
 
 function pgClear() {
   pgStop();
+  if (pgState.mode === 'search') {
+    // In search mode, clear the active search's messages and reset state
+    var s = pgActiveSearch();
+    if (s) {
+      s.messages = [];
+    }
+    pgState.activeSearchId = null;
+    var w0 = pgWinAt(0);
+    if (w0) {
+      w0.messages = [];
+      w0.sseEvents = [];
+    }
+    pgRenderMessages(0);
+    pgRenderSidebar();
+    pgUpdateInputBar();
+    return;
+  }
   for (var i = 0; i < pgState.splitCount; i++) {
     var w = pgWinAt(i);
     w.messages = [];

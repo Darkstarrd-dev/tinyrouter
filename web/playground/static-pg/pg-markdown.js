@@ -7,6 +7,16 @@ function pgInitMarker() {
   if (typeof markedKatex !== 'undefined') {
     try { marked.use(markedKatex({ throwOnError: false, nonStandard: true })); } catch (e) {}
   }
+  marked.use({
+    renderer: {
+      link: function(href, title, text) {
+        var out = '<a href="' + href + '" target="_blank" rel="noopener noreferrer">';
+        if (title) out += ' title="' + title + '"';
+        out += (text || href) + '</a>';
+        return out;
+      }
+    }
+  });
   pgMarkerReady = true;
 }
 
@@ -77,6 +87,20 @@ function pgTryWrapHtmlCode(text) {
   text = text.replace(/(<\/body>)([\r\n\s]*?)(<\/html>)([\n\r]*)([`]*)([\n\r]*?)/g, function(m, b, sp, h, nl, qe, nl2) {
     return qe ? m : b + sp + h + '\n```\n';
   });
+  return text;
+}
+
+// pgUnescapeMarkdownSyntax strips backslash escapes before markdown syntax
+// characters. The AnySearch API returns over-escaped markdown (e.g. `\``
+// instead of `` ` ``), preventing marked from recognizing code blocks,
+// emphasis, headings, etc. This function restores the raw syntax so marked
+// can parse it correctly. Literal backslashes (\\) are preserved.
+function pgUnescapeMarkdownSyntax(text) {
+  if (!text || text.indexOf('\\') < 0) return text;
+  var P = '\x00BS\x00';
+  text = text.replace(/\\\\/g, P);
+  text = text.replace(/\\([`*_{}[\]()#+\-.!])/g, '$1');
+  text = text.replace(new RegExp(P, 'g'), '\\');
   return text;
 }
 

@@ -322,7 +322,11 @@ function pgSetMode(mode) {
         pgState.splitCount = 1;
       }
       pgSearchLoadSettings();
+      // Sync search messages into w.messages for display
+      pgSyncSearchMessages();
     } else if (pgState.mode === 'search') {
+      // Leaving search mode: restore normal window messages from localStorage
+      pgLoad();
       if (pgSearchSavedSplit > 1) {
         pgState.splitCount = pgSearchSavedSplit;
         pgSearchSavedSplit = 0;
@@ -568,6 +572,7 @@ function pgRenderSidebar() {
       winbar +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSearchSettings')) + '<button class="pg-btn" onclick="window.open(\'https://www.anysearch.com/pricing\',\'_blank\')">' + pgEscapeHtml(pgT('pgSearchGetKey')) + '</button></div>' + searchSettings + '</div>' +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSearchHistory')) + '</div>' + pgRenderSearchHistory() + '</div>' +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
   } else {
     side.innerHTML =

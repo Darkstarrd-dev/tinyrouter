@@ -65,9 +65,42 @@ var pgState = {
     },
   },
   search: { maxResults: 5, apiKey: '' },
+  // Search history: in-memory list of per-search conversations.
+  // Each entry: { id: number, query: string, messages: [...], ts: number }
+  // The active search's messages are mirrored into w.messages for rendering.
+  // TODO(SQLite): When SQLite persistence is added, store these entries in a
+  // "playground_search_history" table with columns (id INTEGER PK, query TEXT,
+  // messages JSON, created_at INTEGER). Load on pgLoad(), insert on pgSearchSend().
+  searchHistory: [],
+  activeSearchId: null,  // id of the currently displayed search conversation
 };
 
 var pgSearchSavedSplit = 0;
+var pgSearchIdCounter = 0;
+
+function pgNextSearchId() { return ++pgSearchIdCounter; }
+
+// Get the search history entry for the active search, or null.
+function pgActiveSearch() {
+  if (pgState.activeSearchId == null) return null;
+  for (var i = 0; i < pgState.searchHistory.length; i++) {
+    if (pgState.searchHistory[i].id === pgState.activeSearchId) return pgState.searchHistory[i];
+  }
+  return null;
+}
+
+// Mirror the active search's messages into w.messages for rendering.
+// If no active search, clear w.messages.
+function pgSyncSearchMessages() {
+  var w = pgWinAt(0);
+  if (!w) return;
+  var s = pgActiveSearch();
+  if (s) {
+    w.messages = s.messages;
+  } else {
+    w.messages = [];
+  }
+}
 
 function pgWin() { return pgState.windows[pgState.activeWin]; }
 function pgWinAt(i) { return pgState.windows[i]; }
@@ -187,11 +220,14 @@ function pgSave() {
     var w = pgState.windows[0];
     try { localStorage.setItem(PG_CFG_KEY, JSON.stringify(w.config)); } catch (e) {}
     try { localStorage.setItem(PG_PARAM_KEY, JSON.stringify(w.parameterEnabled)); } catch (e) {}
-    try {
-      var trimmed = w.messages;
-      if (trimmed.length > PG_MAX_MSGS) trimmed = trimmed.slice(-PG_MAX_MSGS);
-      localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
-    } catch (e) {}
+    // In search mode, messages are per-search and in-memory only; don't overwrite normal-mode localStorage.
+    if (pgState.mode !== 'search') {
+      try {
+        var trimmed = w.messages;
+        if (trimmed.length > PG_MAX_MSGS) trimmed = trimmed.slice(-PG_MAX_MSGS);
+        localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
+      } catch (e) {}
+    }
     }, 500);
 }
 
@@ -204,11 +240,13 @@ function pgSaveSync() {
   if (!w) return;
   try { localStorage.setItem(PG_CFG_KEY, JSON.stringify(w.config)); } catch (e) {}
   try { localStorage.setItem(PG_PARAM_KEY, JSON.stringify(w.parameterEnabled)); } catch (e) {}
-  try {
-    var trimmed = w.messages;
-    if (trimmed.length > PG_MAX_MSGS) trimmed = trimmed.slice(-PG_MAX_MSGS);
-    localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
-  } catch (e) {}
+  if (pgState.mode !== 'search') {
+    try {
+      var trimmed = w.messages;
+      if (trimmed.length > PG_MAX_MSGS) trimmed = trimmed.slice(-PG_MAX_MSGS);
+      localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
+    } catch (e) {}
+  }
 }
 
 function pgSaveAutoChat() {

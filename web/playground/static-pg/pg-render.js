@@ -246,10 +246,22 @@ function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
       '</div>';
   }
   if (msg.searchRaw) {
-    inner += '<div class="pg-search-raw collapsed" onclick="event.stopPropagation();this.classList.toggle(\'collapsed\')">' +
-      '<div class="pg-search-raw-head">' + pgEscapeHtml(pgT('pgSearchRawResults')) + ' <span class="pg-think-chev">▾</span></div>' +
-      '<div class="pg-search-raw-body"><pre>' + pgEscapeHtml(msg.searchRaw) + '</pre></div>' +
-      '</div>';
+    var rawUnescaped = pgUnescapeMarkdownSyntax(msg.searchRaw);
+    var prettyHtml = pgRenderMarkdown(rawUnescaped, false);
+    inner += '<div class="pg-search-raw collapsed">' +
+      '<div class="pg-search-raw-head" onclick="event.stopPropagation();this.parentElement.classList.toggle(\'collapsed\')">' +
+        '<span class="pg-search-raw-title">' + pgEscapeHtml(pgT('pgSearchRawResults')) + '</span>' +
+        '<span class="pg-search-toggle">' +
+          '<button class="pg-search-toggle-btn pg-search-toggle-btn-active" data-view="raw" onclick="event.stopPropagation();pgToggleSearchRaw(this,\'raw\')">' + pgEscapeHtml(pgT('pgSearchRaw')) + '</button>' +
+          '<button class="pg-search-toggle-btn" data-view="pretty" onclick="event.stopPropagation();pgToggleSearchRaw(this,\'pretty\')">' + pgEscapeHtml(pgT('pgSearchPretty')) + '</button>' +
+        '</span>' +
+        '<span class="pg-think-chev">▾</span>' +
+      '</div>' +
+      '<div class="pg-search-raw-body">' +
+        '<pre class="pg-search-raw-view">' + pgEscapeHtml(msg.searchRaw) + '</pre>' +
+        '<div class="pg-search-pretty-view" style="display:none">' + prettyHtml + '</div>' +
+      '</div>' +
+    '</div>';
   }
   var isError = msg.status === 'error';
   var cls = 'pg-bubble' + (isError ? ' pg-bubble-error' : '');
@@ -634,4 +646,17 @@ function pgSetDebugTab(tab) {
   var tabs = document.querySelectorAll('.pg-tab');
   tabs.forEach(function(el) { el.classList.toggle('active', el.dataset.tab === tab); });
   pgRenderDebugContent();
+}
+
+function pgToggleSearchRaw(btn, view) {
+  var container = btn.closest('.pg-search-raw');
+  if (!container) return;
+  var btns = container.querySelectorAll('.pg-search-toggle-btn');
+  btns.forEach(function(b) {
+    b.classList.toggle('pg-search-toggle-btn-active', b.dataset.view === view);
+  });
+  var rawView = container.querySelector('.pg-search-raw-view');
+  var prettyView = container.querySelector('.pg-search-pretty-view');
+  if (rawView) rawView.style.display = view === 'raw' ? '' : 'none';
+  if (prettyView) prettyView.style.display = view === 'pretty' ? '' : 'none';
 }
