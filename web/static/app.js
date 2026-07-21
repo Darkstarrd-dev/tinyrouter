@@ -493,6 +493,24 @@ document.addEventListener('keydown', function(e) {
       }
       if (matchedQuickslot) return;
     }
+
+    // Alt+number: import models for quickslot
+    for (var n = 1; n <= 9; n++) {
+      if (Shortcuts.matchEvent('global.quickslot-import-' + n, e)) {
+        e.preventDefault();
+        if (typeof importModelsForQuickSlotByOrder === 'function') importModelsForQuickSlotByOrder(n);
+        return;
+      }
+    }
+
+    // Ctrl+number: delete current model from quickslot
+    for (var n = 1; n <= 9; n++) {
+      if (Shortcuts.matchEvent('global.quickslot-delete-' + n, e)) {
+        e.preventDefault();
+        if (typeof deleteCurrentQuickSlotModel === 'function') deleteCurrentQuickSlotModel(n);
+        return;
+      }
+    }
   }
   // ESC: shutdown (only when no modal is open — modal case handled above)
   if (Shortcuts.matchEvent('global.shutdown-server', e)) {

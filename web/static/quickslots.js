@@ -450,7 +450,7 @@ async function renderHeaderQuickSlots() {
       var fullIdEsc = escapeHtml(fullId);
       var num = i + 1;
       var titleAttr = fullIdEsc ? nameEsc + '&#10;' + fullIdEsc : nameEsc;
-      html += '<div class="quickslot-btn" onclick="showQuickSlotDropdown(\'' + escapeAttr(qs.id) + '\')" data-qs-id="' + escapeAttr(qs.id) + '" title="' + titleAttr + '">\
+      html += '<div class="quickslot-btn" onclick="showQuickSlotDropdown(\'' + escapeAttr(qs.id) + '\')" oncontextmenu="event.preventDefault();importModelsForQuickSlotHeader(\'' + escapeAttr(qs.id) + '\')" data-qs-id="' + escapeAttr(qs.id) + '" title="' + titleAttr + '">\
         <div class="qs-number">' + num + '</div>\
         <div class="qs-content">\
           <div class="qs-name">' + nameEsc + '</div>\
@@ -486,7 +486,7 @@ function showQuickSlotDropdown(id) {
       for (var i = 0; i < models.length; i++) {
         var note = noteMap[models[i]] || '';
         var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '" class="quickslot-dropdown-item has-model-note' + (i === sel ? ' selected' : '') + '"' : ' class="quickslot-dropdown-item' + (i === sel ? ' selected' : '') + '"';
-        html += '<div' + noteAttr + ' onclick="selectQuickSlotModel(\'' + escapeAttr(id) + '\',' + i + ')">' + escapeHtml(models[i]) + '</div>';
+        html += '<div' + noteAttr + ' onclick="selectQuickSlotModel(\'' + escapeAttr(id) + '\',' + i + ')" oncontextmenu="event.preventDefault();event.stopPropagation();confirmDeleteQuickSlotModel(\'' + escapeAttr(id) + '\',' + i + ')">' + escapeHtml(models[i]) + '</div>';
       }
     }
     html += '</div>';
@@ -560,4 +560,201 @@ async function cycleQuickSlotModel(orderNum) {
   await apiPut('/quickslots/' + qs.id, qs);
   renderHeaderQuickSlots();
   toast(t('quickSlotSwitched', [qs.name, models[nextIndex]]), 'info', 2000, 'quickslot');
+}
+
+async function importModelsForQuickSlotHeader(qsId) {
+  var data = await apiGet('/quickslots');
+  var qs = (data.quickslots || []).find(function(x) { return x.id === qsId; });
+  if (!qs) return;
+  var providers = await apiGet('/providers');
+  providers = providers.providers || [];
+  var combosData = await apiGet('/combos');
+  var combos = (combosData.combos || []).filter(function(c) { return !c.disabled; });
+  if (providers.length === 0 && combos.length === 0) {
+    toast(t('noModelsAvailable'), 'warning');
+    return;
+  }
+  var html = '<div class="modal" style="width:500px">\
+    <div class="modal-title">' + t('selectModels') + '</div>\
+    <div class="modal-body" style="max-height:400px;overflow-y:auto">\
+    <input type="text" id="import-filter" placeholder="' + t('filterModels') + '" style="width:100%;margin-bottom:8px;padding:6px 10px;box-sizing:border-box;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--text-primary)">\
+    <div style="display:flex;gap:6px;margin-bottom:12px">\
+      <button type="button" class="btn btn-sm" id="import-select-all">' + t('selectAll') + '</button>\
+      <button type="button" class="btn btn-sm" id="import-deselect-all">' + t('deselectAll') + '</button>\
+    </div>';
+  for (var i = 0; i < providers.length; i++) {
+    var p = providers[i];
+    if (!p.isActive) continue;
+    var models = p.models || [];
+    html += '<div class="import-provider-group" style="margin-bottom:12px">';
+    html += '<div><strong>' + escapeHtml(p.name) + ' (' + escapeHtml(p.prefix) + ')</strong></div>';
+    if (models.length === 0) {
+      html += '<div class="muted" style="margin-bottom:8px">' + t('noModels') + '</div>';
+    } else {
+      for (var j = 0; j < models.length; j++) {
+        var displayId = models[j].alias || models[j].id;
+        var fullId = p.prefix + '/' + displayId;
+        var note = models[j].note || '';
+        var itemCls = 'import-model-item' + (note ? ' has-model-note' : '');
+        var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
+        html += '<div class="' + itemCls + '"' + noteAttr + ' data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
+      }
+    }
+    html += '</div>';
+  }
+  if (combos.length > 0) {
+    html += '<div class="import-provider-group" style="margin-bottom:12px">';
+    html += '<div><strong>' + t('combos') + '</strong></div>';
+    for (var c = 0; c < combos.length; c++) {
+      var comboName = combos[c].name;
+      var isInList = (qs.models || []).indexOf(comboName) >= 0;
+      html += '<div class="import-model-item' + (isInList ? ' selected' : '') + '" data-value="' + escapeHtml(comboName) + '" data-is-combo="1" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent"><span class="badge badge-combo" style="margin-right:6px">' + t('combo') + '</span>' + escapeHtml(comboName) + '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>\
+    <div class="modal-footer">\
+      <button type="button" class="btn btn-ghost" id="import-close">' + t('close') + '</button>\
+      <button type="button" class="btn btn-primary" id="import-add">' + t('addSelected') + '</button>\
+    </div></div>';
+  var importOverlay = document.createElement('div');
+  importOverlay.className = 'modal-overlay';
+  importOverlay.innerHTML = html;
+  document.body.appendChild(importOverlay);
+  requestAnimationFrame(function() { importOverlay.classList.add('show'); });
+  var filterInput = importOverlay.querySelector('#import-filter');
+  if (filterInput) filterInput.focus();
+  var importAdd = importOverlay.querySelector('#import-add');
+  var importClose = importOverlay.querySelector('#import-close');
+  var importSelectAll = importOverlay.querySelector('#import-select-all');
+  var importDeselectAll = importOverlay.querySelector('#import-deselect-all');
+  function closeImportOverlay() {
+    importOverlay.classList.remove('show');
+    setTimeout(function() { if (importOverlay.parentNode) importOverlay.remove(); }, 400);
+  }
+  if (importClose) importClose.onclick = closeImportOverlay;
+  if (importSelectAll) importSelectAll.onclick = function() {
+    var items = importOverlay.querySelectorAll('.import-model-item');
+    for (var k = 0; k < items.length; k++) items[k].classList.add('selected');
+  };
+  if (importDeselectAll) importDeselectAll.onclick = function() {
+    var items = importOverlay.querySelectorAll('.import-model-item');
+    for (var k = 0; k < items.length; k++) items[k].classList.remove('selected');
+  };
+  if (filterInput) filterInput.oninput = function() {
+    var keyword = this.value.toLowerCase().trim();
+    var groups = importOverlay.querySelectorAll('.import-provider-group');
+    for (var gi = 0; gi < groups.length; gi++) {
+      var group = groups[gi];
+      var items = group.querySelectorAll('.import-model-item');
+      var visibleCount = 0;
+      for (var ii = 0; ii < items.length; ii++) {
+        var val = items[ii].getAttribute('data-value') || '';
+        if (keyword === '' || val.toLowerCase().indexOf(keyword) >= 0) {
+          items[ii].style.display = '';
+          visibleCount++;
+        } else {
+          items[ii].style.display = 'none';
+        }
+      }
+      group.style.display = visibleCount > 0 ? '' : 'none';
+    }
+  };
+  if (importAdd) importAdd.onclick = function() {
+    var selected = [];
+    var items = importOverlay.querySelectorAll('.import-model-item.selected');
+    for (var k = 0; k < items.length; k++) selected.push(items[k].getAttribute('data-value'));
+    var newModels = (qs.models || []).slice();
+    for (var k = 0; k < selected.length; k++) {
+      if (newModels.indexOf(selected[k]) < 0) newModels.push(selected[k]);
+    }
+    var updated = {
+      name: qs.name,
+      order: qs.order,
+      models: newModels,
+      disabledModels: (qs.disabledModels || []).slice(),
+      disabled: !!qs.disabled,
+      selectedIndex: qs.selectedIndex || 0
+    };
+    apiPut('/quickslots/' + qsId, updated).then(function() {
+      renderHeaderQuickSlots();
+    });
+    closeImportOverlay();
+  };
+}
+
+async function importModelsForQuickSlotByOrder(orderNum) {
+  var data = await apiGet('/quickslots');
+  var quickslots = (data.quickslots || []).filter(function(qs) { return !qs.disabled; });
+  for (var i = 0; i < quickslots.length; i++) {
+    if (quickslots[i].order === orderNum) { importModelsForQuickSlotHeader(quickslots[i].id); return; }
+  }
+}
+
+async function confirmDeleteQuickSlotModel(qsId, modelIndex) {
+  var data = await apiGet('/quickslots');
+  var qs = (data.quickslots || []).find(function(x) { return x.id === qsId; });
+  if (!qs) return;
+  var models = qs.models || [];
+  if (modelIndex < 0 || modelIndex >= models.length) return;
+  var modelName = models[modelIndex];
+  var ok = await confirmModal(t('confirmDeleteQuickSlotModel', [modelName]));
+  if (!ok) return;
+  models.splice(modelIndex, 1);
+  var sel = qs.selectedIndex || 0;
+  if (models.length === 0) {
+    sel = 0;
+  } else if (sel >= models.length) {
+    sel = models.length - 1;
+  } else if (sel === modelIndex) {
+    sel = modelIndex;
+  }
+  var updated = {
+    name: qs.name,
+    order: qs.order,
+    models: models,
+    disabledModels: (qs.disabledModels || []).filter(function(m) { return m !== modelName; }),
+    disabled: !!qs.disabled,
+    selectedIndex: sel
+  };
+  await apiPut('/quickslots/' + qsId, updated);
+  removeQuickSlotDropdown();
+  renderHeaderQuickSlots();
+  toast(t('quickSlotModelRemoved'), 'success');
+}
+
+async function deleteCurrentQuickSlotModel(orderNum) {
+  var data = await apiGet('/quickslots');
+  var quickslots = (data.quickslots || []).filter(function(qs) { return !qs.disabled; });
+  var qs = null;
+  for (var i = 0; i < quickslots.length; i++) {
+    if (quickslots[i].order === orderNum) { qs = quickslots[i]; break; }
+  }
+  if (!qs) return;
+  var models = qs.models || [];
+  var sel = qs.selectedIndex || 0;
+  if (sel < 0 || sel >= models.length) {
+    toast(t('noModels'), 'warning');
+    return;
+  }
+  var modelName = models[sel];
+  var ok = await confirmModal(t('confirmDeleteQuickSlotModel', [modelName]));
+  if (!ok) return;
+  models.splice(sel, 1);
+  if (models.length === 0) {
+    sel = 0;
+  } else if (sel >= models.length) {
+    sel = models.length - 1;
+  }
+  var updated = {
+    name: qs.name,
+    order: qs.order,
+    models: models,
+    disabledModels: (qs.disabledModels || []).filter(function(m) { return m !== modelName; }),
+    disabled: !!qs.disabled,
+    selectedIndex: sel
+  };
+  await apiPut('/quickslots/' + qs.id, updated);
+  renderHeaderQuickSlots();
+  toast(t('quickSlotModelRemoved'), 'success');
 }
