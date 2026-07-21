@@ -472,17 +472,29 @@ document.addEventListener('keydown', function(e) {
   if (Shortcuts.matchEvent('global.toggle-fullscreen', e)) {
     if (isInput) return;
     e.preventDefault();
-    if (typeof currentPage !== 'undefined' && currentPage === 'gallery') {
-      // Gallery page has its own fullscreen implementation; let it handle it.
-      if (typeof toggleFullscreen === 'function') toggleFullscreen();
+    if (typeof toggleFullscreen === 'function') {
+      toggleFullscreen();
     } else {
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(function(e2) { console.warn('exitFullscreen failed:', e2); });
+      var isFS = !!document.fullscreenElement || document.body.classList.contains('gallery-fullscreen-active');
+      if (isFS) {
+        document.body.classList.remove('gallery-fullscreen-active');
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(function(e2) { console.warn('exitFullscreen failed:', e2); });
+        }
+        if (typeof window.toggleNativeFullscreen === 'function') {
+          try { window.toggleNativeFullscreen(false); } catch (e2) {}
+        }
       } else {
-        document.documentElement.requestFullscreen().catch(function(e2) { console.warn('enterFullscreen failed:', e2); });
+        document.body.classList.add('gallery-fullscreen-active');
+        if (typeof window.toggleNativeFullscreen === 'function') {
+          try { window.toggleNativeFullscreen(true); } catch (e2) {}
+        }
+        if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(function(e2) { console.warn('enterFullscreen failed:', e2); });
+        }
       }
-      return;
     }
+    return;
   }
 
   // Number keys 1-9: cycle quickslot models (only when not in input and not in gallery)
