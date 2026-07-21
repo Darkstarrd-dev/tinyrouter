@@ -393,7 +393,7 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 		h.logger.Warn("client disconnected during pass-through: %v", werr)
 	}
 	h.logger.Info("\U0001f4ca [response] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
-	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
+	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, resolveDisplayModel(sel.Provider.Name, model, originalModel, h.reg), latencyMs, resp.StatusCode)
 	h.recordUsage(reqID, sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, bodyBytes, resp.Header, resp.StatusCode, reqHeaders, upstreamURL, originalModel)
 }
 
