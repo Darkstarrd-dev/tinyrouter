@@ -24,6 +24,7 @@
 - **纯本地** — 无鉴权，无远程访问，任意 Key 或无 Key 均可访问
 - **多模型同时请求测试** — 一键对多个模型并行发起请求，对比延迟/速度/配额
 - **多模型聊天群聊** — 多个模型同场对话，并排对比回答
+- **Playground Search** — 联网搜索模式：AI 自动分类查询意图 → 调用 AnySearch 检索 → 流式合成回答，支持子域名过滤与页面内容提取
 
 ## 页面
 
@@ -34,7 +35,7 @@
 | **Console** | 实时日志、Monitor 白名单命令、Terminal（Debug Mode） |
 | **Download** | yt-dlp 视频/音频下载，播放列表批量、画质、代理、任务队列 |
 | **Gallery** | 本地图片/Zip 漫画浏览器，支持拖拽粘贴、目录树、自动播放与全屏浏览 |
-| **Playground** | 多模型同时测试、群聊对比（仅 `-tags playground` 构建包含） |
+| **Playground** | 多模型同时测试、群聊对比、联网搜索（仅 `-tags playground` 构建包含） |
 
 Playground 的前后端事实基线见 [`docs/playground-architecture.md`](docs/playground-architecture.md)。
 
@@ -61,6 +62,7 @@ Quick Slot 是预设的「模型切换槽」，适合把常用的几个模型绑
 - **绑定数字键**：`order` 决定对应哪个数字键（1→order 1，2→order 2，……，9→order 9，最多 9 个槽）。
 - **循环切换**：按下对应数字键，在当前槽「已启用」的模型之间循环切换；被停用的模型会自动跳过。
 - **当前选中**：顶部 header 会显示该槽的名称、当前模型的 `provider/末段模型名`，并带序号徽章；hover 显示完整 `provider/modelid`。
+- **快捷增删**：Header 右键打开「从 Provider 导入模型」弹窗；右键下拉菜单中的模型可确认删除。`Alt+数字` 快捷导入，`Ctrl+数字` 快捷删除当前模型。
 - **编辑**：在槽的编辑弹窗中可增删模型、拖拽排序。
 
 > 说明：若某槽被停用 (disabled)，其数字键不再生效。当所有模型都被停用或槽为空时，按键无效。
@@ -97,6 +99,8 @@ Download 功能基于 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 驱动，并通
 | `F5` | 切换到 Download 页面 |
 | `F6` | 切换到 Gallery 页面 |
 | `1` ~ `9` | 循环切换对应 `order` 的 Quick Slot 模型（仅在非 Gallery 页面时生效） |
+| `Alt+1` ~ `Alt+9` | 为对应 Quick Slot 导入模型 |
+| `Ctrl+1` ~ `Ctrl+9` | 删除对应 Quick Slot 当前模型 |
 | `Esc` | 关闭弹窗；若没有弹窗则关闭服务器 |
 
 ### Gallery 页面专用快捷键
