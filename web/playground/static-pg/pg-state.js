@@ -35,6 +35,7 @@ function makeWin() {
 // Auto chat runtime state (not persisted except userName/iterations/director).
 var PG_AUTOCHAT_KEY = 'tinyrouter.playground.autochat.v1';
 var PG_SCENARIO_KEY = 'tinyrouter.playground.scenario.v1';
+var PG_MODE_KEY = 'tinyrouter.playground.mode.v1';
 
 var pgState = {
   winInit: false,
@@ -122,6 +123,12 @@ function pgLoad() {
   } catch (e) { /* corrupt storage */ }
   pgLoadScenario();
   try {
+    var rawMode = localStorage.getItem(PG_MODE_KEY);
+    if (rawMode && ['normal', 'autochat', 'image', 'search'].indexOf(rawMode) >= 0) {
+      pgState.mode = rawMode;
+    }
+  } catch (e) { /* corrupt storage */ }
+  try {
     var rawMsgs = localStorage.getItem(PG_MSG_KEY);
     if (rawMsgs) {
       if (rawMsgs.length > PG_MAX_MSGS_BYTES) {
@@ -186,6 +193,22 @@ function pgSave() {
       localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
     } catch (e) {}
     }, 500);
+}
+
+function pgSaveMode() {
+  try { localStorage.setItem(PG_MODE_KEY, pgState.mode); } catch (e) {}
+}
+
+function pgSaveSync() {
+  var w = pgState.windows[0];
+  if (!w) return;
+  try { localStorage.setItem(PG_CFG_KEY, JSON.stringify(w.config)); } catch (e) {}
+  try { localStorage.setItem(PG_PARAM_KEY, JSON.stringify(w.parameterEnabled)); } catch (e) {}
+  try {
+    var trimmed = w.messages;
+    if (trimmed.length > PG_MAX_MSGS) trimmed = trimmed.slice(-PG_MAX_MSGS);
+    localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
+  } catch (e) {}
 }
 
 function pgSaveAutoChat() {

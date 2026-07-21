@@ -329,6 +329,7 @@ function pgSetMode(mode) {
       }
     }
     pgState.mode = mode;
+    pgSaveMode();
     pgRenderSidebar();
     pgRenderPanes();
     pgRenderInputBar();
@@ -566,7 +567,7 @@ function pgRenderSidebar() {
     side.innerHTML =
       winbar +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSelectModel')) + '</div>' + modelSel + '</div>' +
-      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSearchSettings')) + '</div>' + searchSettings + '</div>' +
+      '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgSearchSettings')) + '<button class="pg-btn" onclick="window.open(\'https://www.anysearch.com/pricing\',\'_blank\')">' + pgEscapeHtml(pgT('pgSearchGetKey')) + '</button></div>' + searchSettings + '</div>' +
       '<div class="pg-panel"><div class="pg-panel-title">' + pgEscapeHtml(pgT('pgDebug')) + '</div>' + debug + '</div>';
   } else {
     side.innerHTML =

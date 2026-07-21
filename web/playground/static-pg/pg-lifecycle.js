@@ -3,6 +3,10 @@
 function renderPlayground(container) {
   pgLoad();
   pgEnsureWindows();
+  if (pgState.mode === 'search') {
+    if (pgState.splitCount > 1) pgState.splitCount = 1;
+    if (typeof pgSearchLoadSettings === 'function') pgSearchLoadSettings();
+  }
   pgInitMarker();
   container.style.height = '100%';
   container.style.overflow = 'hidden';
@@ -24,7 +28,8 @@ function renderPlayground(container) {
 }
 
 function cleanupPlayground() {
-  // Terminate auto chat loop before aborting requests.
+  if (typeof pgSaveSync === 'function') pgSaveSync();
+  if (typeof pgSaveMode === 'function') pgSaveMode();
   if (typeof pgAutoChatStop === 'function' && pgState.autoChat && pgState.autoChat.isRunning) {
     pgAutoChatStop();
   }
