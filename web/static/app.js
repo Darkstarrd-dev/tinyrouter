@@ -278,7 +278,13 @@ function confirmModal(message) {
     if (overlay.classList.contains('show')) { resolve(false); return; }
     overlay.innerHTML = '<div class="modal"><div class="modal-title">' + t('confirmTitle') + '</div><div class="modal-body">' + escapeHtml(message) + '</div><div class="modal-footer"><button type="button" class="btn btn-ghost" id="modal-cancel">' + t('cancel') + '</button><button type="button" class="btn btn-primary" id="modal-confirm">' + t('confirm') + '</button></div></div>';
     window.__confirmResolver = resolve;
-    requestAnimationFrame(function() { overlay.classList.add('show'); });
+    requestAnimationFrame(function() {
+      overlay.classList.add('show');
+      setTimeout(function() {
+        var confirmBtn = document.getElementById('modal-confirm');
+        if (confirmBtn) confirmBtn.focus();
+      }, 50);
+    });
     function close(result) {
       window.__confirmResolver = null;
       overlay.classList.remove('show');
@@ -447,9 +453,27 @@ document.addEventListener('keydown', function(e) {
   // ---- Modal is open: modal interactions take precedence ----
   if (modal) {
     if (e.key === 'Escape') { e.preventDefault(); dismissTopModal(); return; }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      var cancelBtn = modal.querySelector('#modal-cancel, .btn-ghost');
+      var confirmBtn = modal.querySelector('#modal-confirm, .btn-primary');
+      if (cancelBtn && confirmBtn) {
+        e.preventDefault();
+        if (document.activeElement === confirmBtn) {
+          cancelBtn.focus();
+        } else {
+          confirmBtn.focus();
+        }
+        return;
+      }
+    }
     if (e.key === 'Enter') {
       var ae = document.activeElement;
       if (ae && ae.tagName === 'TEXTAREA') return; // allow newline in multi-line inputs
+      if (ae && (ae.id === 'modal-cancel' || ae.id === 'modal-confirm' || ae.classList.contains('btn'))) {
+        e.preventDefault();
+        ae.click();
+        return;
+      }
       var primary = modal.querySelector('.btn-primary');
       if (primary) { e.preventDefault(); primary.click(); }
       return;

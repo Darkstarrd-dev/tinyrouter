@@ -656,6 +656,7 @@ tbody tr:last-child td{border-bottom:none}
 .modal-title{font-size:calc(var(--font-base) + 3.5px);font-weight:700;margin-bottom:12px;color:var(--text)}
 .modal-body{font-size:var(--font-base);color:var(--text-secondary);line-height:1.6;margin-bottom:24px}
 .modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--glass-border)}
+.modal-footer .btn:focus,.modal-footer .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
 .import-model-item{color:var(--text-secondary);user-select:none}
 .import-model-item:hover{background:var(--glass-hover);border-color:var(--glass-border-hover)}
 .import-model-item.selected{background:rgba(79,195,247,0.12);border-color:var(--accent);color:var(--accent)}
