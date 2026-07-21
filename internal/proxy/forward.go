@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +13,84 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 	"github.com/tinyrouter/tinyrouter/internal/util"
 )
+
+// generateToolCallID creates a unique tool_call id compatible with the
+// OpenAI tool-call format (e.g. "call_<hex>"). This is used as a defensive
+// fallback when an upstream provider returns an empty tool_call id.
+func generateToolCallID() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		// Fallback: timestamp-based, practically unique.
+		return fmt.Sprintf("call_%x", time.Now().UnixNano())
+	}
+	return "call_" + hex.EncodeToString(buf[:])
+}
+
+// ensureToolCallIDs scans the parsed request body for tool-call messages
+// with empty identifiers and fills in random ones, ensuring that assistant
+// tool_calls[].id and the corresponding tool message's tool_call_id match.
+//
+// Some upstream providers (e.g. Google AI Studio via OpenRouter) return
+// empty tool_call ids in SSE deltas, which causes the client's subsequent
+// tool messages to carry empty tool_call_id and triggers 400 "Tool message
+// must have either name or tool_call_id" errors. This function is a
+// defense-in-depth measure that runs for every request, regardless of
+// provider. It maintains consistency by pairing tool messages with their
+// preceding assistant message's tool calls by position.
+func ensureToolCallIDs(parsed map[string]any) {
+	msgs, ok := parsed["messages"].([]any)
+	if !ok {
+		return
+	}
+
+	// Pending tool call IDs from the last assistant message, consumed by
+	// subsequent tool messages in order. This handles the common case
+	// where tool results are returned in the same order as tool calls.
+	var pendingIDs []string
+
+	for _, m := range msgs {
+		msg, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := msg["role"].(string)
+
+		switch role {
+		case "assistant":
+			toolCalls, ok := msg["tool_calls"].([]any)
+			if !ok {
+				continue
+			}
+			pendingIDs = make([]string, 0, len(toolCalls))
+			for _, tc := range toolCalls {
+				tcm, ok := tc.(map[string]any)
+				if !ok {
+					pendingIDs = append(pendingIDs, "")
+					continue
+				}
+				id, _ := tcm["id"].(string)
+				if id == "" {
+					id = generateToolCallID()
+					tcm["id"] = id
+				}
+				pendingIDs = append(pendingIDs, id)
+			}
+
+		case "tool":
+			toolCallID, _ := msg["tool_call_id"].(string)
+			if toolCallID != "" {
+				continue
+			}
+			// Consume the next pending ID from the preceding assistant message.
+			if len(pendingIDs) > 0 {
+				msg["tool_call_id"] = pendingIDs[0]
+				pendingIDs = pendingIDs[1:]
+			} else {
+				msg["tool_call_id"] = generateToolCallID()
+			}
+		}
+	}
+}
 
 func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path string, entryFormat combo.EntryFormat) {
 	defer r.Body.Close()
@@ -186,6 +266,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		parsed["model"] = upstreamModel
+		ensureToolCallIDs(parsed)
 		if cfgProvider != nil && cfgProvider.IsGeminiOpenAICompat() {
 			backfillThoughtSignatures(parsed, h.sigCache)
 		}
