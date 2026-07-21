@@ -12,8 +12,9 @@ type Entry struct {
 	ID           string          `json:"id"`
 	Timestamp    time.Time       `json:"timestamp"`
 	Provider     string          `json:"provider"`
-	Model        string          `json:"model"`
-	KeyID        string          `json:"keyId"`
+	Model         string          `json:"model"`
+	OriginalModel string          `json:"originalModel"` // original request model name (alias, before resolution)
+	KeyID         string          `json:"keyId"`
 	KeyName      string          `json:"keyName"`
 	Status       string          `json:"status"` // "success" | "error" | "retry" | "processing"
 	LatencyMs    int64           `json:"latencyMs"`

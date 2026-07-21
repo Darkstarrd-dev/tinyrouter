@@ -274,3 +274,23 @@ func (r *Registry) GetModelByAliasOrID(providerID, aliasOrModel string) (config.
 	}
 	return config.ModelDef{}, false
 }
+
+// ResolveModelAliasByID returns the alias for a given model ID on a provider.
+// If the model has no alias, it returns an empty string. The providerName
+// parameter is matched against the provider's Name field (not ID).
+func (r *Registry) ResolveModelAliasByID(providerName, modelID string) string {
+	r.cfgMu.RLock()
+	defer r.cfgMu.RUnlock()
+	for i := range r.config.Providers {
+		if r.config.Providers[i].Name != providerName {
+			continue
+		}
+		for _, m := range r.config.Providers[i].Models {
+			if m.ID == modelID {
+				return m.Alias
+			}
+		}
+		return ""
+	}
+	return ""
+}

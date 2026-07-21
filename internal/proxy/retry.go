@@ -40,27 +40,28 @@ func (h *Handler) maxRetries() int {
 }
 
 // logRequest logs the initial request line (only once per forwardWithRetry call).
-func (h *Handler) logRequest(sel *rotation.SelectedKey, logLabel, providerName, upstreamModel string, msgCount int, state *retryState) {
+func (h *Handler) logRequest(sel *rotation.SelectedKey, logLabel, providerName, upstreamModel, originalModel string, msgCount int, state *retryState) {
 	dspName := sel.Provider.Name
 	if providerName != "" {
 		dspName = providerName
 	}
-	h.logger.Info("REQUEST %s%s | %s | %d msgs | Key %s", logLabel, dspName, upstreamModel, msgCount, sel.Key.Name)
+	dspModel := resolveDisplayModel(dspName, upstreamModel, originalModel, h.reg)
+	h.logger.Info("REQUEST %s%s | %s | %d msgs | Key %s", logLabel, dspName, dspModel, msgCount, sel.Key.Name)
 	state.requestLogged = true
 }
 
 // handleNetworkError processes upstream network errors. Always continues to the next key.
-func (h *Handler) handleNetworkError(sel *rotation.SelectedKey, providerID, model string, err error, state *retryState, reqID string, reqBody []byte, reqHeaders http.Header, upstreamURL string) {
+func (h *Handler) handleNetworkError(sel *rotation.SelectedKey, providerID, model string, err error, state *retryState, reqID string, reqBody []byte, reqHeaders http.Header, upstreamURL string, originalModel string) {
 	h.logger.Error("upstream error: %v", err)
 	h.selector.OnKeyFailure(providerID, sel.Key.ID, model, 0, err.Error())
 	state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
-	h.recordUsage(reqID, providerID, model, sel, "error", 0, 0, 0, 0, err.Error(), reqBody, nil, nil, 0, reqHeaders, upstreamURL)
+	h.recordUsage(reqID, providerID, model, sel, "error", 0, 0, 0, 0, err.Error(), reqBody, nil, nil, 0, reqHeaders, upstreamURL, originalModel)
 	state.temp429Retries = 0
 	state.tpmWaitRetries = 0
 }
 
 // handle429 processes HTTP 429 responses. Distinguishes daily quota locks from temporary rate limits.
-func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, startTime time.Time, state *retryState, r *http.Request, reqID string, reqBody []byte, upstreamURL string) {
+func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, startTime time.Time, state *retryState, r *http.Request, reqID string, reqBody []byte, upstreamURL string, originalModel string) {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		h.logger.Warn("failed to read upstream 429 body: %v", err)
@@ -76,7 +77,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		state.temp429Retries = 0
 		state.tpmWaitRetries = 0
 		h.logger.Warn("429 NIM: key %s cooled ladder, rotating", sel.Key.Name)
-		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		return
 	}
 
@@ -106,7 +107,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 		state.temp429Retries = 0
 		h.logger.Warn("429 quota exhausted: %s | locked Key %s until next CST day", util.TruncStr(bodyStr, 200), sel.Key.Name)
-		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		return
 	}
 
@@ -118,7 +119,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 			delay := rotation.BackoffSequence(state.temp429Retries)
 			h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
 				util.TruncStr(bodyStr, 200), delay, state.temp429Retries, maxBackoffRetries, sel.Key.Name)
-			h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+			h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 			select {
 			case <-r.Context().Done():
 				h.logger.Debug("client canceled during 429 backoff")
@@ -131,7 +132,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		state.temp429Retries = 0
 		h.selector.OnKeyFailure(providerID, sel.Key.ID, model, 429, bodyStr)
 		h.logger.Warn("429 retries exhausted for Key %s, switching", sel.Key.Name)
-		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		return
 	}
 
@@ -150,7 +151,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 			h.excludeSameAccountKeys(sel, state)
 			state.temp429Retries = 0
 			h.logger.Warn("429 rpm: %s | Key %s cooled 60s, switching account", util.TruncStr(bodyStr, 200), sel.Key.Name)
-			h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+			h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		case sn429TPM:
 			// tpm exceeded: per-account. Do NOT switch keys (a large request will 429 on any
 			// account). Wait 15s and retry the same key once; if still 429, cool 60s and fail.
@@ -158,7 +159,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 				state.tpmWaitRetries++
 				h.logger.Warn("429 tpm: %s | Key %s waiting 15s, retrying same key (attempt %d/1)",
 					util.TruncStr(bodyStr, 200), sel.Key.Name, state.tpmWaitRetries)
-				h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+				h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 				select {
 				case <-r.Context().Done():
 					h.logger.Debug("client canceled during TPM wait")
@@ -171,7 +172,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 			state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 			state.tpmWaitRetries = 0
 			h.logger.Warn("429 tpm: %s | Key %s cooled 60s after retry exhausted", util.TruncStr(bodyStr, 200), sel.Key.Name)
-			h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+			h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		}
 		return
 	}
@@ -184,21 +185,21 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 		state.temp429Retries = 0
 		h.logger.Warn("429 daily quota: %s | locked Key %s until next CST day", util.TruncStr(bodyStr, 200), sel.Key.Name)
-		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		return
 	case rotation.ActionCooldown:
 		h.selector.MarkRateLimited(providerID, sel.Key.ID, model, time.Duration(rule.CooldownSec)*time.Second)
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 		state.temp429Retries = 0
 		h.logger.Warn("429: %s | Key %s cooled %ds", util.TruncStr(bodyStr, 200), sel.Key.Name, rule.CooldownSec)
-		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		return
 	case rotation.ActionTransient:
 		h.selector.MarkRateLimited(providerID, sel.Key.ID, model, time.Duration(rotation.DefaultTransientCooldownSec)*time.Second)
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 		state.temp429Retries = 0
 		h.logger.Warn("429: %s | Key %s cooled %ds (transient)", util.TruncStr(bodyStr, 200), sel.Key.Name, rotation.DefaultTransientCooldownSec)
-		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		return
 	case rotation.ActionBackoff:
 		// fall through to existing retry logic
@@ -209,7 +210,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		state.excludeKeyIDs = append(state.excludeKeyIDs, sel.Key.ID)
 		state.temp429Retries = 0
 		h.logger.Warn("429 daily quota: %s | locked Key %s until next CST day", util.TruncStr(bodyStr, 200), sel.Key.Name)
-		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		return
 	}
 
@@ -218,7 +219,7 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 		delay := rotation.BackoffSequence(state.temp429Retries)
 		h.logger.Warn("429: %s | retrying in %ds (attempt %d/%d) [Key %s]",
 			util.TruncStr(bodyStr, 200), delay, state.temp429Retries, state.maxRetries, sel.Key.Name)
-		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+		h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 		select {
 		case <-r.Context().Done():
 			h.logger.Debug("client canceled during 429 backoff")
@@ -232,14 +233,14 @@ func (h *Handler) handle429(resp *http.Response, sel *rotation.SelectedKey, prov
 	state.temp429Retries = 0
 	h.selector.OnKeyFailure(providerID, sel.Key.ID, model, 429, bodyStr)
 	h.logger.Warn("429 retries exhausted for Key %s, switching", sel.Key.Name)
-	h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 }
 
 // handleUpstreamError processes HTTP 5xx and 4xx (non-429) responses.
 // Uses ClassifyError to determine the appropriate action, then switches to the next key.
 // For 5xx errors, applies a short backoff (500ms-5s) before the next retry to avoid
 // hammering the upstream (P3.14).
-func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, state *retryState, r *http.Request, reqID string, reqBody []byte, upstreamURL string, startTime time.Time) {
+func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.SelectedKey, providerID, model string, state *retryState, r *http.Request, reqID string, reqBody []byte, upstreamURL string, startTime time.Time, originalModel string) {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		h.logger.Warn("failed to read upstream error body: %v", err)
@@ -248,7 +249,7 @@ func (h *Handler) handleUpstreamError(resp *http.Response, sel *rotation.Selecte
 	bodyStr := string(body)
 
 	latencyMs := time.Since(startTime).Milliseconds()
-	h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL)
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, bodyStr, reqBody, body, resp.Header, resp.StatusCode, requestHeaders(r), upstreamURL, originalModel)
 
 	// Account-level balance exhaustion (ModelScope 402 insufficient_balance_error):
 	// lock the key for this model, invalidate its stale quota snapshot so the quota

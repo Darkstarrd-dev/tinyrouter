@@ -50,6 +50,9 @@ func (rt *Router) getQuotas(w http.ResponseWriter, r *http.Request) {
 	// would pick next), so the UI can show "in-use" next to the quota progress
 	// without requiring an expand.
 	for i := range bars {
+		// Resolve model alias for display
+		bars[i].Alias = rt.reg.ResolveModelAliasByID(bars[i].Provider, bars[i].Model)
+
 		ck := rt.currentKey(bars[i].Provider, bars[i].Model)
 		bars[i].CurrentKeyName = ck.Name
 		bars[i].CurrentKeyID = ck.ID

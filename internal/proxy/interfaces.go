@@ -55,6 +55,7 @@ type ModelResolver interface {
 	ListCombos() []config.Combo
 	ListQuickSlots() []config.QuickSlot
 	ResolveModelAlias(providerPrefix, aliasOrModelID string) (modelID string, found bool)
+	ResolveModelAliasByID(providerName, modelID string) string
 }
 
 // ComboResolver abstracts combo-name resolution. It is the exact subset of

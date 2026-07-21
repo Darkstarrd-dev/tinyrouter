@@ -136,7 +136,7 @@ func sseContentLength(payload []byte) int {
 	return length
 }
 
-func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool, reqID string, reqHeaders http.Header, upstreamURL string, entryFormat combo.EntryFormat) {
+func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool, reqID string, reqHeaders http.Header, upstreamURL string, entryFormat combo.EntryFormat, originalModel string) {
 	defer resp.Body.Close()
 
 	streamStart := time.Now()
@@ -352,12 +352,13 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	}
 	totalLatencyMs := latencyMs + time.Since(streamStart).Milliseconds()
 	h.logger.Info("\U0001f4ca [stream] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
-	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", sel.Provider.Name, model, totalLatencyMs, resp.StatusCode)
+	dspModel := resolveDisplayModel(sel.Provider.Name, model, originalModel, h.reg)
+	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", sel.Provider.Name, dspModel, totalLatencyMs, resp.StatusCode)
 	sseBody := sseBuf.Bytes()
-	h.recordUsage(reqID, sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, sseBody, resp.Header, resp.StatusCode, reqHeaders, upstreamURL)
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, sseBody, resp.Header, resp.StatusCode, reqHeaders, upstreamURL, originalModel)
 }
 
-func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, reqID string, reqHeaders http.Header, upstreamURL string, headersFlushed bool) {
+func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, reqID string, reqHeaders http.Header, upstreamURL string, headersFlushed bool, originalModel string) {
 	defer resp.Body.Close()
 
 	// If the keep-alive goroutine already flushed headers (committed 200),
@@ -393,7 +394,7 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	}
 	h.logger.Info("\U0001f4ca [response] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, model, latencyMs, resp.StatusCode)
-	h.recordUsage(reqID, sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, bodyBytes, resp.Header, resp.StatusCode, reqHeaders, upstreamURL)
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, bodyBytes, resp.Header, resp.StatusCode, reqHeaders, upstreamURL, originalModel)
 }
 
 // parseAndBroadcastChunk extracts delta text from an SSE data: line in debug

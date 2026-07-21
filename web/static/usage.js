@@ -45,6 +45,32 @@ var currentInfoModalReasoningEl = null;
 var currentInfoModalAssistantEl = null;
 var currentInfoModalUsageEl = null;
 var currentInfoModalStreamingDone = false;
+var modelIdToAlias = {};
+
+// buildModelIdToAlias builds a reverse lookup map from model ID to alias
+// across all providers in providersCache.
+function buildModelIdToAlias() {
+  modelIdToAlias = {};
+  for (var i = 0; i < (providersCache || []).length; i++) {
+    var p = providersCache[i];
+    for (var j = 0; j < (p.models || []).length; j++) {
+      var m = p.models[j];
+      if (m.alias) {
+        modelIdToAlias[m.id] = m.alias;
+      }
+    }
+  }
+}
+
+// displayModelName returns the best display name for a model: prefer alias
+// from the resolved model ID, falling back to originalModel (what the client
+// sent), then the raw model ID.
+function displayModelName(model, originalModel) {
+  var alias = modelIdToAlias[model];
+  if (alias) return alias;
+  if (originalModel && originalModel !== model) return originalModel;
+  return model;
+}
 
 function sortEntriesByTimeDesc(entries) {
   entries.sort(function(a, b) {
@@ -178,7 +204,7 @@ function renderUsageRow(e) {
     <td class="status-col-cell">' + statusInner + '</td>\
     <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
     <td>' + escapeHtml(e.provider) + '</td>\
-    <td>' + escapeHtml(e.model) + '</td>\
+    <td>' + escapeHtml(displayModelName(e.model, e.originalModel)) + '</td>\
     <td>' + escapeHtml(e.keyName) + '</td>\
     <td class="latency-cell">' + latencyDisplay + '</td>\
     <td class="tokens-cell">' + tokensDisplay + '</td>\
@@ -195,7 +221,7 @@ function buildTrendData(entries) {
     if (ts < windowStart) return;
     var key = e.provider + '/' + e.model;
     if (!groups[key]) {
-      groups[key] = { provider: e.provider, model: e.model, buckets: new Array(TREND_BUCKETS).fill(0) };
+      groups[key] = { provider: e.provider, model: e.model, _displayModel: displayModelName(e.model, e.originalModel), buckets: new Array(TREND_BUCKETS).fill(0) };
     }
     var age = now - ts;
     var bucketIdx = TREND_BUCKETS - 1 - Math.floor(age / TREND_BUCKET_MS);
@@ -271,10 +297,12 @@ function buildTrendChartConfig(entries) {
     var baseColor = CHART_JS_COLORS[idx % CHART_JS_COLORS.length];
     var fillColor = desaturateRgb(baseColor, 0.3);
     var prefix = getProviderPrefix(g.provider);
+    var displayModel = g._displayModel || g.model;
     return {
-      label: prefix + '/' + g.model,
+      label: prefix + '/' + displayModel,
       _provider: g.provider,
       _model: g.model,
+      _displayModel: displayModel,
       data: g.buckets.slice(),
       backgroundColor: fillColor,
       borderColor: baseColor,
@@ -338,7 +366,7 @@ function buildTrendChartConfig(entries) {
               return fmtTime(bucketStart) + ' - ' + fmtTime(bucketEnd);
             },
             label: function(context) {
-              return context.dataset._provider + '/' + context.dataset._model + ': ' + context.parsed.y + ' ' + t('requests');
+              return context.dataset._provider + '/' + (context.dataset._displayModel || context.dataset._model) + ': ' + context.parsed.y + ' ' + t('requests');
             }
           }
         }
@@ -425,6 +453,7 @@ async function renderUsage(c) {
   var settings = results[3].status === 'fulfilled' ? results[3].value : {};
   if (results[4].status === 'fulfilled' && results[4].value && results[4].value.providers) {
     providersCache = results[4].value.providers;
+    buildModelIdToAlias();
   }
   var rejected = results.slice(0, 4).some(function(r) { return r.status === 'rejected'; });
   if (rejected) toast(t('loadFailed') || 'Load failed', 'error');
@@ -870,6 +899,7 @@ function renderQuotaBarItem(bar) {
   } else {
     currentKeyHtml = '<span class="current-key-tag current-key-tag-none">' + escapeHtml(t('noCurrentKey')) + '</span>';
   }
+  var displayModel = bar.alias || bar.model;
   var tokenInfo = ' <span class="quota-bar-tokens">' +
     '<span style="color:var(--accent2);font-weight:700">' + bar.successCount + '</span>' +
     '<span style="color:var(--text-muted);font-weight:400"> / </span>' +
@@ -887,7 +917,7 @@ function renderQuotaBarItem(bar) {
     var remain = bar.totalCapacity - bar.totalUsed;
     return '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
       '<div class="quota-bar-header">' +
-        '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + ' (' + bar.perKeyLimit + ' per/day)' + currentKeyHtml + tokenInfo + '</span>' +
+        '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(displayModel) + ' (' + bar.perKeyLimit + ' per/day)' + currentKeyHtml + tokenInfo + '</span>' +
         '<span class="quota-bar-right">' + QUOTA_CHEVRON + '</span>' +
       '</div>' +
       '<div class="quota-bar-row">' +
@@ -901,7 +931,7 @@ function renderQuotaBarItem(bar) {
   } else {
     return '<div class="quota-bar-item" id="' + itemId + '" onclick="' + toggleCall + '">' +
       '<div class="quota-bar-header">' +
-        '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model) + currentKeyHtml + tokenInfo + '</span>' +
+        '<span class="quota-bar-model"><span class="' + barDotClass + '" style="background:' + color + '"></span>' + escapeHtml(bar.provider) + ' / ' + escapeHtml(displayModel) + currentKeyHtml + tokenInfo + '</span>' +
         '<span class="quota-bar-right">' + QUOTA_CHEVRON + '</span>' +
       '</div>' +
       '<div class="model-key-detail-wrap" id="detail-' + itemId + '"></div>' +
@@ -969,7 +999,8 @@ function patchQuotaBarItem(el, bar) {
     currentKeyHtml = '<span class="current-key-tag current-key-tag-none">' + escapeHtml(t('noCurrentKey')) + '</span>';
   }
   var modelSpan = el.querySelector('.quota-bar-model');
-  var modelPrefix = escapeHtml(bar.provider) + ' / ' + escapeHtml(bar.model);
+  var displayModel = bar.alias || bar.model;
+  var modelPrefix = escapeHtml(bar.provider) + ' / ' + escapeHtml(displayModel);
   if (bar.hasQuota) {
     modelPrefix += ' (' + bar.perKeyLimit + ' per/day)';
   }

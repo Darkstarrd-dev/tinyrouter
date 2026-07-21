@@ -19,6 +19,7 @@ type KeyQuota struct {
 type QuotaBar struct {
 	Provider         string     `json:"provider"`
 	Model            string     `json:"model"`
+	Alias            string     `json:"alias,omitempty"` // display alias for the model
 	PerKeyLimit      int        `json:"perKeyLimit"`
 	TotalCapacity    int        `json:"totalCapacity"`
 	TotalUsed        int        `json:"totalUsed"`

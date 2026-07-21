@@ -484,7 +484,7 @@ func TestRecordUsage(t *testing.T) {
 		Key:      config.Key{ID: "key1", Key: "sk-1", Name: "K1"},
 		KeyName:  "K1",
 	}
-	h.recordUsage("test-id", "test", "gpt-4", sel, "success", 100, 50, 10, 20, "", nil, nil, nil, 0, nil, "")
+	h.recordUsage("test-id", "test", "gpt-4", sel, "success", 100, 50, 10, 20, "", nil, nil, nil, 0, nil, "", "")
 
 	// Assert the entry actually landed in the usage ring buffer.
 	rb, ok := h.usage.(*usage.RingBuffer)
@@ -870,7 +870,7 @@ func TestRecordUsage_DebugModeCapture(t *testing.T) {
 		KeyName:  "K1",
 	}
 	headers := http.Header{"X-Custom": {"val"}}
-	h.recordUsage("test-id", "test", "gpt-4", sel, "success", 100, 50, 10, 20, "", []byte(`{"req":true}`), []byte(`{"resp":true}`), headers, 200, nil, "")
+	h.recordUsage("test-id", "test", "gpt-4", sel, "success", 100, 50, 10, 20, "", []byte(`{"req":true}`), []byte(`{"resp":true}`), headers, 200, nil, "", "")
 }
 
 func TestManagementClient(t *testing.T) {

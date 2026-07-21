@@ -14,6 +14,18 @@ import (
 	"github.com/tinyrouter/tinyrouter/internal/util"
 )
 
+// resolveDisplayModel returns the best display name for console logs:
+// prefer alias from registry, fall back to originalModel, then upstreamModel.
+func resolveDisplayModel(providerName, upstreamModel, originalModel string, reg ModelResolver) string {
+	if alias := reg.ResolveModelAliasByID(providerName, upstreamModel); alias != "" {
+		return alias
+	}
+	if originalModel != "" && originalModel != upstreamModel {
+		return originalModel
+	}
+	return upstreamModel
+}
+
 // generateToolCallID creates a unique tool_call id compatible with the
 // OpenAI tool-call format (e.g. "call_<hex>"). This is used as a defensive
 // fallback when an upstream provider returns an empty tool_call id.
@@ -172,6 +184,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 
 	// Resolve alias to real model ID: if the user specified an alias, find
 	// the actual model ID before forwarding to the upstream.
+	originalModel := upstreamModel
 	if realID, found := h.reg.ResolveModelAlias(provider.Prefix, upstreamModel); found {
 		upstreamModel = realID
 	}
@@ -179,7 +192,7 @@ func (h *Handler) handleProxy(w http.ResponseWriter, r *http.Request, path strin
 	// NIM providers must not participate in Combo routing: the model name
 	// carries a nv/* prefix and never matches a combo name, so no combo
 	// resolution is attempted for them — fall through to the forward path.
-	if ok, _ := h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount, "", provider.Name, entryFormat); !ok {
+	if ok, _ := h.forwardWithRetry(w, r, providerID, upstreamModel, path, bodyBytes, parsed, isStream, msgCount, "", provider.Name, entryFormat, originalModel); !ok {
 		writeError(w, http.StatusBadGateway, "all keys exhausted")
 	}
 }
@@ -199,19 +212,19 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 	switch plan.Strategy {
 	case "fallback":
 		for _, target := range plan.Targets {
-			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "", entryFormat); ok {
+			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "", entryFormat, ""); ok {
 				return
 			}
 		}
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 	case "round-robin":
 		target := plan.Targets[0]
-		if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "", entryFormat); !ok {
+		if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "", entryFormat, ""); !ok {
 			writeError(w, http.StatusBadGateway, fmt.Sprintf("all keys exhausted for combo: %s", comboName))
 		}
 	case "greedy-squirrel":
 		for _, target := range plan.Targets {
-			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "", entryFormat); ok {
+			if ok, _ := h.forwardWithRetry(w, r, target.ProviderID, target.Model, path, bodyBytes, parsed, isStream, msgCount, comboLabel, "", entryFormat, ""); ok {
 				return
 			}
 		}
@@ -221,7 +234,7 @@ func (h *Handler) handleCombo(w http.ResponseWriter, r *http.Request, comboName 
 	}
 }
 
-func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, logLabel, providerName string, entryFormat combo.EntryFormat) (bool, string) {
+func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, providerID, upstreamModel, path string, bodyBytes []byte, parsed map[string]any, isStream bool, msgCount int, logLabel, providerName string, entryFormat combo.EntryFormat, originalModel string) (bool, string) {
 	state := &retryState{maxRetries: h.maxRetries()}
 
 	cfgProvider, _ := h.reg.GetProvider(providerID)
@@ -249,7 +262,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if !state.requestLogged {
-			h.logRequest(sel, logLabel, providerName, upstreamModel, msgCount, state)
+			h.logRequest(sel, logLabel, providerName, upstreamModel, originalModel, msgCount, state)
 		}
 
 		// NIM min_interval: wait if too soon since last send on this key.
@@ -276,7 +289,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			writeError(w, http.StatusInternalServerError, "internal marshalling error")
 			return false, ""
 		}
-		h.logger.Debug("SEND %s | %s | body=%dB", sel.Provider.Name, upstreamModel, len(upstreamBody))
+		h.logger.Debug("SEND %s | %s | body=%dB", sel.Provider.Name, resolveDisplayModel(sel.Provider.Name, upstreamModel, originalModel, h.reg), len(upstreamBody))
 
 		// Create a processing usage entry now that we are about to forward the
 		// request. This gives the UI an immediate "request-start" signal so
@@ -287,6 +300,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			Timestamp: time.Now(),
 			Provider:  sel.Provider.Name,
 			Model:     upstreamModel,
+			OriginalModel: originalModel,
 			KeyID:     sel.Key.ID,
 			KeyName:   sel.KeyName,
 			Status:    "processing",
@@ -368,7 +382,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if err != nil {
-			h.handleNetworkError(sel, providerID, upstreamModel, err, state, reqID, upstreamBody, r.Header, upstreamURL)
+			h.handleNetworkError(sel, providerID, upstreamModel, err, state, reqID, upstreamBody, r.Header, upstreamURL, originalModel)
 			h.EntryTracker.Remove(reqID)
 			// DecInFlight before continue — cannot use defer in for loop (would
 			// accumulate across retry iterations).
@@ -380,7 +394,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode == 429 {
-			h.handle429(resp, sel, providerID, upstreamModel, startTime, state, r, reqID, upstreamBody, upstreamURL)
+			h.handle429(resp, sel, providerID, upstreamModel, startTime, state, r, reqID, upstreamBody, upstreamURL, originalModel)
 			h.EntryTracker.Remove(reqID)
 			if keyState != nil {
 				keyState.DecInFlight()
@@ -390,7 +404,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		if resp.StatusCode >= 400 {
-			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state, r, reqID, upstreamBody, upstreamURL, startTime)
+			h.handleUpstreamError(resp, sel, providerID, upstreamModel, state, r, reqID, upstreamBody, upstreamURL, startTime, originalModel)
 			h.EntryTracker.Remove(reqID)
 			if keyState != nil {
 				keyState.DecInFlight()
@@ -411,7 +425,8 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		}
 
 		maskedURL := maskURL(sel.Provider.BaseURL)
-		h.logger.Info("PROXY %s | %s | conn=%s | url=%s", sel.Provider.Name, upstreamModel, sel.KeyName, maskedURL)
+		dspModel := resolveDisplayModel(sel.Provider.Name, upstreamModel, originalModel, h.reg)
+		h.logger.Info("PROXY %s | %s | conn=%s | url=%s", sel.Provider.Name, dspModel, sel.KeyName, maskedURL)
 
 		latencyMs := time.Since(startTime).Milliseconds()
 
@@ -419,9 +434,9 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			h.EntryTracker.SetTTFT(reqID, latencyMs)
 			h.broadcastTTFT(reqID, latencyMs)
 			normalize := cfgProvider != nil && cfgProvider.NormalizeStreamChunks
-			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize, reqID, r.Header, upstreamURL, entryFormat)
+			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize, reqID, r.Header, upstreamURL, entryFormat, originalModel)
 		} else {
-			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, reqID, r.Header, upstreamURL, state.headersFlushed)
+			h.passThroughResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, reqID, r.Header, upstreamURL, state.headersFlushed, originalModel)
 		}
 		h.EntryTracker.Remove(reqID)
 		// DecInFlight after the synchronous response handling completes — this

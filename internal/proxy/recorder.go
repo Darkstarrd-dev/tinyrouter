@@ -14,12 +14,13 @@ import (
 // buffer, broadcasts a request-done event for the live UI, and signals the
 // usage broadcaster. It always captures request and response payloads/headers
 // for the request inspector.
-func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string, reqBody []byte, respBody []byte, respHeaders http.Header, respStatus int, reqHeaders http.Header, upstreamURL string) {
+func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string, reqBody []byte, respBody []byte, respHeaders http.Header, respStatus int, reqHeaders http.Header, upstreamURL string, originalModel string) {
 	entry := usage.Entry{
 		ID:           id,
 		Timestamp:    time.Now(),
 		Provider:     sel.Provider.Name,
 		Model:        model,
+		OriginalModel: originalModel,
 		KeyID:        sel.Key.ID,
 		KeyName:      sel.KeyName,
 		Status:       status,
