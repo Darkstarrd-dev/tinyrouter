@@ -71,6 +71,32 @@ func (t *EntryTracker) Exists(id string) bool {
 	return ok
 }
 
+// SetTTFT updates the TTFTMs field of a tracked processing entry.
+func (t *EntryTracker) SetTTFT(id string, ttftMs int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if e, ok := t.entries[id]; ok {
+		e.TTFTMs = ttftMs
+		t.entries[id] = e
+	}
+}
+
+// UpdateTokens updates the InputTokens and OutputTokens fields of a tracked
+// processing entry. Pass -1 for either field to skip updating it.
+func (t *EntryTracker) UpdateTokens(id string, input, output int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if e, ok := t.entries[id]; ok {
+		if input >= 0 {
+			e.InputTokens = input
+		}
+		if output >= 0 {
+			e.OutputTokens = output
+		}
+		t.entries[id] = e
+	}
+}
+
 // MarshalEntryJSON returns the JSON representation of an entry, or nil bytes
 // if marshalling fails.
 func MarshalEntryJSON(e usage.Entry) json.RawMessage {

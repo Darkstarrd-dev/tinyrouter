@@ -178,6 +178,8 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	outputTokens := 0
 	sb := &SSELineBuffer{}
 	var sseBuf bytes.Buffer
+	var contentCharsTotal int
+	var lastTokenBroadcast time.Time
 
 	for {
 		n, err := resp.Body.Read(buf)
@@ -280,6 +282,16 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					h.InflightUpdates.Signal()
 					lastSSEPush = time.Now()
 				}
+			}
+			contentCharsTotal += contentChars
+			if reqID != "" && time.Since(lastTokenBroadcast) > 1500*time.Millisecond {
+				lastTokenBroadcast = time.Now()
+				effectiveOutput := outputTokens
+				if effectiveOutput == 0 && contentCharsTotal > 0 {
+					effectiveOutput = contentCharsTotal / 4
+				}
+				h.EntryTracker.UpdateTokens(reqID, -1, effectiveOutput)
+				h.broadcastTokens(reqID, inputTokens, effectiveOutput)
 			}
 		}
 		if err != nil {

@@ -37,7 +37,8 @@ var SHORTCUT_PRESETS = {
     'global.quickslot-cycle-7': { key: '7', label: 'Quickslot #7' },
     'global.quickslot-cycle-8': { key: '8', label: 'Quickslot #8' },
     'global.quickslot-cycle-9': { key: '9', label: 'Quickslot #9' },
-    'global.shutdown-server':  { key: 'Escape', label: 'Shutdown Server (no modal)' }
+    'global.shutdown-server':  { key: 'Escape', label: 'Shutdown Server (no modal)' },
+    'global.toggle-fullscreen':{ key: 'f', label: 'Toggle fullscreen' }
   },
   playground: {
     'pg.send-message':        { key: 'Enter', label: 'Send message (main input)' },

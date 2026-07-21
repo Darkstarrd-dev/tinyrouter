@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function navigateTo(page) {
+  var wasFullscreen = !!document.fullscreenElement;
   currentPage = page;
   var gen = ++navGen;
   currentProviderId = null;
@@ -84,7 +85,20 @@ function navigateTo(page) {
          container.classList.add('page-enter');
        }
        console.warn('navigateTo render failed:', e);
+     })
+     .then(function() {
+       // Restore fullscreen after navigation, if the browser exited it
+       // (e.g., gallery fullscreen targets #gallery-layout which is
+       //  removed from the DOM during page switch).
+       if (wasFullscreen && !document.fullscreenElement) {
+         document.documentElement.requestFullscreen().catch(function(e) {});
+       }
      });
+  } else {
+    // Sync render: restore fullscreen immediately.
+    if (wasFullscreen && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(function(e) {});
+    }
   }
 }
 
@@ -447,6 +461,21 @@ document.addEventListener('keydown', function(e) {
   if (Shortcuts.matchEvent('global.goto-playground', e)) { e.preventDefault(); var pgNav = document.querySelector('.nav-item[data-page="playground"]'); if (pgNav) navigateTo('playground'); return; }
   if (Shortcuts.matchEvent('global.goto-download', e))   { e.preventDefault(); navigateTo('download'); return; }
   if (Shortcuts.matchEvent('global.goto-gallery', e))    { e.preventDefault(); var galNav = document.querySelector('.nav-item[data-page="gallery"]'); if (galNav) navigateTo('gallery'); return; }
+
+  // F: toggle fullscreen (let gallery page handle its own fullscreen)
+  if (Shortcuts.matchEvent('global.toggle-fullscreen', e)) {
+    e.preventDefault();
+    if (typeof currentPage !== 'undefined' && currentPage === 'gallery') {
+      // Gallery page has its own fullscreen implementation; let it handle it.
+    } else {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(function(e2) { console.warn('exitFullscreen failed:', e2); });
+      } else {
+        document.documentElement.requestFullscreen().catch(function(e2) { console.warn('enterFullscreen failed:', e2); });
+      }
+      return;
+    }
+  }
 
   // Number keys 1-9: cycle quickslot models (only when not in input and not in gallery)
   if (!isInput) {

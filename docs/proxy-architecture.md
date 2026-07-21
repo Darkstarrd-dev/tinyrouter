@@ -2,7 +2,9 @@
 
 > **文档定位：** `internal/proxy/` 包实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-20，仓库工作区（`main`）。本次新增/核对：(a) URL 拼接统一并修复——`proxy.BuildUpstreamURL` 成为唯一 endpoint URL 拼接函数，新增启发式 A（自动检测路径中是否含版本段 `/v1`/`/v1beta`/`/v2` 等，有则不注入 `/v1` 前缀，无则注入）；`api/probe_common.go` 删除 `normalizeProbeBaseURL`/`buildProbeURL`/`buildAnthropicURL` 三个私有函数，改用 `proxy.BuildUpstreamURL`。`normalizeBaseURL` 扩展为最长优先剥除完整 endpoint 后缀（含 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 等）。`buildAnthropicUpstreamRequest` 与 `buildResponsesUpstreamRequest` 的 URL 部分变更为一行调用 `BuildUpstreamURL`。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-21，仓库工作区（`main`）。本次新增/核对：(a) URL 拼接统一并修复——`proxy.BuildUpstreamURL` 成为唯一 endpoint URL 拼接函数，新增启发式 A（自动检测路径中是否含版本段 `/v1`/`/v1beta`/`/v2` 等，有则不注入 `/v1` 前缀，无则注入）；`api/probe_common.go` 删除 `normalizeProbeBaseURL`/`buildProbeURL`/`buildAnthropicURL` 三个私有函数，改用 `proxy.BuildUpstreamURL`。`normalizeBaseURL` 扩展为最长优先剥除完整 endpoint 后缀（含 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 等）。`buildAnthropicUpstreamRequest` 与 `buildResponsesUpstreamRequest` 的 URL 部分变更为一行调用 `BuildUpstreamURL`。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+
+> **2026-07-21 更新（实时 TTFT / Token 进度广播）：** (1) `EntryTracker` 新增 `SetTTFT(id, ttftMs)` 和 `UpdateTokens(id, input, output)` 方法，支持在流式过程中更新在途条目的 TTFTMs 与 InputTokens/OutputTokens 字段（值类型 map 写回）；(2) `forwardWithRetry` 在创建 `processingEntry` 时设置 `InputTokens = len(bodyBytes) / 4`（粗估，约 4 字节≈1 token），使 `request-start` 事件立即携带 input token 估算值；(3) 流式请求成功时（`isStream` 分支，`streamResponse` 调用前），调用 `EntryTracker.SetTTFT` + `broadcastTTFT` 广播 `request-ttft` 事件（`Entry: {"ttftMs": <int>}`），前端据此刻切换 Latency 从"实时已耗时"到 TTFT 固定值；(4) `streamResponse` 流式循环中新增 `contentCharsTotal` 累积器，每 1.5s（与 `InflightUpdates.Signal` 同频）广播 `request-tokens` 事件（`Entry: {"inputTokens": <int>, "outputTokens": <int>}`），output 优先用上游真实 `outputTokens`，无则用 `contentCharsTotal / 4` 粗估，input 用已提取的真实值（可能为 0，前端保留估算值不覆盖）；(5) `UpdateTokens` 传 `-1` 跳过 input 更新，保留 `request-start` 时设的粗估；(6) 前端 `usage.js` 新增 `request-ttft` / `request-tokens` SSE 事件处理 + 三态筛选 Tag（成功/失败/进行中，复用 `btn-filter` CSS 类）。详见 §11、§12。
 
 > **2026-07-18 更新（Anthropic 协议路由 + 软策略 + Responses 路由 + 多协议探测）：** 本轮在 Anthropic 入口基础上进一步：(1) **软策略修正**——proxy 不再因 `provider.APIType` 拒绝请求，客户端用什么协议入口（`/v1/chat/completions` / `/v1/messages` / `/v1/responses`）请求就按该协议转发；已删除 `forward.go` 旧的两处入口协议严格匹配 400 块，同一聚合 provider 可同时被三入口访问；(2) 新增 **OpenAI Responses 入口** `POST /v1/responses`（router.go:207，`proxyHandler.Responses`，`handleProxy(..., EntryFormatOpenAIResponses)`），与 OpenAI Chat / Anthropic Messages **三入口并列、同端口、按路径区分**；`forwardUpstream` 改为按 `entryFormat` 三分支（upstream.go:76-91），Responses 分支 URL 不注入 `/v1` 前缀、鉴权头 `Authorization: Bearer`；(3) **Anthropic usage 提取**——stream.go 新增 `parseAnthropicSSEUsage` 读 `message_start`/`message_delta` 的 input/output tokens 并复用 `recordUsage`，OpenAI `util.ExtractTokens` 加 guard 避免 anthropic `output_tokens` 干扰；(4) **三协议复合探测**——`api/probe_model.go`+`probe_common.go` 对单模型并发探测 OpenAI-compat / OpenAI-Responses / Anthropic 三协议，把成功集合写回 `ModelDef.Protocols`（变化时落 config.yaml）并写 `state.yaml` 的 `probes` map。详见本文第 §1、§3、§3.1、§3.2、§4、§7、§8.8、§13.1、§17、§18 各节。
 
@@ -444,6 +446,7 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 
 - 字段： `ID`、`Timestamp`、`Provider`、`Model`、`KeyID`、`KeyName`、`Status`、`LatencyMs`、`TTFTMs`、`InputTokens`、`OutputTokens`、`Error`，以及调试态的 `ReqPayload`/`RespPayload`/`RespHeaders`/`RespStatus`/`ReqHeaders`/`UpstreamURL`（recorder.go:17-53）。
 - **来源标记（始终写入，非仅调试态）：** 若请求带 `X-TinyRouter-Source` 头，则 `entry.Source = reqHeaders.Get("X-TinyRouter-Source")`（recorder.go:31-33）。当前 Playground 前端固定发 `X-TinyRouter-Source: playground`，使管理 UI 的 Recent Requests 面板可按 `source` 过滤；未带该头的请求 `Source` 为空（`json:"source,omitempty"` 不输出）。
+- **Input Token 粗估（2026-07-21）：** `forwardWithRetry` 在创建 `processingEntry` 时设置 `InputTokens = len(bodyBytes) / 4`（约 4 字节≈1 token 粗估），使 `request-start` 事件立即携带 input token 估算值供前端实时显示。流式中若上游返回真实 input_tokens（Anthropic `message_start` / OpenAI usage chunk），经 `streamResponse` 提取后通过 `request-tokens` 事件更正。
 - **调试捕获：** 仅 `debugMode()` 时记录；响应体超过 `512 KiB` 截断，非法 JSON 包装为 `{"raw":...}`（recorder.go:34-55）。
 - **广播链路：** `h.usage.Add(entry)`（recorder.go:56）→ `RequestUpdates.Broadcast(RequestEvent{Type:"request-done", ...})`（recorder.go:59-66）→ `h.UsageUpdates.Signal()`（recorder.go:67）。
 - **调用点：** 成功流式（stream.go:306）、成功非流式（stream.go:340）、网络错误（retry.go:56）、429（retry.go:78、108、120、133、152、160、173、186、193、200、211、220、234）、上游错误（retry.go:250、259、278）。
@@ -454,13 +457,16 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 
 ### 11.3 RequestEvent（request_events.go:71-78）
 
-经 `RequestUpdates` 广播的事件载荷：`Type`（`request-start` / `request-done` / `request-chunk`）、`ID`、`Status`、`Section`、`Delta`、`Entry`（`json.RawMessage`）。
+经 `RequestUpdates` 广播的事件载荷：`Type`（`request-start` / `request-done` / `request-chunk` / `request-ttft` / `request-tokens`）、`ID`、`Status`、`Section`、`Delta`、`Entry`（`json.RawMessage`）。
+
+- `request-ttft`（2026-07-21 新增）：流式请求成功时，`forwardWithRetry` 在 `streamResponse` 调用前广播，`Entry` 为 `{"ttftMs": <int>}`。前端收到后切换 Latency 从"实时已耗时"到 TTFT 固定值。
+- `request-tokens`（2026-07-21 新增）：`streamResponse` 流式循环中每 1.5s 广播，`Entry` 为 `{"inputTokens": <int>, "outputTokens": <int>}`。output 优先用上游真实值，无则用 `contentCharsTotal / 4` 粗估。input 为 0 时前端保留估算值不覆盖。
 
 ## 12. 在途跟踪与事件广播
 
-### 12.1 EntryTracker（entry_tracker.go:13-82）
+### 12.1 EntryTracker（entry_tracker.go:13-108）
 
-按 request ID 跟踪“处理中（processing）”用量条目（`map[string]usage.Entry` + `sync.RWMutex`）。`Register`/`Get`/`Remove`/`All`/`Exists`（entry_tracker.go:25-72），`MarshalEntryJSON` 做 JSON 序列化（entry_tracker.go:76-82）。`streamResponse` 进入前 `EntryTracker.Register(processingEntry)` 并 `broadcastRequestStart`，结束/失败后 `EntryTracker.Remove`（forward.go:186-208、215、227、237、267、278-288）。
+按 request ID 跟踪“处理中（processing）”用量条目（`map[string]usage.Entry` + `sync.RWMutex`）。`Register`/`Get`/`Remove`/`All`/`Exists`（entry_tracker.go:25-72），`SetTTFT`/`UpdateTokens`（2026-07-21 新增，entry_tracker.go:74-98，值类型 map 写回，`UpdateTokens` 传 `-1` 跳过字段），`MarshalEntryJSON` 做 JSON 序列化（entry_tracker.go:102-108）。`streamResponse` 进入前 `EntryTracker.Register(processingEntry)` 并 `broadcastRequestStart`，结束/失败后 `EntryTracker.Remove`（forward.go:304-305、371、383、393、426）。流式首字节到达时 `EntryTracker.SetTTFT` 更新 TTFTMs（forward.go:419），流式循环中 `EntryTracker.UpdateTokens` 更新 output token 估算（stream.go:293）。
 
 ### 12.2 InflightTracker（inflight.go:11-88）
 
@@ -489,11 +495,11 @@ Google Gemini OpenAI-compatible 端点在 tool-call 往返时要求 `tool_calls`
 3. `Subscribe` 三个 `Broadcaster`（UsageUpdates / InflightUpdates / RequestUpdates），进入 `select` 循环（api/sse_events.go:44-78）：
    - `ch`（UsageUpdates）→ `usage-updated`；
    - `infCh`（InflightUpdates）→ `key-inflight`；
-   - `reqCh`（RequestUpdates）→ 序列化 `proxy.RequestEvent` 为 `request-*` 事件；
+   - `reqCh`（RequestUpdates）→ 序列化 `proxy.RequestEvent` 为 `request-*` 事件（含 `request-start`/`request-done`/`request-chunk`/`request-ttft`/`request-tokens`，2026-07-21 新增后两者）；
    - `ctx.Done()` → 退出；
    - `30s` 超时 → `: keepalive` 注释行（api/sse_events.go:74-76）。
 
-`broadcastRequestStart`（forward.go:278-288）在每次 `forwardWithRetry` 迭代发出 `request-start` 事件，经 `RequestUpdates.Broadcast`。
+`broadcastRequestStart`（forward.go:437-447）在每次 `forwardWithRetry` 迭代发出 `request-start` 事件，经 `RequestUpdates.Broadcast`。`broadcastTTFT`（forward.go:449-461）和 `broadcastTokens`（forward.go:463-476）分别发出 `request-ttft` 和 `request-tokens` 事件（2026-07-21 新增）。
 ## 13. 响应契约
 
 ### 13.1 客户端协议透传软策略说明
@@ -592,13 +598,13 @@ go build -o tinyrouter .
 
 - `internal/proxy/handler.go`：Handler 结构体（15-36）、构造函数 New（43-80）、ChatCompletions/Completions（159-165）、Messages（179-181，Anthropic 入口，调用 `handleProxy(..., EntryFormatAnthropic)`）、Responses（188-189，OpenAI Responses 入口，调用 `handleProxy(..., EntryFormatOpenAIResponses)`）、SetProxy（102-142）、SetUpstreamTimeout（147-154）、SetDebugModeProvider（215-224）、ImagesGenerations（167-169）、PollTask（171-173）。
 - `internal/proxy/interfaces.go`：6 个能力接口 Logger/KeyProvider/ModelResolver/ComboResolver（`Resolve(name, entryFormat)`，61-64）/UsageRecorder/QuotaTracker（16-81）。
-- `internal/proxy/forward.go`：handleProxy（15-105，软策略：不再做入口协议严格匹配 400 块，仅模型解析 + 透传准备）、handleCombo（102-142，含 `entryFormat` 透传）、forwardWithRetry（139-342，含 `entryFormat` 透传，延迟 keep-alive 217-276）、broadcastRequestStart（344-354）、writeError（356-365）、backfillThoughtSignatures（380-421）、hasThoughtSignature（423-434）。
+- `internal/proxy/forward.go`：handleProxy（15-105，软策略：不再做入口协议严格匹配 400 块，仅模型解析 + 透传准备）、handleCombo（102-142，含 `entryFormat` 透传）、forwardWithRetry（224-435，含 `entryFormat` 透传，延迟 keep-alive，processingEntry 含 `InputTokens` 粗估 line 293，TTFT 广播 line 419-420）、broadcastRequestStart（437-447）、broadcastTTFT（449-461，2026-07-21 新增）、broadcastTokens（463-476，2026-07-21 新增）、writeError（478-487）、backfillThoughtSignatures（502-556）、hasThoughtSignature（558-569）。
 - `internal/proxy/upstream.go`：normalizeBaseURL（17-53，最长优先剥除 endpoint 后缀）、BuildUpstreamURL（55-101，启发式 A：判断路径是否含版本段决定注入 `/v1`）、forwardUpstream（113-174，按 `entryFormat` 三分支：OpenAI Chat / Anthropic / OpenAI Responses）、buildAnthropicUpstreamRequest（130-139，URL 由 BuildUpstreamURL 统一构造）、setAnthropicHeaders（141-152，x-api-key/anthropic-version/anthropic-beta，不设 Authorization）、buildResponsesUpstreamRequest（155-167，URL 由 BuildUpstreamURL 统一构造、鉴权 `Authorization: Bearer`）。
-- `internal/proxy/stream.go`：SSELineBuffer（15-41）、SSEDataPayloads（50-64）、normalizeSSEChunk（74-110）、streamResponse（139-305，`entryFormat` 控制 OpenAI 专用 `parseAndBroadcastChunk` 仅 OpenAI 入口调用、anthropic 入口走 `parseAnthropicSSEUsage` 提取 usage）、passThroughResponse（307-341，新增 `headersFlushed bool` 参数，348）、parseAndBroadcastChunk（349-368）、chunkDelta/parseSSEChunkDelta（371-418）、extractThoughtSignature（444-490）、parseAnthropicSSEUsage（415-450，读 message_start/message_delta 的 input/output tokens）。
+- `internal/proxy/stream.go`：SSELineBuffer（15-41）、SSEDataPayloads（50-64）、normalizeSSEChunk（74-110）、streamResponse（139-346，`entryFormat` 控制 OpenAI 专用 `parseAndBroadcastChunk` 仅 OpenAI 入口调用、anthropic 入口走 `parseAnthropicSSEUsage` 提取 usage；2026-07-21 新增 `contentCharsTotal` 累积器 line 181、token 进度广播 line 286-294）、passThroughResponse（348-385，`headersFlushed bool` 参数）、parseAndBroadcastChunk（393-412）、chunkDelta/parseSSEChunkDelta（415-502）、extractThoughtSignature（528-575）、parseAnthropicSSEUsage（429-458，读 message_start/message_delta 的 input/output tokens）。
 - `internal/proxy/retry.go`：retryState（14-21）、maxRetries（33-39）、logRequest（42-49）、handleNetworkError（52-59）、handle429（62-235）、handleUpstreamError（241-305）、classifySenseNova429（318-327）、excludeSameAccountKeys（332-342）。
 - `internal/proxy/recorder.go`：recordUsage（16-66）、parseAndUpdateQuota（68-90）。
 - `internal/proxy/request_events.go`：generateRequestID（24-31）、RequestEvent（71-78）、requestIDCounter（14）。
-- `internal/proxy/entry_tracker.go`：EntryTracker（13-82）、MarshalEntryJSON（76-82）。
+- `internal/proxy/entry_tracker.go`：EntryTracker（13-108，含 `SetTTFT` 74-82 / `UpdateTokens` 84-98，2026-07-21 新增）、MarshalEntryJSON（102-108）。
 - `internal/proxy/inflight.go`：inflightEntry/InflightTracker（11-88）。
 - `internal/proxy/broadcaster.go`：Broadcaster（9-80）。
 - `internal/proxy/signature_cache.go`：SignatureCacheProvider（11-14）、sigEntry/SignatureCache（16-104）。
@@ -626,7 +632,7 @@ go build -o tinyrouter .
 | 修改 SSE 改写 | stream.go:139-305 + normalizeSSEChunk（74-110）+ SSELineBuffer（15-41）+ passThroughResponse（307-341）；Anthropic 入口经 `entryFormat` 跳过 OpenAI 专用 `parseAndBroadcastChunk`（§8.8） |
 | 修改非流式 keep-alive 刷新 | forward.go `forwardWithRetry`（延迟 20s 宽限期 goroutine + 5s ticker，`keepAliveStopped` 同步退出，§8.7）+ stream.go `passThroughResponse`（`headersFlushed` 参数）+ compress.go `Compress`（`/v1/images/*` 绕过列表） |
 | 修改 Gemini 签名 | signature_cache.go（11-104）+ forward.go backfill（314-355）+ stream.go extract（444-490）+ config IsGeminiOpenAICompat（109-117） |
-| 修改用量/在途 | recorder.go（16-90）+ entry_tracker.go（13-82）+ inflight.go（11-88）+ broadcaster.go（9-80）+ api/sse_events.go（16-79）；改 `Entry.Source` 来源标记须同步前端 `X-TinyRouter-Source` 头（pg-stream.js）。改 `RespPayload` 截断策略须同步 §8.7 上方"recorder.go 大响应截断"更新块 |
+| 修改用量/在途 | recorder.go（16-90）+ entry_tracker.go（13-108，含 `SetTTFT`/`UpdateTokens`）+ inflight.go（11-88）+ broadcaster.go（9-80）+ api/sse_events.go（16-79）+ forward.go `broadcastTTFT`/`broadcastTokens`（449-476）+ stream.go token 广播（286-294）；改 `Entry.Source` 来源标记须同步前端 `X-TinyRouter-Source` 头（pg-stream.js）。改 `RespPayload` 截断策略须同步 §8.7 上方"recorder.go 大响应截断"更新块。改 `request-ttft`/`request-tokens` 事件格式须同步前端 `usage.js` 的 `handleRequestTTFT`/`handleRequestTokens` |
 | 新增 combo 策略 | combo/resolver + handleCombo 分支（forward.go:107-142） |
 | 新增/修改 Anthropic 协议路由 | handler.go `Messages`（179-181）+ `handleProxy`/`handleCombo`/`forwardWithRetry`/`forwardUpstream` 的 `entryFormat` 参数 + upstream.go `buildAnthropicUpstreamRequest`/`setAnthropicHeaders`（135-179）+ stream.go `entryFormat` 跳过 OpenAI 解析（§8.8）+ combo/resolver `EntryFormat` 过滤（resolver.go:14-22、103-118）+ api/router.go `POST /v1/messages`（203）+ config/types.go `AnthropicVersion`/`AnthropicBeta`/`IsAnthropic()` + defaults.go 回填（97-98）+ validate.go anthropic BaseURL 告警（33-35） |
 | 软策略修正 / Responses 路由 / 单协议探测 | forward.go 删除入口协议严格匹配 400 块（软策略，§3.3、§13.1）+ handler.go `Responses`（188-189、`EntryFormatOpenAIResponses`）+ upstream.go `forwardUpstream` 三分支（76-91）+ `buildResponsesUpstreamRequest`（185-225）+ stream.go `parseAnthropicSSEUsage`（415-450，anthropic usage 提取 + OpenAI `ExtractTokens` guard，§8.8/§8.9）+ combo/resolver 移除 anthropic `IsAnthropic()` 过滤 + api/router.go `POST /v1/responses`（207）+ `PATCH /providers/{id}/models/protocols`（262）+ api/probe_model.go `testProviderModelProto` 单协议单次探测（`POST /providers/{id}/models/test-proto`，body `{model, proto}`，**不持久化**）+ probe_common.go `normalizeProbeBaseURL`（probe 包私有，修复 URL 拼接 bug）+ `buildProbeURL`/`buildAnthropicURL` 在拼接前先调归一化 + probe_proto_test.go 覆盖新 handler + URL 归一化；前端 providers.js/combos.js/quickslots.js 串行调用三次实现三协议探测（每完成一个更新 O/R/A mini badge，间隔 2s），O/R/A mini badges 改为可点击打开单协议详情 modal |

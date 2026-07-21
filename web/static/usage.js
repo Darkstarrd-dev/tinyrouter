@@ -39,6 +39,7 @@ var usagePeriodicTimer = null;
 var _lastPerKeyRefresh = 0;
 var inflightEntries = {};
 var processingTimer = null;
+var usageFilters = { success: true, failure: true, processing: true };
 var currentInfoModalRequestId = null;
 var currentInfoModalReasoningEl = null;
 var currentInfoModalAssistantEl = null;
@@ -65,6 +66,7 @@ function hasProcessingEntries() {
 function updateProcessingLatencyCells() {
   var rows = document.querySelectorAll('tr[data-status="processing"]');
   for (var i = 0; i < rows.length; i++) {
+    if (rows[i].getAttribute('data-ttft')) continue;
     var ts = rows[i].getAttribute('data-ts');
     if (!ts) continue;
     var elapsed = Date.now() - new Date(ts).getTime();
@@ -91,6 +93,22 @@ function stopProcessingTimer() {
     clearInterval(processingTimer);
     processingTimer = null;
   }
+}
+
+function toggleUsageFilter(btn, filter) {
+  usageFilters[filter] = !usageFilters[filter];
+  btn.classList.toggle('active', usageFilters[filter]);
+  updateRecentRequestsInline(lastUsageEntries);
+}
+
+function statusToFilter(status) {
+  if (status === 'success') return 'success';
+  if (status === 'processing') return 'processing';
+  return 'failure';
+}
+
+function shouldShowUsageEntry(e) {
+  return usageFilters[statusToFilter(e.status)];
 }
 
 var TREND_PALETTE = [
@@ -135,22 +153,35 @@ function renderUsageRow(e) {
   }
   var latencyDisplay;
   if (e.status === 'processing') {
-    var elapsed = Date.now() - new Date(e.timestamp).getTime();
-    if (isNaN(elapsed) || elapsed < 0) elapsed = 0;
-    latencyDisplay = formatLatency(elapsed);
+    if (e.ttftMs && e.ttftMs > 0) {
+      latencyDisplay = formatLatency(e.ttftMs);
+    } else {
+      var elapsed = Date.now() - new Date(e.timestamp).getTime();
+      if (isNaN(elapsed) || elapsed < 0) elapsed = 0;
+      latencyDisplay = formatLatency(elapsed);
+    }
   } else {
     latencyDisplay = formatLatency(e.latencyMs);
   }
-  var tokensDisplay = e.status === 'processing' ? '—' : e.inputTokens + '/' + e.outputTokens;
+  var tokensDisplay;
+  if (e.status === 'processing') {
+    var inT = (e.inputTokens || 0);
+    var outT = (e.outputTokens || 0);
+    tokensDisplay = inT + '/' + outT;
+  } else {
+    tokensDisplay = e.inputTokens + '/' + e.outputTokens;
+  }
   var tsAttr = e.timestamp ? ' data-ts="' + escapeHtml(e.timestamp) + '"' : '';
-  return '<tr data-status="' + e.status + '"' + tsAttr + '>\
+  var ttftAttr = (e.status === 'processing' && e.ttftMs && e.ttftMs > 0) ? ' data-ttft="1"' : '';
+  var idAttr = e.id ? ' data-id="' + escapeHtml(e.id) + '"' : '';
+  return '<tr data-status="' + e.status + '"' + tsAttr + ttftAttr + idAttr + '>\
     <td class="status-col-cell">' + statusInner + '</td>\
     <td>' + new Date(e.timestamp).toLocaleTimeString() + '</td>\
     <td>' + escapeHtml(e.provider) + '</td>\
     <td>' + escapeHtml(e.model) + '</td>\
     <td>' + escapeHtml(e.keyName) + '</td>\
     <td class="latency-cell">' + latencyDisplay + '</td>\
-    <td>' + tokensDisplay + '</td>\
+    <td class="tokens-cell">' + tokensDisplay + '</td>\
   </tr>';
 }
 
@@ -436,7 +467,14 @@ async function renderUsage(c) {
 function renderRecentRequestsInline(entries) {
   var limit = 50;
   var rows = entries.slice(0, limit);
-  var header = '<div class="card-title">' + t('recentRequests') + '<span class="recent-count">' + entries.length + '</span></div>';
+  var header = '<div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">' +
+    '<span>' + t('recentRequests') + '<span class="recent-count">' + entries.length + '</span></span>' +
+    '<span class="console-controls" style="gap:4px">' +
+      '<button type="button" class="btn btn-sm btn-filter active" data-filter="success" onclick="toggleUsageFilter(this,\'success\')">' + t('filterSuccess') + '</button>' +
+      '<button type="button" class="btn btn-sm btn-filter active" data-filter="failure" onclick="toggleUsageFilter(this,\'failure\')">' + t('filterFailure') + '</button>' +
+      '<button type="button" class="btn btn-sm btn-filter active" data-filter="processing" onclick="toggleUsageFilter(this,\'processing\')">' + t('filterProcessing') + '</button>' +
+    '</span>' +
+  '</div>';
   var body;
   if (rows.length === 0) {
     body = emptyState(t('noUsage'));
@@ -461,6 +499,9 @@ function renderRecentRequestsInline(entries) {
 
 function updateRecentRequestsInline(entries) {
   var tbody = document.getElementById('recent-tbody');
+  var filtered = entries.filter(shouldShowUsageEntry);
+  var limit = 50;
+  var rows = filtered.slice(0, limit);
   if (!tbody) {
     if (entries.length > 0) {
       var card = document.querySelector('.recent-requests-card');
@@ -469,12 +510,14 @@ function updateRecentRequestsInline(entries) {
         temp.innerHTML = renderRecentRequestsInline(entries);
         var newCard = temp.firstElementChild;
         if (newCard) card.parentNode.replaceChild(newCard, card);
+        document.querySelectorAll('.recent-requests-card .btn-filter').forEach(function(b) {
+          var f = b.dataset.filter;
+          b.classList.toggle('active', usageFilters[f]);
+        });
       }
     }
     return;
   }
-  var limit = 50;
-  var rows = entries.slice(0, limit);
   tbody.innerHTML = rows.map(renderUsageRow).join('');
   var countEl = document.querySelector('.recent-requests-card .recent-count');
   if (countEl) countEl.textContent = String(entries.length);
@@ -557,6 +600,12 @@ function applyUsageSSEHandlers(es) {
       }
       if (data.type === 'request-chunk') {
         handleRequestChunk(data.id, data.section, data.delta);
+      }
+      if (data.type === 'request-ttft') {
+        handleRequestTTFT(data.id, data.entry);
+      }
+      if (data.type === 'request-tokens') {
+        handleRequestTokens(data.id, data.entry);
       }
     } catch(e) {}
   };
@@ -648,6 +697,50 @@ function handleRequestChunk(id, section, delta) {
   if (!targetEl) return;
   var text = targetEl.textContent || '';
   targetEl.textContent = text + (delta || '');
+}
+
+function handleRequestTTFT(id, entry) {
+  if (!id || !entry) return;
+  var ttftMs = entry.ttftMs || 0;
+  if (ttftMs <= 0) return;
+  var inflight = inflightEntries[id];
+  if (inflight) {
+    inflight.ttftMs = ttftMs;
+  }
+  var found = lastUsageEntries.findIndex(function(x) { return x.id === id; });
+  if (found >= 0 && lastUsageEntries[found].status === 'processing') {
+    lastUsageEntries[found].ttftMs = ttftMs;
+  }
+  var row = document.querySelector('tr[data-id="' + sanitizeId(id) + '"]');
+  if (row) {
+    row.setAttribute('data-ttft', '1');
+    var cell = row.querySelector('.latency-cell');
+    if (cell) cell.textContent = formatLatency(ttftMs);
+  }
+}
+
+function handleRequestTokens(id, entry) {
+  if (!id || !entry) return;
+  var input = entry.inputTokens;
+  var output = entry.outputTokens || 0;
+  var inflight = inflightEntries[id];
+  if (inflight) {
+    if (input && input > 0) inflight.inputTokens = input;
+    inflight.outputTokens = output;
+  }
+  var found = lastUsageEntries.findIndex(function(x) { return x.id === id; });
+  if (found >= 0 && lastUsageEntries[found].status === 'processing') {
+    if (input && input > 0) lastUsageEntries[found].inputTokens = input;
+    lastUsageEntries[found].outputTokens = output;
+  }
+  var row = document.querySelector('tr[data-id="' + sanitizeId(id) + '"]');
+  if (row) {
+    var cell = row.querySelector('.tokens-cell');
+    if (cell) {
+      var displayInput = (input && input > 0) ? input : ((inflight && inflight.inputTokens) || (found >= 0 ? lastUsageEntries[found].inputTokens : 0) || 0);
+      cell.textContent = displayInput + '/' + output;
+    }
+  }
 }
 
 function updateStreamingModalResponse(entry) {

@@ -290,6 +290,7 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 			KeyID:     sel.Key.ID,
 			KeyName:   sel.KeyName,
 			Status:    "processing",
+			InputTokens: len(bodyBytes) / 4, // rough estimate for live UI
 		}
 		upstreamURL := BuildUpstreamURL(sel.Provider.BaseURL, path)
 		if len(bodyBytes) > 0 {
@@ -415,6 +416,8 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		latencyMs := time.Since(startTime).Milliseconds()
 
 		if isStream {
+			h.EntryTracker.SetTTFT(reqID, latencyMs)
+			h.broadcastTTFT(reqID, latencyMs)
 			normalize := cfgProvider != nil && cfgProvider.NormalizeStreamChunks
 			h.streamResponse(w, resp, upstreamModel, sel, latencyMs, bodyBytes, normalize, reqID, r.Header, upstreamURL, entryFormat)
 		} else {
@@ -438,6 +441,35 @@ func (h *Handler) broadcastRequestStart(id string, entry usage.Entry) {
 	}
 	h.RequestUpdates.Broadcast(RequestEvent{
 		Type:  "request-start",
+		ID:    id,
+		Entry: raw,
+	})
+}
+
+func (h *Handler) broadcastTTFT(id string, ttftMs int64) {
+	raw, err := json.Marshal(struct {
+		TTFTMs int64 `json:"ttftMs"`
+	}{ttftMs})
+	if err != nil {
+		return
+	}
+	h.RequestUpdates.Broadcast(RequestEvent{
+		Type:  "request-ttft",
+		ID:    id,
+		Entry: raw,
+	})
+}
+
+func (h *Handler) broadcastTokens(id string, input, output int) {
+	raw, err := json.Marshal(struct {
+		InputTokens  int `json:"inputTokens"`
+		OutputTokens int `json:"outputTokens"`
+	}{input, output})
+	if err != nil {
+		return
+	}
+	h.RequestUpdates.Broadcast(RequestEvent{
+		Type:  "request-tokens",
 		ID:    id,
 		Entry: raw,
 	})
