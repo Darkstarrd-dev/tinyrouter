@@ -338,20 +338,32 @@ function pgMsgInnerHTML(i, idx, msg, isSourceVisible) {
       '</div>';
   }
   if (msg.searchRaw) {
-    var rawUnescaped = pgUnescapeMarkdownSyntax(msg.searchRaw);
-    var prettyHtml = pgRenderMarkdown(rawUnescaped, false);
+    var canPretty = msg.status === 'complete';
+    var prettyContent = '';
+    if (msg.prettyRepairing) {
+      prettyContent = '<div class="pg-pretty-status"><span class="pg-thinking-spinner"></span> ✨ AI 正在修复 Markdown 格式与结构...</div>' +
+        (msg.prettyMarkdown ? pgRenderMarkdown(msg.prettyMarkdown, false) : '');
+    } else if (msg.prettyRepairError) {
+      prettyContent = '<div class="pg-pretty-error">格式修复失败: ' + pgEscapeHtml(msg.prettyRepairError) + ' <button class="pg-btn" style="margin-left:8px" onclick="pgRepairSearchMarkdownAI(' + i + ',' + idx + ')">重试</button></div>';
+    } else if (msg.prettyMarkdown) {
+      prettyContent = pgRenderMarkdown(msg.prettyMarkdown, false);
+    } else {
+      prettyContent = '<div class="pg-pretty-hint" style="color:var(--text-muted);font-size:12px;padding:8px 0">点击上面的 Pretty 按钮，将使用 AI 自动修复语法结构并完成标准 Markdown 渲染。</div>';
+    }
+
+    var btnDisabled = canPretty ? '' : ' disabled style="opacity:0.4;cursor:not-allowed;" title="请等待搜索与总结完成"';
     inner += '<div class="pg-search-raw collapsed">' +
       '<div class="pg-search-raw-head" onclick="event.stopPropagation();this.parentElement.classList.toggle(\'collapsed\')">' +
         '<span class="pg-search-raw-title">' + pgEscapeHtml(pgT('pgSearchRawResults')) + '</span>' +
         '<span class="pg-search-toggle">' +
           '<button class="pg-search-toggle-btn pg-search-toggle-btn-active" data-view="raw" onclick="event.stopPropagation();pgToggleSearchRaw(this,\'raw\')">' + pgEscapeHtml(pgT('pgSearchRaw')) + '</button>' +
-          '<button class="pg-search-toggle-btn" data-view="pretty" onclick="event.stopPropagation();pgToggleSearchRaw(this,\'pretty\')">' + pgEscapeHtml(pgT('pgSearchPretty')) + '</button>' +
+          '<button class="pg-search-toggle-btn' + (canPretty ? '' : ' disabled') + '" ' + btnDisabled + ' data-view="pretty" onclick="event.stopPropagation();pgToggleSearchRaw(this,\'pretty\')">' + pgEscapeHtml(pgT('pgSearchPretty')) + '</button>' +
         '</span>' +
         '<span class="pg-think-chev">▾</span>' +
       '</div>' +
       '<div class="pg-search-raw-body">' +
         '<pre class="pg-search-raw-view">' + pgEscapeHtml(msg.searchRaw) + '</pre>' +
-        '<div class="pg-search-pretty-view" style="display:none">' + prettyHtml + '</div>' +
+        '<div class="pg-search-pretty-view" style="display:none">' + prettyContent + '</div>' +
       '</div>' +
     '</div>';
   }

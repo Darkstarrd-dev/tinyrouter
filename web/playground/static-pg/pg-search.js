@@ -339,3 +339,123 @@ function pgScrollToSearchMsg(msgIdx) {
     el.focus();
   }
 }
+
+// ===== AI Search Markdown Structure Repair =====
+
+var PG_SEARCH_REPAIR_MARKDOWN_PROMPT =
+  '你是一个专业的 Markdown 语法与结构修复专家。\n' +
+  '你的唯一任务是：将输入的结构混乱、丢失换行或格式粘连的原始网页提取文本（Raw Search Results），修复为结构标准、排版规范、可读性高的 Markdown 文本。\n\n' +
+  '【严禁行为】\n' +
+  '1. 绝对不要归纳、总结、删减或改写原本的文字与内容；\n' +
+  '2. 绝对不要添加任何前言、总结说明、解释或对话标语（例如“以下是修复后的内容：”）；\n\n' +
+  '【修复规则】\n' +
+  '1. 恢复粘连的代码块，使用标准的 ``` 语言代码块并正确换行；\n' +
+  '2. 恢复粘连的标题与段落，强切换行并保留标题级别 (# / ## / ###)；\n' +
+  '3. 恢复单行或损坏的表格/列表，整理为标准的 GFM 格式；\n' +
+  '4. 直接输出修复后的标准 Markdown 文本。';
+
+function pgRepairSearchMarkdownAI(i, idx) {
+  var w = pgWinAt(i);
+  var msg = w ? w.messages[idx] : null;
+  if (!msg || !msg.searchRaw) return;
+
+  msg.prettyRepairing = true;
+  msg.prettyRepairError = null;
+  msg.prettyMarkdown = '';
+  pgRenderBubble(i, idx);
+
+  var reqBody = {
+    model: w.config.model,
+    messages: [
+      { role: 'system', content: PG_SEARCH_REPAIR_MARKDOWN_PROMPT },
+      { role: 'user', content: msg.searchRaw }
+    ],
+    stream: true
+  };
+
+  var pendingPretty = '';
+  fetch('/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'X-TinyRouter-Source': 'playground' },
+    body: JSON.stringify(reqBody)
+  }).then(function(resp) {
+    if (!resp.ok) {
+      return resp.text().then(function(text) {
+        throw new Error('HTTP ' + resp.status + ': ' + text);
+      });
+    }
+    var reader = resp.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+    function pump() {
+      return reader.read().then(function(res) {
+        if (res.done) {
+          msg.prettyRepairing = false;
+          msg.prettyMarkdown = pendingPretty;
+          pgRenderBubble(i, idx);
+          return;
+        }
+        buffer += decoder.decode(res.value, { stream: true });
+        var lines = buffer.split('\n');
+        buffer = lines.pop();
+        lines.forEach(function(line) {
+          line = line.trim();
+          if (!line || line.indexOf('data: ') !== 0) return;
+          var rawJson = line.slice(6);
+          if (rawJson === '[DONE]') return;
+          try {
+            var data = JSON.parse(rawJson);
+            var delta = data.choices && data.choices[0] && data.choices[0].delta;
+            if (delta && delta.content) {
+              pendingPretty = pgMergeChunk(pendingPretty, delta.content);
+              msg.prettyMarkdown = pendingPretty;
+              pgRenderBubble(i, idx);
+            }
+          } catch(e) {}
+        });
+        return pump();
+      });
+    }
+    return pump();
+  }).catch(function(err) {
+    msg.prettyRepairing = false;
+    msg.prettyRepairError = err.message || String(err);
+    pgRenderBubble(i, idx);
+  });
+}
+
+function pgToggleSearchRaw(btn, view) {
+  var msgEl = btn.closest('.pg-msg');
+  if (!msgEl) return;
+  var idParts = msgEl.id ? msgEl.id.split('-') : [];
+  var winIdx = parseInt(idParts[2], 10) || 0;
+  var msgIdx = parseInt(idParts[3], 10) || 0;
+  var w = pgWinAt(winIdx);
+  var msg = w ? w.messages[msgIdx] : null;
+
+  if (view === 'pretty' && msg && msg.status !== 'complete') {
+    pgToast('请等待搜索与总结完成后再转换 Pretty 视图', 'info');
+    return;
+  }
+
+  var card = btn.closest('.pg-search-raw');
+  if (!card) return;
+  var btns = card.querySelectorAll('.pg-search-toggle-btn');
+  btns.forEach(function(b) { b.classList.remove('pg-search-toggle-btn-active'); });
+  btn.classList.add('pg-search-toggle-btn-active');
+
+  var rawView = card.querySelector('.pg-search-raw-view');
+  var prettyView = card.querySelector('.pg-search-pretty-view');
+
+  if (view === 'pretty') {
+    if (rawView) rawView.style.display = 'none';
+    if (prettyView) prettyView.style.display = 'block';
+
+    if (msg && !msg.prettyMarkdown && !msg.prettyRepairing) {
+      pgRepairSearchMarkdownAI(winIdx, msgIdx);
+    }
+  } else {
+    if (rawView) rawView.style.display = 'block';
+    if (prettyView) prettyView.style.display = 'none';
+  }
+}
