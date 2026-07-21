@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function navigateTo(page) {
-  var wasFullscreen = !!document.fullscreenElement;
+  var wasFullscreen = !!document.fullscreenElement || document.body.classList.contains('gallery-fullscreen-active') || (typeof isFullscreen === 'function' && isFullscreen());
   currentPage = page;
   var gen = ++navGen;
   currentProviderId = null;
@@ -77,6 +77,19 @@ function navigateTo(page) {
     }
   })();
   if ((page === 'playground' || page === 'gallery' || page === 'endpoint') && mainEl) mainEl.classList.add('main-no-scroll');
+  
+  function restoreFullscreenState() {
+    if (wasFullscreen) {
+      document.body.classList.add('gallery-fullscreen-active');
+      if (typeof window.toggleNativeFullscreen === 'function') {
+        try { window.toggleNativeFullscreen(true); } catch (e) {}
+      }
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(function(e2) {});
+      }
+    }
+  }
+
   if (p && p.then) {
     p.then(() => { if (gen === navGen) container.classList.add('page-enter'); })
      .catch((e) => {
@@ -87,18 +100,11 @@ function navigateTo(page) {
        console.warn('navigateTo render failed:', e);
      })
      .then(function() {
-       // Restore fullscreen after navigation, if the browser exited it
-       // (e.g., gallery fullscreen targets #gallery-layout which is
-       //  removed from the DOM during page switch).
-       if (wasFullscreen && !document.fullscreenElement) {
-         document.documentElement.requestFullscreen().catch(function(e) {});
-       }
+       restoreFullscreenState();
      });
   } else {
-    // Sync render: restore fullscreen immediately.
-    if (wasFullscreen && !document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(function(e) {});
-    }
+    // Sync render: restore fullscreen state immediately.
+    restoreFullscreenState();
   }
 }
 
@@ -462,11 +468,13 @@ document.addEventListener('keydown', function(e) {
   if (Shortcuts.matchEvent('global.goto-download', e))   { e.preventDefault(); navigateTo('download'); return; }
   if (Shortcuts.matchEvent('global.goto-gallery', e))    { e.preventDefault(); var galNav = document.querySelector('.nav-item[data-page="gallery"]'); if (galNav) navigateTo('gallery'); return; }
 
-  // F: toggle fullscreen (let gallery page handle its own fullscreen)
+  // F: toggle fullscreen (ignore when typing in any input field)
   if (Shortcuts.matchEvent('global.toggle-fullscreen', e)) {
+    if (isInput) return;
     e.preventDefault();
     if (typeof currentPage !== 'undefined' && currentPage === 'gallery') {
       // Gallery page has its own fullscreen implementation; let it handle it.
+      if (typeof toggleFullscreen === 'function') toggleFullscreen();
     } else {
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(function(e2) { console.warn('exitFullscreen failed:', e2); });

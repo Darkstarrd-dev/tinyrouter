@@ -64,7 +64,7 @@ function toggleFullscreen() {
 
 function enterFullscreen() {
   var layout = document.getElementById('gallery-layout');
-  var target = layout || document.documentElement;
+  var target = document.documentElement;
 
   var p = target.requestFullscreen ? target.requestFullscreen() : Promise.resolve();
   p.catch(function(e) { console.warn('enterFullscreen failed:', e); });
@@ -148,6 +148,13 @@ function onFullscreenKey(e) {
   if (!isFullscreen()) {
     unbindFullscreen();
     return;
+  }
+  var tag = document.activeElement ? document.activeElement.tagName : '';
+  var isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement && document.activeElement.isContentEditable);
+  if (isInput) {
+    if (Shortcuts.matchEvent('gallery.toggle-fullscreen', e) || Shortcuts.matchEvent('global.toggle-fullscreen', e)) {
+      return;
+    }
   }
   var k = e.key;
   if (Shortcuts.matchEvent('gallery.switch-focus', e) && galleryState.viewMode === 'split') {

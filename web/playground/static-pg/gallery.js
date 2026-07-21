@@ -50,10 +50,13 @@ window.renderGallery = function(container) {
  */
 window.cleanupGallery = function() {
   stopAutoplay();
+  var fs = isFullscreen();
   unbindFullscreen();
-  document.body.classList.remove('gallery-fullscreen-active');
-  if (typeof window.toggleNativeFullscreen === 'function') {
-    try { window.toggleNativeFullscreen(false); } catch (e) {}
+  if (!fs) {
+    document.body.classList.remove('gallery-fullscreen-active');
+    if (typeof window.toggleNativeFullscreen === 'function') {
+      try { window.toggleNativeFullscreen(false); } catch (e) {}
+    }
   }
   if (galleryState.pageKeyHandler) {
     document.removeEventListener('keydown', galleryState.pageKeyHandler);
