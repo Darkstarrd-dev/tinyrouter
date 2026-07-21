@@ -18,7 +18,7 @@ type Client struct {
 
 const (
 	endpoint     = "https://api.anysearch.com/mcp"
-	clientHeader = "skill/2.1.0"
+	clientHeader = "skill/3.0.0"
 )
 
 // New creates a new AnySearch client with the given API key. An empty apiKey
