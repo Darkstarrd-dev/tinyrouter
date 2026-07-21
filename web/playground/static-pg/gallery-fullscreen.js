@@ -149,6 +149,19 @@ function onFullscreenKey(e) {
     unbindFullscreen();
     return;
   }
+
+  // Allow global page navigation shortcuts (F1-F6 by default) to pass through seamlessly to app.js
+  if (
+    Shortcuts.matchEvent('global.goto-usage', e) ||
+    Shortcuts.matchEvent('global.goto-endpoint', e) ||
+    Shortcuts.matchEvent('global.goto-console', e) ||
+    Shortcuts.matchEvent('global.goto-playground', e) ||
+    Shortcuts.matchEvent('global.goto-download', e) ||
+    Shortcuts.matchEvent('global.goto-gallery', e)
+  ) {
+    return;
+  }
+
   var tag = document.activeElement ? document.activeElement.tagName : '';
   var isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement && document.activeElement.isContentEditable);
   if (isInput) {
@@ -205,20 +218,34 @@ function onFullscreenKey(e) {
     // Per-video scrubbing / volume controls below are intentionally NOT
     // customizable: they share key space with gallery navigation and
     // would conflict if rebound independently.
-    if (k === 'ArrowUp') {
-      e.preventDefault(); e.stopPropagation(); setVideoActive(galleryState.videoIndex - 1); return;
-    }
-    if (k === 'ArrowDown') {
-      e.preventDefault(); e.stopPropagation(); setVideoActive(galleryState.videoIndex + 1); return;
-    }
     if (k === 'ArrowLeft') {
       e.preventDefault(); e.stopPropagation();
-      if (vidEl) vidEl.currentTime = Math.max(0, vidEl.currentTime - 10);
+      if (vidEl) vidEl.currentTime = Math.max(0, vidEl.currentTime - 5);
       return;
     }
     if (k === 'ArrowRight') {
       e.preventDefault(); e.stopPropagation();
-      if (vidEl) vidEl.currentTime = Math.min(vidEl.duration || 0, vidEl.currentTime + 10);
+      if (vidEl) vidEl.currentTime = Math.min(vidEl.duration || 0, vidEl.currentTime + 5);
+      return;
+    }
+    if (k === 'ArrowUp') {
+      e.preventDefault(); e.stopPropagation();
+      if (vidEl) {
+        vidEl.volume = Math.min(1, vidEl.volume + 0.1);
+        var vs1 = document.getElementById('gallery-vol-slider');
+        if (vs1) vs1.value = Math.round(vidEl.volume * 100);
+        showMsg('Volume: ' + Math.round(vidEl.volume * 100) + '%');
+      }
+      return;
+    }
+    if (k === 'ArrowDown') {
+      e.preventDefault(); e.stopPropagation();
+      if (vidEl) {
+        vidEl.volume = Math.max(0, vidEl.volume - 0.1);
+        var vs2 = document.getElementById('gallery-vol-slider');
+        if (vs2) vs2.value = Math.round(vidEl.volume * 100);
+        showMsg('Volume: ' + Math.round(vidEl.volume * 100) + '%');
+      }
       return;
     }
     if (k === ' ' || k === 'Spacebar') {
@@ -252,10 +279,6 @@ function onFullscreenKey(e) {
   } else if (k >= '1' && k <= '9') {
     e.preventDefault(); e.stopPropagation();
     setAutoplayInterval(parseInt(k, 10) - 1);
-  } else {
-    if (k === 'F1' || k === 'F2' || k === 'F3' || k === 'F4' || k === 'F5' || k === 'F6') {
-      e.preventDefault(); e.stopPropagation();
-    }
   }
 }
 
