@@ -275,20 +275,18 @@ function toast(message, type, duration, key) {
 function confirmModal(message) {
   return new Promise(function(resolve) {
     var overlay = document.getElementById('modal-overlay');
-    if (overlay.classList.contains('show')) { resolve(false); return; }
+    if (overlay.classList.contains('show') || overlay.children.length > 0) { resolve(false); return; }
     overlay.innerHTML = '<div class="modal"><div class="modal-title">' + t('confirmTitle') + '</div><div class="modal-body">' + escapeHtml(message) + '</div><div class="modal-footer"><button type="button" class="btn btn-ghost" id="modal-cancel">' + t('cancel') + '</button><button type="button" class="btn btn-primary" id="modal-confirm">' + t('confirm') + '</button></div></div>';
+    overlay.classList.add('show');
     window.__confirmResolver = resolve;
-    requestAnimationFrame(function() {
-      overlay.classList.add('show');
-      setTimeout(function() {
-        var confirmBtn = document.getElementById('modal-confirm');
-        if (confirmBtn) confirmBtn.focus();
-      }, 50);
-    });
+    setTimeout(function() {
+      var confirmBtn = document.getElementById('modal-confirm');
+      if (confirmBtn) confirmBtn.focus();
+    }, 20);
     function close(result) {
       window.__confirmResolver = null;
       overlay.classList.remove('show');
-      overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
+      overlay.innerHTML = '';
       resolve(result);
     }
     document.getElementById('modal-cancel').onclick = function() { close(false); };
@@ -298,8 +296,13 @@ function confirmModal(message) {
 
 function closeModalOverlay() {
   var overlay = document.getElementById('modal-overlay');
+  if (typeof window.__confirmResolver === 'function') {
+    var r = window.__confirmResolver;
+    window.__confirmResolver = null;
+    r(false);
+  }
   overlay.classList.remove('show');
-  overlay.addEventListener('transitionend', function() { overlay.innerHTML = ''; }, { once: true });
+  overlay.innerHTML = '';
 }
 
 function initTheme() {
@@ -405,6 +408,10 @@ function showSkeleton(container, count) {
 // ===================== Global Modal & Keyboard =====================
 // Returns the topmost currently-open modal overlay (.modal-overlay or .info-modal-overlay).
 function topOpenModal() {
+  var modalOverlay = document.getElementById('modal-overlay');
+  if (modalOverlay && (modalOverlay.classList.contains('show') || modalOverlay.children.length > 0 || typeof window.__confirmResolver === 'function')) {
+    return modalOverlay;
+  }
   var ms = document.querySelectorAll('.modal-overlay.show, .info-modal-overlay.show, .pg-modal-overlay.show');
   return ms.length ? ms[ms.length - 1] : null;
 }
@@ -414,13 +421,7 @@ function dismissTopModal() {
   var m = topOpenModal();
   if (!m) return;
   if (m.id === 'modal-overlay') {
-    if (typeof window.__confirmResolver === 'function') {
-      var r = window.__confirmResolver;
-      window.__confirmResolver = null;
-      r(false);
-      return;
-    }
-    if (typeof closeModalOverlay === 'function') closeModalOverlay();
+    closeModalOverlay();
     return;
   }
   if (m.classList.contains('info-modal-overlay')) {
@@ -452,6 +453,19 @@ document.addEventListener('keydown', function(e) {
 
   // ---- Modal is open: modal interactions take precedence ----
   if (modal) {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      var cancelBtn = modal.querySelector('#modal-cancel, .btn-ghost');
+      var confirmBtn = modal.querySelector('#modal-confirm, .btn-primary');
+      if (cancelBtn && confirmBtn) {
+        if (document.activeElement === confirmBtn) {
+          cancelBtn.focus();
+        } else {
+          confirmBtn.focus();
+        }
+      }
+      return;
+    }
     if (e.key === 'Escape') { e.preventDefault(); dismissTopModal(); return; }
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       var cancelBtn = modal.querySelector('#modal-cancel, .btn-ghost');
