@@ -448,6 +448,7 @@ AnySearch JSON-RPC API 的 Go 客户端，供 Playground Search 模式使用。
 | 修改多协议探测/单协议 Test / Responses 路由 | proxy、rotation | internal/proxy/forward.go+upstream.go+stream.go+handler.go、internal/api/probe_model.go+probe_common.go+probe_keys.go、internal/combo/resolver.go、internal/config/types.go+validate.go、internal/api/router.go、internal/registry/models.go+state.go、web/static/providers.js+combos.js+quickslots.js |
 | 新增/修改 Gallery 图片查看器 | playground | `web/playground/static-pg/gallery.js`、`internal/api/gallery.go`+`gallery_session.go`、`internal/gallery/{zip,tiff}.go`、`internal/api/router.go`（新增 `/api/gallery/*` 路由 + `pgJSFiles` 含 `gallery.js`）、`web/static/{index.html,app.js,style.css,i18n.js}`、`internal/api/compress.go`（`skipTypes` 加 `image/tiff`）、`go.mod`（`golang.org/x/image`） |
 | 新增/修改 Search 模式 | playground、config-registry-state | `web/playground/static-pg/pg-search.js`+`pg-ui.js`+`pg-render.js`+`pg-state.js`+`pg-i18n.js`、`internal/anysearch/client.go`、`internal/api/anysearch.go`+`settings.go`+`router.go`、`internal/config/types.go`（`AnySearchConfig`）+`defaults.go` |
+| 修改 Search 状态持久化 | playground | `web/playground/static-pg/pg-state.js`（`pgLoadSearchHistory()`/`pgSaveSearchHistory()`/`pgSearchEntryToJSON()`、`PG_SEARCH_HISTORY_KEY`/`PG_SEARCH_ACTIVE_KEY`/`PG_SEARCH_MAX_ENTRIES`、`pgLoad()` search 分支）、`web/playground/static-pg/pg-lifecycle.js`（`cleanupPlayground()` search early return、`renderPlayground()` 恢复后渲染）、`web/playground/static-pg/pg-search.js`（`pgSearchSend()` 即时保存、DOM 存在检查） |
 
 ---
 

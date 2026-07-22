@@ -37,6 +37,11 @@ var PG_AUTOCHAT_KEY = 'tinyrouter.playground.autochat.v1';
 var PG_SCENARIO_KEY = 'tinyrouter.playground.scenario.v1';
 var PG_MODE_KEY = 'tinyrouter.playground.mode.v1';
 
+// Search history persistence keys.
+var PG_SEARCH_HISTORY_KEY = 'tinyrouter.playground.search.history.v1';
+var PG_SEARCH_ACTIVE_KEY  = 'tinyrouter.playground.search.active.v1';
+var PG_SEARCH_MAX_ENTRIES = 50; // Max search history entries in localStorage
+
 var pgState = {
   winInit: false,
   splitCount: 1,
@@ -101,6 +106,52 @@ function pgSyncSearchMessages() {
   }
 }
 
+// --- Search history persistence (localStorage) ---
+
+// Serialize a search entry for localStorage (strip non-serializable fields).
+function pgSearchEntryToJSON(entry) {
+  var msgs = entry.messages.map(function(m) {
+    var copy = Object.assign({}, m);
+    delete copy.prettyRepairing; // transient flag
+    return copy;
+  });
+  return { id: entry.id, query: entry.query, messages: msgs, ts: entry.ts };
+}
+
+// pgSaveSearchHistory — persist searchHistory + activeSearchId to localStorage.
+function pgSaveSearchHistory() {
+  try {
+    var serialized = pgState.searchHistory
+      .slice(-PG_SEARCH_MAX_ENTRIES)
+      .map(pgSearchEntryToJSON);
+    localStorage.setItem(PG_SEARCH_HISTORY_KEY, JSON.stringify(serialized));
+  } catch (e) { /* quota exceeded — drop oldest silently next time */ }
+  try {
+    localStorage.setItem(PG_SEARCH_ACTIVE_KEY, String(pgState.activeSearchId));
+  } catch (e) {}
+}
+
+// pgLoadSearchHistory — restore searchHistory + activeSearchId from localStorage.
+// Called from pgLoad() BEFORE messages are loaded.
+function pgLoadSearchHistory() {
+  try {
+    var raw = localStorage.getItem(PG_SEARCH_HISTORY_KEY);
+    if (raw) {
+      var parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        pgState.searchHistory = parsed;
+      }
+    }
+  } catch (e) {}
+  try {
+    var rawActive = localStorage.getItem(PG_SEARCH_ACTIVE_KEY);
+    if (rawActive) {
+      var id = parseInt(rawActive, 10);
+      if (!isNaN(id)) pgState.activeSearchId = id;
+    }
+  } catch (e) {}
+}
+
 function pgWin() { return pgState.windows[pgState.activeWin]; }
 function pgWinAt(i) { return pgState.windows[i]; }
 
@@ -160,10 +211,16 @@ function pgLoad() {
       pgState.mode = rawMode;
     }
   } catch (e) { /* corrupt storage */ }
+  // Load search history from localStorage (before messages are loaded)
+  pgLoadSearchHistory();
   try {
     var rawMsgs = localStorage.getItem(PG_MSG_KEY);
     if (rawMsgs) {
-      if (rawMsgs.length > PG_MAX_MSGS_BYTES) {
+      // Search mode: messages come from searchHistory, not localStorage.
+      // Skip loading to avoid overwriting w.messages reference.
+      if (pgState.mode === 'search') {
+        pgSyncSearchMessages();
+      } else if (rawMsgs.length > PG_MAX_MSGS_BYTES) {
         localStorage.removeItem(PG_MSG_KEY);
       } else {
         var msgs = JSON.parse(rawMsgs);
@@ -191,6 +248,9 @@ function pgLoad() {
           w.messages = trimmedBySize;
         }
       }
+    } else if (pgState.mode === 'search') {
+      // No saved msgs in localStorage (expected for search), sync from searchHistory
+      pgSyncSearchMessages();
     }
   } catch (e) { /* corrupt storage */ }
 }
@@ -227,6 +287,10 @@ function pgSave() {
         localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
       } catch (e) {}
     }
+    // Persist search history to localStorage
+    if (pgState.mode === 'search' && pgState.searchHistory.length) {
+      pgSaveSearchHistory();
+    }
     }, 500);
 }
 
@@ -245,6 +309,10 @@ function pgSaveSync() {
       if (trimmed.length > PG_MAX_MSGS) trimmed = trimmed.slice(-PG_MAX_MSGS);
       localStorage.setItem(PG_MSG_KEY, JSON.stringify(trimmed));
     } catch (e) {}
+  }
+  // Persist search history to localStorage
+  if (pgState.mode === 'search' && pgState.searchHistory.length) {
+    pgSaveSearchHistory();
   }
 }
 

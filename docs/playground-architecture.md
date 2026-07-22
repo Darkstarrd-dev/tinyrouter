@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-21，仓库工作区（`main`，`v1.7.8`）。本次新增/核对：(a) 实施 UI/UX 视觉与交互现代化改版；(b) 重构 Gallery 布局与单行控制栏（`.gallery-layout` 固定尺寸禁止图片撑开、`.main` 启用 `main-no-scroll`、`gallery-main` 占据主区域、`gallery-thumbnails` 居中其下、`gallery-controls` 居最底部一排）；(c) 升级 Zip 后端支持 Index / Path 双重比对与 Windows 反斜杠/转义清洗，消除非 UTF-8 中文"副本"乱码与 404 报错；(d) 架构支持多 Zip 文件 / 包含 Zip 文件夹的滑动懒加载队列；(e) 引入自然路径分段排序算法（Natural Segment Path Order），彻底解决子目录错乱排序；(f) 新增原生 WebView2 JS 桥 `toggleNativeFullscreen` 实现全屏；(g) 控制栏最左侧新增目录树切换按钮与侧边栏面板（`.gallery-tree-panel`，绑定快捷键 `T`），按子目录缩进显示，点击直达对应目录直属第 1 张图片；(h) 控制栏新增 `<|` 与 `|>` 跨文件夹跳转按钮（绑定快捷键 `Up` / `Down`）；(i) 缩略图条与 Info 计数改为按当前直属目录层级过滤显示；(j) 全屏模式下拦截鼠标右键并自动退出全屏；(k) 支持进程生命周期内的内存会话留存（In-Memory Session Preservation）；(l) 重构双屏与单屏架构为**左右独立 Sub-Panel 面板（左图右视频，各自拥有独立视口、独立控制栏与侧边栏）**；(m) 取消过渡闪烁动画，采用全屏双屏左边缘亮蓝 Accent 细线条做 focus 标识；(n) 修正亮色 Theme 模式下 `<video>` 容器背景为 `var(--bg-main)`；(o) **升级版本号至 v1.7.8**；(p) **键盘快捷键集中化**——新增 `web/static/shortcuts.js` 作为系统预设与用户覆盖的单一来源（`Shortcuts.matchEvent`），Playground 输入框（`pg-ui.js::pgOnInputKey` 发送、`pg-ui.js:22` 编辑/取消编辑）、Gallery 页面与全屏（`gallery-fullscreen.js::onGalleryKeyDown`/`onFullscreenKey`）的硬编码 `e.key === 'Enter'` / `'Escape'` / `'a'` / `'f'` / `'t'` / `'ArrowLeft'` 等改用 `Shortcuts.matchEvent('<actionID>', e)`；用户覆盖经 Settings 页左侧新增的 "Shortcut Settings" → `openShortcutsModal()` 弹窗可按区域（Global/Playground/Gallery tab）枚举、捕获按键、冲突校验、单条/全部恢复默认，仅被覆盖项持久化到 `config.yaml` 的 `shortcuts:` 段（详见 `docs/config-registry-state-architecture.md`"变更维护清单"-"新增/修改快捷键"）；(q) **AI Review 功能泛化**——从硬编码"广告审核"泛化为通用二值判断审核系统：提示词用户可配置（可通过调用 LLM 自动生成），LLM 返回字段统一为 `match`，预设持久化到 `config.yaml`，提示词生成模型与视觉审核模型可分别选择，前端抽出独立文件 `gallery-review.js`。(r) **新增 Search 模式（AnySearch 搜索封装）**——后端 `internal/anysearch` 包（JSON-RPC 客户端）+ `internal/api/anysearch.go` handlers + config `AnySearchConfig` + 前端 `pg-search.js` 模块 + `pg-ui/render/state/i18n/css` 改动；"Auto Chat" 模式按钮标签更名为 "Auto"。本文描述的是当时源码的实际行为，不把规划或历史设计稿当作现状。
+> **最后核对：** 2026-07-22，仓库工作区（`main`，`v1.7.8`）。本次新增/核对：(a) Search 模式状态持久化（方案 B）—— `searchHistory`/`activeSearchId` 通过 localStorage 持久化，`pgLoad()` 恢复后 `pgSyncSearchMessages()` 同步消息引用；search 模式下 `pgLoad()` 跳过 localStorage messages 加载避免覆盖；`cleanupPlayground()` search 模式 early return 不 abort 请求；`pgSearchFlushRender()`/`pgSearchFinish()`/`pgSearchFail()` 增加 DOM 存在检查防御后台 tab 渲染；`pgSearchSend()` 创建 searchEntry 后立即持久化。
 
 > **2026-07-22 更新（Search 模式 UI/UX 优化）：**
 > - **双窗口左右并列布局与交互：** `pgState.mode === 'search'` 时强制使用 2 窗口布局（`splitCount = 2`，`1fr 1fr`），左侧窗口显示 Search Strategy 与 Raw Search Results 视图，右侧窗口专门渲染 Synthesized 最终回复；问句留在 `#pg-input` 并呈灰色锁定态（`pg-input-search-locked`）；打字时恢复亮色编辑。
@@ -261,7 +261,7 @@ pg-i18n -> pg-core -> pg-state -> pg-markdown -> pg-request -> pg-stream
 | `pg-setup.js` | 场景向导、ScenarioProfile、导入导出和应用 |
 | `pg-director.js` | Director 判断、Narrator 生成和生命周期 |
 | `pg-search.js` | Search 模式：3 步 AI 编排（分类→搜索→综合）、搜索设置面板、结果渲染 |
-| `pg-lifecycle.js` | `renderPlayground` / `cleanupPlayground` |
+| `pg-lifecycle.js` | `renderPlayground`（含 search 模式恢复后重新渲染） / `cleanupPlayground`（search 模式 early return 不 abort） |
 | `pg-i18n.js` | Playground 独立中英文字典 |
 | `playground.css` | 全屏布局、消息、侧栏、modal、响应式样式 |
 
@@ -292,6 +292,7 @@ t(key, args?)
 
 离开 Playground 时 `cleanupPlayground()`：
 
+- **Search 模式（`mode === 'search'`）：** 不 abort 请求（让搜索在后台继续运行），仅调用 `pgSaveSearchHistory()` 持久化 searchHistory + `pgSaveMode()` 保存模式，然后 early return。
 - 停止自动群聊；
 - 停止 Recent Requests 左侧面板的轮询（`pgStopReqLeftPolling`）；
 - abort 每个窗口的在途 fetch；
@@ -377,6 +378,8 @@ pgState
 | `tinyrouter.playground.msg.v2` | window 0 消息 | 受容量裁剪 |
 | `tinyrouter.playground.autochat.v1` | 用户名、迭代、延迟、Director 配置 | 仅配置 |
 | `tinyrouter.playground.scenario.v1` | 最近 ScenarioProfile | 是 |
+| `tinyrouter.playground.search.history.v1` | searchHistory 列表（最多 50 条） | 是（不含 streaming 状态） |
+| `tinyrouter.playground.search.active.v1` | activeSearchId | 是 |
 
 关键语义：
 
@@ -385,6 +388,7 @@ pgState
 - 普通保存有 500 ms debounce。
 - 消息上限：原始 JSON 1 MiB、最多 100 条、单条 content/reasoning 40k 字符、总计约 120k 字符。
 - ScenarioProfile 独立持久化，但应用到各窗口后的 window 1–3 配置本身不会直接持久化；刷新后可从场景 review 再次应用。
+- **Search 模式持久化：** `searchHistory`（最多 50 条）和 `activeSearchId` 通过 `PG_SEARCH_HISTORY_KEY`/`PG_SEARCH_ACTIVE_KEY` 持久化到 localStorage。`pgSearchSend()` 创建 entry 后立即调用 `pgSaveSearchHistory()`；`pgLoad()` 中 mode 加载后立即调用 `pgLoadSearchHistory()` 恢复历史，search 模式下跳过 localStorage messages 加载改用 `pgSyncSearchMessages()` 从 searchHistory 同步消息引用。`cleanupPlayground()` 在 search 模式下 early return 不 abort 请求，仅持久化状态。渲染函数（`pgSearchFlushRender`/`pgSearchFinish`/`pgSearchFail`）检查 DOM 存在性，后台 tab 渲染时容器已被清空则静默跳过。
 
 ## 8. 普通多窗口聊天
 
@@ -625,7 +629,7 @@ go build -tags playground -o tinyrouter-pg.exe .
 - `web/static/app.js`：导航和生命周期接入；
 - `web/static/api.js`：`/api` 宿主适配；
 - `web/playground/static-pg/pg-core.js`：公共契约；
-- `web/playground/static-pg/pg-state.js`：状态与持久化；
+- `web/playground/static-pg/pg-state.js`：状态与持久化（含 `pgLoadSearchHistory()`/`pgSaveSearchHistory()`/`pgSearchEntryToJSON()` Search 历史 localStorage 持久化、`PG_SEARCH_HISTORY_KEY`/`PG_SEARCH_ACTIVE_KEY`/`PG_SEARCH_MAX_ENTRIES` 常量）；
 - `web/playground/static-pg/pg-request.js`：请求体契约（含 `pgBuildImageBody` 按协议构建 images 请求体，并写入 `image_url`（图生图/图片编辑，单图=字符串、多图=数组））；
 - `web/playground/static-pg/pg-stream.js`：网络和流生命周期（含 `pgSendImage` 发送到 `/v1/images/generations`、`pgPollModelScopeTask` ModelScope 异步轮询）；
 - `web/playground/static-pg/pg-autochat.js`：群聊事实源和调度；
@@ -635,7 +639,7 @@ go build -tags playground -o tinyrouter-pg.exe .
 - `web/playground/static-pg/pg-ui.js`、`pg-modal.js`、`pg-lifecycle.js`：交互和页面生命周期（`pg-ui.js` 含 `pgRenderImageParams`/`pgGetImgProtocol`/`pgImgParamSelectWithEdit`/`pgImgSizeOptionsFor`/`pgOnImgSizeSelect` 图片参数面板与协议分支+Size 下拉编辑按钮+自定义尺寸输入、`pgRenderImageBlock`/`pgRenderInputThumbs` 图片附加 UI 与输入栏缩略图（image 模式发送前后位移）、发送时将输入图捕获到 `msg.images` 并清空 `config.imageUrls`；`pg-modal.js` 模型选择器支持 `kindFilter` 按 kind 过滤、Image Preview 弹窗 `pgShowImageModal`/`pgInitImageZoom`/`pgCopyImage` 含 auto-fit、footer 分辨率/大小/格式、经同源 `/api/image-proxy` 复制、图片尺寸编辑弹窗 `pgOpenImgSizesModal`/`pgSaveImgSizesModal` 调用 `pgApiPatch` 持久化 `ModelDef.ImgSizes`）；
 - `web/playground/static-pg/pg-ui.js` 中的 `pgRenderReqLeft`/`pgStartReqLeftPolling`/`pgRenderReqLeftContent`/`pgShowReqDetail`：普通模式左侧 Recent Requests 面板（来源过滤 + 点击详情，复用 `info-modal-overlay`）；
 - `web/playground/static-pg/playground.css` 中的 `.pg-mode-toggle`、`.pg-req-left`、`.pg-req-table`：模式切换按钮和左侧面板布局。
-- `web/playground/static-pg/pg-search.js`：Search 模式 3 步 AI 编排（分类→搜索→综合）、搜索设置面板、结果渲染；
+- `web/playground/static-pg/pg-search.js`：Search 模式 3 步 AI 编排（分类→搜索→综合）、搜索设置面板、结果渲染（含 `pgSearchFlushRender()`/`pgSearchFinish()`/`pgSearchFail()` DOM 存在检查防御后台 tab 渲染、`pgSearchSend()` 创建 entry 后立即调用 `pgSaveSearchHistory()`）；
 - `web/playground/static-pg/pg-state.js` 中的 `pgState.mode` 四态含 `'search'` 与 `pgState.search` 子树；
 - `web/playground/static-pg/pg-ui.js` 中的 `pgSetMode` search 分支、`pgSearchSend` 调用入口、搜索设置面板渲染；
 - `web/playground/static-pg/pg-render.js` 中的 search loading 状态与 searchRaw/searchClassification 折叠渲染；
@@ -664,6 +668,7 @@ go build -tags playground -o tinyrouter-pg.exe .
 | 修改模式切换或左侧面板 | `pgSetMode`、`pgAutoChatToggle`、`pgRenderPanes` 布局类、`pgRenderReqLeft*`、`pgShowReqDetail`、`info-modal-overlay`/`info_common.js`（详情弹窗基础设施）、`.pg-req-left-mode` CSS；改来源过滤须同步 `pg-stream.js` 的 `X-TinyRouter-Source` 头与 `recordUsage` 的 `Entry.Source` 回填 + `Handler.SetPgUsage` 注入 + `api/usage.go` `getPlaygroundUsage`；改详情弹窗须同步 `app.js` 的 `topOpenModal`/`dismissTopModal` 对 `pg-modal-overlay` 的 ESC 处理；改 Recent Requests 实时性须同步 SSE 事件处理与 `/api/usage/events` 后端 |
 | 发布 Playground 变体 | 无 tag/tag 测试、资源 200、完整首页手测 |
 | 新增/修改 Search 模式 | `pg-search.js`（3 步 AI 编排）、`pg-ui.js`（`pgSetMode` search 分支 + 搜索设置面板 + `pgSearchSend`）、`pg-state.js`（`pgState.mode` `'search'` + `pgState.search`）、`pg-render.js`（search loading 状态 + 折叠渲染）、`pg-i18n.js`（search 键）、`playground.css`（`.pg-search-*` 样式）、`internal/anysearch/client.go`（JSON-RPC 客户端）、`internal/api/anysearch.go`（3 个 handler）、`internal/api/settings.go`（`anySearch` 字段流转）、`internal/api/router.go`（路由注册 + `pgJSFiles` 含 `pg-search.js`）、`internal/config/types.go`（`AnySearchConfig`）+`defaults.go`（`MaxResults` 默认值 5） |
+| 修改 Search 状态持久化 | `pg-state.js`（`pgLoadSearchHistory()`/`pgSaveSearchHistory()`/`pgSearchEntryToJSON()`、`PG_SEARCH_HISTORY_KEY`/`PG_SEARCH_ACTIVE_KEY`/`PG_SEARCH_MAX_ENTRIES`、`pgLoad()` search 分支跳过 localStorage messages）、`pg-lifecycle.js`（`cleanupPlayground()` search early return、`renderPlayground()` 恢复后重新渲染）、`pg-search.js`（`pgSearchSend()` 即时保存、`pgSearchFlushRender()`/`pgSearchFinish()`/`pgSearchFail()` DOM 存在检查） |
 
 ## 16. Gallery 模块（图片查看器分页）
 

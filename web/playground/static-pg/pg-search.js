@@ -12,6 +12,10 @@ function pgSearchSend(query) {
   var searchEntry = { id: searchId, query: query, messages: [], ts: now };
   pgState.searchHistory.push(searchEntry);
   pgState.activeSearchId = searchId;
+
+  // Persist search history immediately to prevent data loss on crash
+  if (typeof pgSaveSearchHistory === 'function') pgSaveSearchHistory();
+
   searchEntry.messages.push({ role: 'user', content: query, createdAt: now });
   searchEntry.messages.push({ role: 'assistant', content: '', status: 'loading', startedAt: now, searchStep: 'classifying' });
   
@@ -171,20 +175,27 @@ function pgSearchFlushRender() {
     var msg = w2.messages[w2.messages.length - 1];
     if (!msg) return;
 
+    // DOM existence check — background tab render may fire after container is cleared
+    var bubble0 = document.getElementById('pg-bubble-0-' + (w2.messages.length - 1));
+    var bubble1 = document.getElementById('pg-bubble-1-' + (w2.messages.length - 1));
+    if (!bubble0 && !bubble1) return;
+
     // Only re-render left pane if left content (searchRaw/strategy) actually changed
     var rawLen = msg.searchRaw ? msg.searchRaw.length : 0;
     var rawChanged = w2.lastRenderedRawLen !== rawLen;
     if (rawChanged || msg.searchStep === 'classifying' || msg.searchStep === 'searching') {
       w2.lastRenderedRawLen = rawLen;
-      pgRenderBubble(0, w2.messages.length - 1);
-      pgScrollBottom(0, w2.messages.length - 1);
+      if (bubble0) {
+        pgRenderBubble(0, w2.messages.length - 1);
+        pgScrollBottom(0, w2.messages.length - 1);
+      }
     }
 
     // Right pane (synthesized result) is updated during streaming
     msg.content = w2.pendingContent;
     msg.status = 'streaming';
-    pgRenderBubble(1, w2.messages.length - 1);
-    pgScrollBottom(1, w2.messages.length - 1);
+    if (bubble1) pgRenderBubble(1, w2.messages.length - 1);
+    if (bubble1) pgScrollBottom(1, w2.messages.length - 1);
   }, 50);
 }
 
@@ -207,11 +218,14 @@ function pgSearchFinish() {
     }
   }
   w0.pendingContent = '';
-  pgRenderBubble(0, w0.messages.length - 1);
-  pgRenderBubble(1, w0.messages.length - 1);
-  pgRenderDebug();
+  // DOM existence check — background tab render may fire after container is cleared
+  var bubble0 = document.getElementById('pg-bubble-0-' + (w0.messages.length - 1));
+  var bubble1 = document.getElementById('pg-bubble-1-' + (w0.messages.length - 1));
+  if (bubble0) pgRenderBubble(0, w0.messages.length - 1);
+  if (bubble1) pgRenderBubble(1, w0.messages.length - 1);
+  if (document.getElementById('pg-debug-content')) pgRenderDebug();
   pgSave();
-  pgUpdateInputBar();
+  if (document.getElementById('pg-inputbar')) pgUpdateInputBar();
 }
 
 function pgSearchFail(errMsg) {
@@ -231,10 +245,13 @@ function pgSearchFail(errMsg) {
       if (msg.startedAt) msg.durationMs = msg.completedAt - msg.startedAt;
     }
   }
-  pgRenderBubble(0, w0.messages.length - 1);
-  pgRenderBubble(1, w0.messages.length - 1);
-  pgRenderDebug();
-  pgUpdateInputBar();
+  // DOM existence check — background tab render may fire after container is cleared
+  var bubble0 = document.getElementById('pg-bubble-0-' + (w0.messages.length - 1));
+  var bubble1 = document.getElementById('pg-bubble-1-' + (w0.messages.length - 1));
+  if (bubble0) pgRenderBubble(0, w0.messages.length - 1);
+  if (bubble1) pgRenderBubble(1, w0.messages.length - 1);
+  if (document.getElementById('pg-debug-content')) pgRenderDebug();
+  if (document.getElementById('pg-inputbar')) pgUpdateInputBar();
 }
 
 function pgSearchSaveKey() {
