@@ -2,7 +2,7 @@
 
 > **文档定位：** `internal/download/` 包、`internal/api/download.go` 与前端 `web/static/download.js` 实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-19，仓库工作区（`main`）。本轮两项重要变更：(1) 下载模块 UI 与布局重构优化：优化第一行工具栏布局；播放列表预览重构并与下载列表左半边共享位置；移去缩略图和卡片间隙改直角。(2) 局部修复与精细优化：在 `togglePlaylistEntries` 里加入对任务列表 `#dl-task-list` 的显隐切换，避免批量下载开始后下载项消失；解决 `runTask` 往 `GetTask` 返回的临时拷贝体上写 `FilePath` 造成终态路径丢失的 Bug；精简 `openDownloadDir`，在 API 成功时静默，仅在失败时报 Error Toast，彻底移除原 clipboard 剪贴板复制逻辑和 Copied Toast 提示；将详情右侧 `.dl-detail-log` 和底部的 `.dl-detail-url` 的背景色均调为 `var(--glass-bg)`，与输入卡片底色完全一致。
+> **最后核对：** 2026-07-22，仓库工作区（`main`）。本轮变更：下载设置弹窗的文件/目录浏览按钮从前端 File System Access API 迁移至后端 `browseSystemPath` API（`POST /api/downloads/browse`），调用 `fsutil.OpenFilePicker`/`fsutil.OpenDirectoryPicker`（Windows 原生 COM IFileOpenDialog 现代对话框，返回绝对路径）；`openDownloadDir` 迁移至 `fsutil.OpenInFileManager`；`openExternalURL` 迁移至 `fsutil.OpenInBrowser`。
 >
 > **本轮后续修复（2026-07-19，bug fix）**：(a) `openDownloadDir` handler（download.go:398）移除 `setCmdHideWindow(cmd)` 调用——该函数（exec_windows.go:10）设置 `HideWindow: true + CREATE_NO_WINDOW` 会隐藏 `explorer.exe` 这个 GUI 应用的窗口，导致"打开目录"按钮点击静默失效（API 返回 `{status:ok}` 但 explorer 窗口不可见）；`setCmdHideWindow` 保留用于 `openExternalURL`（`cmd /c start`，download.go:457）与 `browseSystemPath`（`powershell`，download.go:486）两处控制台程序以隐藏黑色控制台窗口。(b) 清理 `download.js` 的 `openDownloadDir` 注释中残留的"falling back to copying the path to the clipboard if that fails"——上一轮已彻底移除 clipboard 回退逻辑，注释残留与实际行为不符。(c) 修复 `dl-info-preview` 在多个 `dl-parsed-card` 时自带滚动条截断后续卡片的问题：移除其 `max-height + overflow-y: auto` 改为 `flex-shrink: 0` 自然高度；`.dl-task-list` 移除 `overflow-y: auto + height: 100%` 改为 `flex-shrink: 0`；父容器 `.dl-task-left-col` 加 `overflow-y: auto + min-height: 0` 成为唯一滚动区——实现 `dl-info-preview` 与 `dl-task-list` 共享父容器滚动条（两者总高度超出 `calc(100vh - 170px)` 时才出现滚动条），落实第 547 行所述"普通流式内容"的设计意图。
 >
@@ -528,7 +528,7 @@ go build -o tinyrouter .
 | 修改播放列表 | manager.go CreatePlaylistTask（298-343）+ SelectedIndices 过滤（308-320）+ args.go BuildPlaylistInfoArgs（250-255）+ api getPlaylistInfo（81-104） |
 | 修改进程树杀 | kill_windows.go（taskkill /T /F）+ kill_unix.go（SIGTERM → 2s grace → SIGKILL 兜底）+ executor.go cmd.Cancel（69-74、176-181）+ monitor/manager_unix.go（同形 SIGTERM → SIGKILL） |
 | 修改设置推送 | api/settings.go download 分支（137-168）+ manager.UpdateSettings（72-82）+ app.go 构造 RuntimeSettings（135-144） |
-| 修改前端 | web/static/download.js（renderDownload/doParse/左右分栏 taskListItemHtml+taskDetailHtml+selectTask+renderTaskDetail/resolveDownloadDir 不再读 DOM/fasBrowsePicker/SSE updateDownloadTask/retry/settings modal）+ web/static/style.css（`.download-toolbar` 单行 sticky、`.dl-task-split`/`.dl-task-list`/`.dl-task-item`/`.dl-task-detail`/`.dl-detail-*`/`.dl-status-dot`、删除 `.dl-task-card`/`.dl-task-thumb`/`.progress-bar*`）+ web/static/i18n.js（`browse` key） |
+| 修改前端 | web/static/download.js（renderDownload/doParse/左右分栏 taskListItemHtml+taskDetailHtml+selectTask+renderTaskDetail/resolveDownloadDir 不再读 DOM/SSE updateDownloadTask/retry/settings modal，浏览按钮调用后端 `POST /api/downloads/browse`）+ web/static/style.css（`.download-toolbar` 单行 sticky、`.dl-task-split`/`.dl-task-list`/`.dl-task-item`/`.dl-task-detail`/`.dl-detail-*`/`.dl-status-dot`、删除 `.dl-task-card`/`.dl-task-thumb`/`.progress-bar*`）+ web/static/i18n.js（`browse` key） |
 
 ## 16. 已知 UI 改动（本轮，2026-07-19）
 
@@ -539,10 +539,12 @@ go build -o tinyrouter .
    - `manager.go` 的 `processTask` 仍把 `stdoutTail` 写回 `task.LogTail`；`api/download.go` 的 `getDownloadLog`（download.go:250）仍以 `text/plain` 返回 `task.LogTail`。
    - 效果：`GET /api/downloads/{id}/log` 响应首行即完整命令行，便于核对 type/quality/container 是否被正确传递（前端 `viewLog`，download.js:755-809）。
 
-2. **设置弹窗增加 File System Access Picker**（前端）
-   - `web/static/download.js`：新增 `fasBrowsePicker`（236-264）辅助；`openDownloadSettingsModal`（266-357）内 yt-dlp 路径、ffmpeg 路径、默认下载目录三项的 input 旁各加“浏览”按钮。二进制走 `window.showOpenFilePicker()`，目录走 `window.showDirectoryPicker()`；FAS API 不可用时按钮不渲染，回退手动输入（仅填 `handle.name`，后端 `resolveYtDlpPath` 支持纯文件名走 PATH 查找）。代理字段保持纯文本无 picker。
-   - `web/static/style.css`：新增 `.dl-settings-row` / `.dl-browse-btn`。
-   - `web/static/i18n.js`：新增 `browse` 翻译 key（en:217 / zh:488）。
+2. **设置弹窗文件/目录浏览按钮（后端原生对话框）**（前后端）
+   - `web/static/download.js`：`openDownloadSettingsModal` 内 yt-dlp 路径、ffmpeg 路径、默认下载目录三项的 input 旁各加“浏览”按钮，点击调用 `POST /api/downloads/browse`（`browseSystemPath` handler）。
+   - `internal/api/download.go`：`browseSystemPath` 根据 `type` 字段调用 `fsutil.OpenFilePicker(filter)`（文件）或 `fsutil.OpenDirectoryPicker()`（目录），返回绝对路径。
+   - `internal/fsutil/open_windows.go`：Windows 实现为原生 COM `IFileOpenDialog`（Common Item Dialog，Windows 10/11 现代对话框），目录选择加 `FOS_PICKFOLDERS` 选项。
+   - `web/static/style.css`：`.dl-settings-row` / `.dl-browse-btn`。
+   - `web/static/i18n.js`：`browse` 翻译 key（en:217 / zh:488）。
    - `save()` 逻辑与 `PATCH /settings` 提交不变。
 
 3. **移除主页面外部下载目录输入框**（前端）

@@ -162,11 +162,9 @@ flowchart TD
 ### 6.2 Save（persistence.go:79-107）
 
 1. **Key 加密副本（80-83）：** 若 `PasswordEnabled && EncryptionKey!=""`，`marshalCfg = encryptKeysCopy(cfg)`（内存态不变，落盘态加密，见第 17 节）。
-2. **写 .tmp（89）：** `os.WriteFile(tmp, data, 0600)`。
-3. **原子 rename（92）：** 成功即返回 nil。
-4. **Windows 回退（94-104）：** `os.Rename` 失败（典型 `ERROR_ACCESS_DENIED` 锁文件）时回退 `os.WriteFile(path, data, 0600)`；若回退也失败，则**保留 .tmp**（唯一持久副本），返回 error 告知调用方状态尚未落盘到 `path`（100）。回退成功路径会删除冗余 `.tmp`（103）。
+2. **委托 fsutil.AtomicWrite（89-104）：** `yaml.Marshal` 后调用 `fsutil.AtomicWrite(path, data, 0600)`，内部执行确定性 `.tmp` + `os.Rename` 原子写，失败回退直写（保留 `.tmp` 供下次 `Load` 恢复）。
 
-**原子写契约：** 正常路径 `tmp → rename → path`；锁冲突下 `.tmp` 不丢、留待下次 `Load` 应用（mtime 优先）。config 与 state 的 Save 共用同一 `.tmp + rename + 直写回退` 契约（state.go:79-96），但**错误处理语义不同**（见第 20 节 #4）。
+**原子写契约：** 正常路径 `tmp → rename → path`；锁冲突下 `.tmp` 不丢、留待下次 `Load` 应用（mtime 优先）。config 与 state 的 Save 共用 `fsutil.AtomicWrite` 同一 `.tmp + rename + 直写回退` 契约，但**错误处理语义不同**（见第 20 节 #4）。
 
 ## 7. internal/config — 校验（validate.go）
 
@@ -275,7 +273,7 @@ type KeyRuntimeState struct {
 - **`ProbeDetail`（state.go:29-37）：** 单协议探测结果的持久化子集——`Ok`/`Status`/`LatencyMs`/`Error`/`LastAt`。
 - **`ProbeRecord`（state.go:38-49）：** 单模型跨三协议的探测聚合——`ProviderID`/`ModelID` + 三段 `ProbeDetail`（`OpenAICompat`/`OpenAIResponses`/`Anthropic`，yaml tag `openai_compat`/`openai_responses`/`anthropic`）+ `Protocols`（`[]string` 汇总）+ `LastProbeAt`。`state.yaml` 中的 `probes` map **只持久化精简明细**（不含请求/响应 body）。
 - **`Load`（state.go:48-71）：** 文件不存在返回空快照（`CurrentVersion` + 空 map，不报错）；存在则**宽松** `yaml.Unmarshal`（61），缺 `Keys`/`Combos` 时补空 map（64-69）。
-- **`Save`（state.go:79-96）：** `yaml.Marshal` → 写 `.tmp`（0600）→ `os.Rename` → 失败回退直写 → 再失败返回 error 但保留 `.tmp`（90）。与 config.Save 同契约。
+- **`Save`（state.go:79-96）：** `yaml.Marshal` → 委托 `fsutil.AtomicWrite(path, data, 0600)`（确定性 `.tmp` + `os.Rename` → 失败回退直写 → 再失败返回 error 但保留 `.tmp`）。与 config.Save 同契约。
 
 **state.yaml 文件格式：** `version` / `saved_at` / `keys`（键为 `providerID::keyID`）/ `combos`（键为 combo ID）。key 用 `::` 分隔，与 registry 内部 `stateKey` 的 `/` 不同（`convertKey`/`Restore` 负责转换）。
 
@@ -518,7 +516,7 @@ go build -o tinyrouter .
 |---|---|
 | 新增配置字段 | `types.go`（结构+tag）+ `defaults.go`：`DefaultConfig` + `finalizeConfig` 回填 + `persistence.go` 严格解析（KnownFields）。`ModelDef` 现含 `Alias`/`Note`/`NIMOver`/`Kind`/`ImgProtocol`/`ImgSizes` 六个可选字段；新增图片尺寸字段还需同步 `UpdateModelImgSizes`（registry/models.go）+ `updateModelImgSizes`（api/providers_models_crud.go）+ `PATCH /providers/{id}/models/imgSizes` 路由（api/router.go）+ `/api/models` `modelInfo.ImgSizes` 回显（api/models.go） |
 | 修改默认值 | `defaults.go`：`DefaultConfig`(39-64) 与 `finalizeConfig`(69-146) 两处需一致 |
-| 修改持久化原子性 | `persistence.go` Save(79-107) + `state.go` Save(79-96)（注意两者错误语义不同，见第 20 节 #4） |
+| 修改持久化原子性 | `fsutil/atomic.go` AtomicWrite（统一实现）+ `persistence.go` Save(79-107) + `state.go` Save(79-96)（两者均委托 fsutil，注意错误语义不同，见第 20 节 #4） |
 | 修改加密 | `crypto.go`（GenerateKey/Encrypt/Decrypt/encryptKeysCopy）+ `defaults.go` 解密分支(130-144) + `types.go` SecurityConfig(150-154) |
 | 修改 `KeyRuntimeState` 字段 | `registry/state.go` KeyRuntimeState(21-45) + `state.go` KeySnapshot(25-38)（同步持久化子集）+ `snapshotKeyState`(90-116)/`RestoreKeyState`(130-163) |
 | 修改 reload merge | `registry.go` reloadStatesLocked(28-54) + `reload_merge_test.go`（TestReload_MergesStates） |

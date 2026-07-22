@@ -675,7 +675,7 @@ Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器
 - **"打开"**：`window.showDirectoryPicker()` / `window.showOpenFilePicker({multiple:true})`，无 FS Access API 时降级 `<input type=file multiple webkitdirectory>`。
 
 ### 支持格式
-`webp png jpg jpeg bmp tiff`（`tif` 同 tiff）。目录/单图/多图全部前端 `createObjectURL(blob)` + `<img>` 显示（浏览器原生 GPU 加速）。TIFF 因 Chromium/WebView2 原生不支持 `<img>` 显示，走后端 `POST /api/gallery/tiff` 解码转 JPEG 后再显示。
+`webp png jpg jpeg bmp tiff`（`tif` 同 tiff）。目录/单图/多图全部前端 `FsApi.BlobTracker.create(blob)` + `<img>` 显示（浏览器原生 GPU 加速，BlobTracker 追踪防泄漏）。TIFF 因 Chromium/WebView2 原生不支持 `<img>` 显示，走后端 `POST /api/gallery/tiff` 解码转 JPEG 后再显示。
 
 ### 后端协作
 仅 zip 与 tiff 需后端参与：
@@ -689,7 +689,7 @@ Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器
 > 2026-07-19：除 1-9（间隔档位，全屏内仍硬编码不可自定义）外的所有全屏键已切到 `web/static/shortcuts.js` 注册中心。`onFullscreenKey` 与 `onGalleryKeyDown` 改用 `Shortcuts.matchEvent('gallery.<actionID>', e)`：`gallery.prev`/`gallery.next`/`gallery.prev-folder`/`gallery.next-folder`/`gallery.toggle-autoplay`/`gallery.toggle-fullscreen`/`gallery.toggle-tree`/`gallery.exit-fullscreen`/`gallery.toggle-split`/`gallery.toggle-media`/`gallery.switch-focus`。视频激活时 `ArrowLeft/Right/Up/Down/Space/1-9`（媒体控制：倒退 10 秒、上一/下一视频、音量、暂停）仍保持硬编码，**刻意不纳入自定义**以避免与全局 quickslot-cycle 1-9 产生跨区域冲突；`Space`/`PageUp`/`PageDown` 仍走通用导览分支作为快捷的同义键。详见 §16.x（快捷键注册中心）与 §23"变更维护清单"。
 
 ### 缩略图
-前端懒生成：IntersectionObserver 触发 → `createImageBitmap(blob)` + `OffscreenCanvas(THUMB_SIZE=300)` 等比例缩放 → `convertToBlob('image/jpeg',0.8)` → createObjectURL；失败回退原 blob。
+前端懒生成：IntersectionObserver 触发 → `createImageBitmap(blob)` + `OffscreenCanvas(THUMB_SIZE=300)` 等比例缩放 → `convertToBlob('image/jpeg',0.8)` → `FsApi.BlobTracker.create`；失败回退原 blob。
 
 ### AI Review（图片审核）
 
