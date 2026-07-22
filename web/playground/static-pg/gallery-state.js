@@ -157,6 +157,7 @@ var galleryState = {
   //   degrade delete/overwrite actions accordingly.
   pendingZipQueue: [],
   loadingZip: false,
+  _markAdvanceTimer: null, // 300ms delete-mark transition lock
   objectURLs: [],
   thumbObserver: null,
   container: null,

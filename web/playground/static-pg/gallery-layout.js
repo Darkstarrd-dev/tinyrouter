@@ -260,6 +260,14 @@ function updateFocusUIOnly() {
   if (paneImg) paneImg.classList.toggle('focused', galleryState.focus === 'image');
   if (paneVid) paneVid.classList.toggle('focused', galleryState.focus === 'video');
 
+  // In split mode, only the focused side's tree panel is visible.
+  if (galleryState.viewMode === 'split' && galleryState.treeOpen) {
+    var imgTree = document.getElementById('gallery-tree-panel');
+    var vidTree = document.getElementById('gallery-video-tree-panel');
+    if (imgTree) imgTree.classList.toggle('hidden', galleryState.focus !== 'image');
+    if (vidTree) vidTree.classList.toggle('hidden', galleryState.focus !== 'video');
+  }
+
   if (galleryState.treeOpen) renderTreePanel();
 }
 
@@ -364,8 +372,18 @@ function bindEventsForCurrentLayout() {
     tp.onclick = function(e) {
       var target = e.target.closest('.gallery-tree-node');
       if (!target) return;
+      // Detect which side this tree panel belongs to and auto-focus it
+      var isThisVidPanel = (tp.id === 'gallery-video-tree-panel');
+      if (galleryState.viewMode === 'split') {
+        var clickedSide = isThisVidPanel ? 'video' : 'image';
+        if (galleryState.focus !== clickedSide) {
+          galleryState.focus = clickedSide;
+          updateFocusUIOnly();
+          flashFocusOverlay(clickedSide);
+        }
+      }
       var dir = target.getAttribute('data-dir');
-      var isVid = (galleryState.viewMode === 'split') ? (galleryState.focus === 'video') : (galleryState.mediaType === 'video');
+      var isVid = isThisVidPanel;
       var map = isVid ? galleryState.videoDirMap : galleryState.dirMap;
       if (dir && map[dir] && map[dir].length) {
         if (isVid) setVideoActive(map[dir][0]);

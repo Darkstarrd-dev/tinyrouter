@@ -384,6 +384,15 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 		r.Get("/review/status/{sessionId}", rt.galleryReviewStatus)
 		r.Post("/review/cancel/{sessionId}", rt.galleryCancelReview)
 		r.Post("/review/gen-prompt", rt.galleryGeneratePrompt)
+		// Filesystem-backed gallery operations (backend picker, file serving,
+		// disk delete, clipboard paste paths).
+		r.Post("/open-dir", rt.galleryOpenDir)
+		r.Post("/list-dir", rt.galleryListDir)
+		r.Get("/file", rt.galleryServeFile)
+		r.Delete("/fs", rt.galleryDeleteFs)
+		r.Post("/zip-from-path", rt.galleryZipFromPath)
+		r.Post("/zip-writeback", rt.galleryZipWriteback)
+		r.Post("/paste-paths", rt.galleryPastePaths)
 	})
 
 	// Embedded UI (fallback to index.html)

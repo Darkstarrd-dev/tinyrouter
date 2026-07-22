@@ -27,6 +27,24 @@ function updateDirStructure() {
 }
 
 function toggleTreePanel() {
+  // In split mode, detect which pane actually has DOM focus (via Tab or
+  // button clicks) and sync galleryState.focus before toggling. This
+  // prevents the "press T twice" issue where the logical focus lags
+  // behind the DOM focus.
+  if (galleryState.viewMode === 'split') {
+    var ae = document.activeElement;
+    if (ae) {
+      var vidPane = document.getElementById('gallery-pane-video');
+      var imgPane = document.getElementById('gallery-pane-image');
+      if (vidPane && vidPane.contains(ae) && galleryState.focus !== 'video') {
+        galleryState.focus = 'video';
+        updateFocusUIOnly();
+      } else if (imgPane && imgPane.contains(ae) && galleryState.focus !== 'image') {
+        galleryState.focus = 'image';
+        updateFocusUIOnly();
+      }
+    }
+  }
   galleryState.treeOpen = !galleryState.treeOpen;
   var isVidActive = (galleryState.viewMode === 'split') ? (galleryState.focus === 'video') : (galleryState.mediaType === 'video');
   var activeTreeId = isVidActive ? 'gallery-video-tree-panel' : 'gallery-tree-panel';
@@ -495,13 +513,14 @@ function updateDeleteOverlay(item) {
 }
 
 // deleteItemMark marks the current item for deletion, shows a red overlay, and
-// advances to the next item. If the current item is the last one, it stays in
-// place (no wrap-around to the first).
+// advances to the next item after a brief delay (300ms) so the user can
+// perceive the mark. If the current item is the last one, it stays in place.
 function deleteItemMark() {
   // Del 对视频无效
   var isVidActive = (galleryState.viewMode === 'split') ? (galleryState.focus === 'video') : (galleryState.mediaType === 'video');
   if (isVidActive) return;
   if (!galleryState.items.length) return;
+  if (galleryState._markAdvanceTimer) return; // block during transition
   var idx = galleryState.index;
   var item = galleryState.items[idx];
   if (!item) return;
@@ -509,9 +528,13 @@ function deleteItemMark() {
   item.markedForDeletion = true;
   updateDeleteOverlay(item);
   if (item.thumbDivEl) item.thumbDivEl.classList.add('thumb-marked-for-deletion');
-  // Advance to next item, no wrap if last
+  // Advance to next item after a short delay, no wrap if last
   if (idx < galleryState.items.length - 1) {
-    setActive(idx + 1);
+    galleryState._markAdvanceTimer = setTimeout(function() {
+      galleryState._markAdvanceTimer = null;
+      // Only auto-advance if user hasn't manually navigated away
+      if (galleryState.index === idx) setActive(idx + 1);
+    }, 300);
   }
 }
 

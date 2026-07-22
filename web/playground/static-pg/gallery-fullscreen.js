@@ -64,13 +64,16 @@ function toggleFullscreen() {
 
 function enterFullscreen() {
   var layout = document.getElementById('gallery-layout');
-  var target = document.documentElement;
 
-  var p = target.requestFullscreen ? target.requestFullscreen() : Promise.resolve();
-  p.catch(function(e) { console.warn('enterFullscreen failed:', e); });
+  // NOTE: We intentionally do NOT use the HTML5 Fullscreen API
+  // (requestFullscreen) because the browser engine natively intercepts ESC
+  // to exit fullscreen BEFORE any JavaScript handler fires. This makes it
+  // impossible to block ESC when a modal is open. Instead we rely on:
+  //   1. CSS class 'gallery-fullscreen-active' for visual fullscreen styling
+  //   2. toggleNativeFullscreen (WebView2 host) for native window fullscreen
   if (layout) layout.classList.add('gallery-layout-fullscreen');
   document.body.classList.add('gallery-fullscreen-active');
-  galleryState.fullscreenEl = target;
+  galleryState.fullscreenEl = document.documentElement;
   bindFullscreen();
 
   if (typeof window.toggleNativeFullscreen === 'function') {
@@ -81,9 +84,6 @@ function enterFullscreen() {
 
 function exitFullscreen() {
   document.body.classList.remove('gallery-fullscreen-active');
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(function(e) { console.warn('exitFullscreen failed:', e); });
-  }
   unbindFullscreen();
   var layout = document.getElementById('gallery-layout');
   if (layout) layout.classList.remove('gallery-layout-fullscreen');
@@ -95,11 +95,14 @@ function exitFullscreen() {
 }
 
 function isFullscreen() {
-  return !!document.fullscreenElement || document.body.classList.contains('gallery-fullscreen-active');
+  return document.body.classList.contains('gallery-fullscreen-active');
 }
 
 function onContextMenu(e) {
   if (isFullscreen()) {
+    // When a modal is open, let the app.js contextmenu handler dismiss it
+    // instead of exiting fullscreen.
+    if (typeof topOpenModal === 'function' && topOpenModal()) return;
     e.preventDefault();
     e.stopPropagation();
     exitFullscreen();
@@ -149,6 +152,13 @@ function onFullscreenKey(e) {
     unbindFullscreen();
     return;
   }
+
+  // When any modal is open, yield all key handling to the global modal
+  // handler in app.js (focus trap: Tab/Arrow/Enter/Esc stay in the modal).
+  if (typeof topOpenModal === 'function' && topOpenModal()) return;
+  // Fallback: direct DOM check for pg-modal-overlay visibility
+  var _pgOv = document.getElementById('pg-modal-overlay');
+  if (_pgOv && _pgOv.classList.contains('show')) return;
 
   // Allow global page navigation shortcuts (F1-F6 by default) to pass through seamlessly to app.js
   if (
@@ -287,6 +297,10 @@ function onGalleryKeyDown(e) {
   if (!layout && typeof currentPage !== 'undefined' && currentPage !== 'gallery') return;
   if (isFullscreen()) return; // handled by onFullscreenKey
 
+  // When any modal is open, yield all key handling to the global modal
+  // handler in app.js (focus trap: Tab/Arrow/Enter/Esc stay in the modal).
+  if (typeof topOpenModal === 'function' && topOpenModal()) return;
+
   var tag = document.activeElement ? document.activeElement.tagName : '';
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement && document.activeElement.isContentEditable)) {
     return;
@@ -399,9 +413,11 @@ window.deleteItemPrompt = function() {
   // 枚举所有标注图片
   var marked = galleryState.items.filter(function(it) { return it.markedForDeletion; });
   if (marked.length === 0) return;  // 无标注，不响应
-  // 判断是否有"从磁盘移除"能力：任一标注图片可删磁盘则显示该选项
+  // 判断是否有“从磁盘移除”能力：任一标注图片可删磁盘则显示该选项
   var anyDiskCapable = marked.some(function(it) {
-    return (it.kind === 'zip' && it.zipFileHandle) || (it.kind === 'fs' && it.handle);
+    return (it.kind === 'zip' && (it.zipFileHandle || it.zipAbsPath)) ||
+           (it.kind === 'backend' && !!it.absPath) ||
+           (it.kind === 'fs' && !!it.handle);
   });
   var html = '<div style="text-align:center;padding:8px">' +
     '<div style="font-size:15px;margin-bottom:8px">删除 ' + marked.length + ' 张标注图片？</div>' +
@@ -412,6 +428,7 @@ window.deleteItemPrompt = function() {
   }
   html += '<button class="pg-btn" id="del-cancel" style="margin:4px">取消</button></div>';
   pgShowModal(html);
+  setTimeout(function() { var cb = document.getElementById('del-cancel'); if (cb) cb.focus(); }, 30);
   document.getElementById('del-from-list').onclick = function() {
     pgCloseModal();
     removeItemsByFilter(function(it) { return it.markedForDeletion; });
@@ -425,21 +442,22 @@ window.deleteItemPrompt = function() {
   }
 };
 
-// deleteMarkedFromDisk removes all marked items from the backend (zip entries
-// via DELETE API, fs files via handle.remove()), writes back the updated zip
-// bytes, and removes all marked items from the in-memory list.
-// Same zip session: entries are deleted one by one, and the final zip bytes
-// are written back only once (single createWritable).
+// deleteMarkedFromDisk removes all marked items from disk. Supports three
+// item kinds: backend (absolute path → Go os.Remove), zip (DELETE API +
+// writeback), and fs (FSAA handle.remove()).
 async function deleteMarkedFromDisk(marked) {
-  // 分组：zip 按 sessionId 分组；fs 单独处理；plain 无磁盘能力跳过
-  var zipGroups = {};  // sessionId -> { items: [], handle: FileSystemFileHandle }
+  // 分组：zip 按 sessionId 分组；backend/fs 单独处理；plain 无磁盘能力跳过
+  var zipGroups = {};  // sessionId -> { items: [], handle, zipAbsPath }
+  var backendItems = [];
   var fsItems = [];
   var plainCount = 0;
   for (var i = 0; i < marked.length; i++) {
     var it = marked[i];
-    if (it.kind === 'zip' && it.zipFileHandle) {
-      if (!zipGroups[it.sessionId]) zipGroups[it.sessionId] = { items: [], handle: it.zipFileHandle };
+    if (it.kind === 'zip' && (it.zipFileHandle || it.zipAbsPath)) {
+      if (!zipGroups[it.sessionId]) zipGroups[it.sessionId] = { items: [], handle: it.zipFileHandle, zipAbsPath: it.zipAbsPath || null };
       zipGroups[it.sessionId].items.push(it);
+    } else if (it.kind === 'backend' && it.absPath) {
+      backendItems.push(it);
     } else if (it.kind === 'fs' && it.handle) {
       fsItems.push(it);
     } else {
@@ -447,7 +465,7 @@ async function deleteMarkedFromDisk(marked) {
     }
   }
   var errors = [];
-  // 处理每个 zip session：逐个 DELETE，最后一次性 createWritable 写回
+  // 处理每个 zip session：逐个 DELETE，最后一次性写回
   for (var sid in zipGroups) {
     if (!zipGroups.hasOwnProperty(sid)) continue;
     var grp = zipGroups[sid];
@@ -468,13 +486,34 @@ async function deleteMarkedFromDisk(marked) {
     }
     if (allOk && lastBytes) {
       try {
-        var writable = await grp.handle.createWritable();
-        await writable.write(lastBytes);
-        await writable.close();
+        if (grp.zipAbsPath) {
+          // Backend writeback: Go writes session bytes to disk directly
+          await fetch('/api/gallery/zip-writeback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: sid, path: grp.zipAbsPath })
+          });
+        } else if (grp.handle) {
+          var writable = await grp.handle.createWritable();
+          await writable.write(lastBytes);
+          await writable.close();
+        }
       } catch (e) {
         errors.push('writeback zip ' + sid + ': ' + e.message);
-        // 后端 session 已更新，磁盘写失败，仍会移除列表
       }
+    }
+  }
+  // 处理 backend items：调用后端 DELETE API
+  for (var bi = 0; bi < backendItems.length; bi++) {
+    try {
+      var dRes = await fetch('/api/gallery/fs', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: backendItems[bi].absPath })
+      });
+      if (!dRes.ok) errors.push('backend ' + (backendItems[bi].path||'') + ': HTTP ' + dRes.status);
+    } catch (e) {
+      errors.push('backend ' + (backendItems[bi].path||'') + ': ' + e.message);
     }
   }
   // 处理 fs items：逐个 handle.remove()
@@ -485,7 +524,7 @@ async function deleteMarkedFromDisk(marked) {
       errors.push('fs ' + (fsItems[k].path||'') + ': ' + e.message);
     }
   }
-  // 所有标注图片从列表移除（无论磁盘是否成功，后端 session 已更新或磁盘已删，前端需同步）
+  // 所有标注图片从列表移除
   removeItemsByFilter(function(it) { return it.markedForDeletion; });
   // 提示
   if (errors.length) {
@@ -499,10 +538,11 @@ async function deleteMarkedFromDisk(marked) {
 }
 
 // toggleReviewItemMark toggles the deletion mark for the current item and
-// advances to the next item (used in review mode with IsMatch results, where
-// Delete toggles rather than merely marks). 用户预期：在 review 模式下流畅地"切换并前进"。
+// advances to the next item after a brief delay (used in review mode with
+// IsMatch results, where Delete toggles rather than merely marks).
 function toggleReviewItemMark() {
   if (!galleryState.items.length) return;
+  if (galleryState._markAdvanceTimer) return; // block during transition
   var idx = galleryState.index;
   var item = galleryState.items[idx];
   if (!item) return;
@@ -512,11 +552,14 @@ function toggleReviewItemMark() {
     item.thumbDivEl.classList.toggle('thumb-marked-for-deletion', item.markedForDeletion);
   }
   // 切换后自动前进到过滤后的下一张（与 deleteItemMark 一致的行为）。
-  // getAllowedNextIndex 只在 currentFolderIndices 内前进，避免跳到非疑似项。
   var folderIndices = galleryState.currentFolderIndices || [];
   var curPos = folderIndices.indexOf(idx);
   if (curPos >= 0 && curPos < folderIndices.length - 1) {
-    setActive(folderIndices[curPos + 1]);
+    var nextIdx = folderIndices[curPos + 1];
+    galleryState._markAdvanceTimer = setTimeout(function() {
+      galleryState._markAdvanceTimer = null;
+      if (galleryState.index === idx) setActive(nextIdx);
+    }, 300);
   }
 }
 
@@ -552,13 +595,16 @@ function itemsInNode(curDir, item, nodeType, sessionId, rootHandle) {
 }
 
 // canNodeDiskDelete checks whether the given node type can be deleted from
-// disk (has a zipFileHandle or rootDirHandle with remove capability).
+// disk (has a zipFileHandle/zipAbsPath or rootDirHandle/rootDirPath).
 function canNodeDiskDelete(nodeType, item, rootHandle) {
   if (nodeType === 'zip-root' || nodeType === 'zip-subdir') {
-    return !!item.zipFileHandle;
+    return !!(item.zipFileHandle || item.zipAbsPath);
   }
   if (nodeType === 'disk-root' || nodeType === 'disk-subdir') {
-    return !!rootHandle && typeof rootHandle.remove === 'function';
+    // FSAA handle or backend absolute path
+    if (rootHandle && typeof rootHandle.remove === 'function') return true;
+    if (item.rootDirPath) return true;
+    if (item.absPath) return true;
   }
   return false;
 }
@@ -575,11 +621,11 @@ function deleteCurrentVideo() {
   var item = null;
 
   if (!vItem && galleryState.items.length > 0) {
-    // Check if the current item in galleryState.items is a video (kind:fs)
+    // Check if the current item in galleryState.items is a video (kind:fs/backend)
     var curIdx = galleryState.index;
     if (curIdx >= 0 && curIdx < galleryState.items.length) {
       var curItem = galleryState.items[curIdx];
-      if (curItem && (curItem.kind === 'fs' || curItem.kind === 'plain')) {
+      if (curItem && (curItem.kind === 'fs' || curItem.kind === 'backend' || curItem.kind === 'plain')) {
         var nm = curItem.name || curItem.path || '';
         if (isVideoExt(nm)) {
           inItems = true;
@@ -593,11 +639,12 @@ function deleteCurrentVideo() {
   var targetVItem = vItem || item;
   if (!targetVItem) return;
 
-  var hasHandle = false;
-  if (inItems && item) {
-    hasHandle = !!item.handle && typeof item.handle.remove === 'function';
-  } else if (vItem) {
-    hasHandle = !!vItem.handle && typeof vItem.handle.remove === 'function';
+  // Check disk-delete capability: FSAA handle or backend absolute path
+  var canDiskDelete = false;
+  var targetItem = (inItems && item) ? item : vItem;
+  if (targetItem) {
+    canDiskDelete = (targetItem.kind === 'backend' && !!targetItem.absPath) ||
+                    (targetItem.kind === 'fs' && !!targetItem.handle && typeof targetItem.handle.remove === 'function');
   }
 
   var label = targetVItem.name || targetVItem.path || 'Video';
@@ -605,11 +652,12 @@ function deleteCurrentVideo() {
     '<div style="font-size:15px;margin-bottom:8px">删除视频？</div>' +
     '<div style="font-size:12px;color:#888;margin-bottom:14px;word-break:break-all">' + escapeHtml(label) + '</div>' +
     '<button class="pg-btn" id="zip-del-list" style="margin:4px">从列表中移除</button>';
-  if (hasHandle) {
+  if (canDiskDelete) {
     html += '<button class="pg-btn" id="zip-del-disk" style="margin:4px">从磁盘移除</button>';
   }
   html += '<button class="pg-btn" id="zip-del-cancel" style="margin:4px">取消</button></div>';
   pgShowModal(html);
+  setTimeout(function() { var cb = document.getElementById('zip-del-cancel'); if (cb) cb.focus(); }, 30);
 
   document.getElementById('zip-del-list').onclick = function() {
     pgCloseModal();
@@ -621,23 +669,28 @@ function deleteCurrentVideo() {
     showMsg('已从列表移除');
   };
   document.getElementById('zip-del-cancel').onclick = function() { pgCloseModal(); };
-  if (hasHandle) {
+  if (canDiskDelete) {
     document.getElementById('zip-del-disk').onclick = function() {
       pgCloseModal();
       (async function() {
         try {
-          if (inItems && item) {
-            await item.handle.remove();
-            removeItem(itemIdx);
-          } else if (vItem && vItem.handle) {
-            await vItem.handle.remove();
-            removeVideoItem(vi);
+          var delItem = (inItems && item) ? item : vItem;
+          if (delItem.kind === 'backend' && delItem.absPath) {
+            var dRes = await fetch('/api/gallery/fs', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: delItem.absPath })
+            });
+            if (!dRes.ok) throw new Error('HTTP ' + dRes.status);
+          } else if (delItem.handle) {
+            await delItem.handle.remove();
           }
+          if (inItems && itemIdx >= 0) removeItem(itemIdx);
+          else if (vItem) removeVideoItem(vi);
           showMsg('已从磁盘移除');
         } catch (e) {
           console.warn('deleteCurrentVideo disk failed:', e);
           showMsg('删除失败: ' + (e && e.message ? e.message : e));
-          // Fallback: still remove from list
           if (inItems && itemIdx >= 0) removeItem(itemIdx);
           else if (vItem) removeVideoItem(vi);
         }
@@ -696,6 +749,7 @@ window.deleteZipPrompt = function() {
   if (canDisk) html += '<button class="pg-btn" id="zip-del-disk" style="margin:4px">从磁盘移除</button>';
   html += '<button class="pg-btn" id="zip-del-cancel" style="margin:4px">取消</button></div>';
   pgShowModal(html);
+  setTimeout(function() { var cb = document.getElementById('zip-del-cancel'); if (cb) cb.focus(); }, 30);
   document.getElementById('zip-del-list').onclick = function() {
     pgCloseModal();
     // Remove this node's items from the list
@@ -720,10 +774,21 @@ window.deleteZipPrompt = function() {
 async function deleteNodeFromDisk(nodeType, item, curDir, sessionId, rootHandle, nodeItems) {
   var errors = [];
   try {
-    if (nodeType === 'zip-root' && item.zipFileHandle) {
+    if (nodeType === 'zip-root') {
       // Delete the entire zip file from disk
-      await item.zipFileHandle.remove();
-    } else if (nodeType === 'zip-subdir' && item.zipFileHandle) {
+      if (item.zipAbsPath) {
+        var zr = await fetch('/api/gallery/fs', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: item.zipAbsPath })
+        });
+        if (!zr.ok) throw new Error('HTTP ' + zr.status);
+      } else if (item.zipFileHandle) {
+        await item.zipFileHandle.remove();
+      } else {
+        showMsg('此节点无法从磁盘移除'); return;
+      }
+    } else if (nodeType === 'zip-subdir') {
       // Delete zip entries in this subdirectory one by one via the DELETE API,
       // then write back the final zip bytes once
       var subItems = nodeItems.filter(function(it) { return it.kind === 'zip'; });
@@ -741,22 +806,53 @@ async function deleteNodeFromDisk(nodeType, item, curDir, sessionId, rootHandle,
       }
       if (ok && lastBytes) {
         try {
-          var writable = await item.zipFileHandle.createWritable();
-          await writable.write(lastBytes);
-          await writable.close();
+          if (item.zipAbsPath) {
+            await fetch('/api/gallery/zip-writeback', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionId: sessionId, path: item.zipAbsPath })
+            });
+          } else if (item.zipFileHandle) {
+            var writable = await item.zipFileHandle.createWritable();
+            await writable.write(lastBytes);
+            await writable.close();
+          }
         } catch (e) { errors.push('writeback: ' + e.message); }
       }
-    } else if (nodeType === 'disk-root' && rootHandle) {
+    } else if (nodeType === 'disk-root') {
       // Delete the entire top-level directory recursively
-      await rootHandle.remove({ recursive: true });
-    } else if (nodeType === 'disk-subdir' && rootHandle) {
-      // Resolve the subdirectory handle from rootDirHandle, then remove recursively
-      var parts = curDir.split('/');
-      var dirHandle = rootHandle;
-      for (var j = 0; j < parts.length; j++) {
-        dirHandle = await dirHandle.getDirectoryHandle(parts[j]);
+      if (item.rootDirPath) {
+        var dr = await fetch('/api/gallery/fs', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: item.rootDirPath, recursive: true })
+        });
+        if (!dr.ok) throw new Error('HTTP ' + dr.status);
+      } else if (rootHandle) {
+        await rootHandle.remove({ recursive: true });
+      } else {
+        showMsg('此节点无法从磁盘移除'); return;
       }
-      await dirHandle.remove({ recursive: true });
+    } else if (nodeType === 'disk-subdir') {
+      // Delete the subdirectory
+      if (item.rootDirPath) {
+        var subPath = item.rootDirPath + '/' + curDir;
+        var sr = await fetch('/api/gallery/fs', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: subPath, recursive: true })
+        });
+        if (!sr.ok) throw new Error('HTTP ' + sr.status);
+      } else if (rootHandle) {
+        var parts = curDir.split('/');
+        var dirHandle = rootHandle;
+        for (var j = 0; j < parts.length; j++) {
+          dirHandle = await dirHandle.getDirectoryHandle(parts[j]);
+        }
+        await dirHandle.remove({ recursive: true });
+      } else {
+        showMsg('此节点无法从磁盘移除'); return;
+      }
     } else {
       showMsg('此节点无法从磁盘移除');
       return;

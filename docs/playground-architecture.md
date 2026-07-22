@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-> **最后核对：** 2026-07-22，仓库工作区（`main`，`v1.7.8`）。本次新增/核对：(a) Search 模式状态持久化（方案 B）—— `searchHistory`/`activeSearchId` 通过 localStorage 持久化，`pgLoad()` 恢复后 `pgSyncSearchMessages()` 同步消息引用；search 模式下 `pgLoad()` 跳过 localStorage messages 加载避免覆盖；`cleanupPlayground()` search 模式 early return 不 abort 请求；`pgSearchFlushRender()`/`pgSearchFinish()`/`pgSearchFail()` 增加 DOM 存在检查防御后台 tab 渲染；`pgSearchSend()` 创建 searchEntry 后立即持久化。
+**最后核对：** 2026-07-22，仓库工作区（`main`）。本次新增/核对：Gallery 交互修复——(1) 拖放权限请求改为仅首个 handle 弹窗（`queryPermission` + 单次 `requestPermission`），同目录文件共享授权；(2) 删除确认 modal 自动 focus 取消按钮，全局 modal handler 泛化支持 `.pg-btn` 按钮的 Tab/方向键/Enter 导航；(3) `onFullscreenKey`/`onGalleryKeyDown` 增加 `topOpenModal()` 前置检查实现 focus trap，防止 modal 打开时按键穿透到 Gallery；(4) 双屏模式 `updateFocusUIOnly` 同步隐藏非 focus 侧树面板，`toggleTreePanel` 检测 DOM activeElement 所在 pane 自动同步逻辑 focus；(5) 树面板节点点击根据 panel ID 判定所属侧并自动切换 focus。
 
 > **2026-07-22 更新（Search 模式 UI/UX 优化）：**
 > - **双窗口左右并列布局与交互：** `pgState.mode === 'search'` 时强制使用 2 窗口布局（`splitCount = 2`，`1fr 1fr`），左侧窗口显示 Search Strategy 与 Raw Search Results 视图，右侧窗口专门渲染 Synthesized 最终回复；问句留在 `#pg-input` 并呈灰色锁定态（`pg-input-search-locked`）；打字时恢复亮色编辑。
@@ -675,16 +675,23 @@ go build -tags playground -o tinyrouter-pg.exe .
 Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器分页，绑定 F6 快捷键，UI 由 `web/playground/static-pg/gallery.js` 实现（约 827 行 vanilla JS，IIFE + `window.renderGallery`/`window.cleanupGallery` 入口）。
 
 ### 交互方式
-- **拖拽**：drop 事件读 `DataTransferItem.getAsFileSystemHandle()` 拿 `FileSystemDirectoryHandle`/`FileSystemFileHandle`，递归 BFS 遍历目录；不支持 FS Access API 时降级 `DataTransfer.files` blob。
-- **粘贴**：document 级 `paste` 监听器读 `clipboardData.items` 的 file blob（剪贴板 API 不暴露原路径，仅二进制 blob）。
-- **"打开"**：`window.showDirectoryPicker()` / `window.showOpenFilePicker({multiple:true})`，无 FS Access API 时降级 `<input type=file multiple webkitdirectory>`。
+- **拖拽**：drop 事件读 `DataTransferItem.getAsFileSystemHandle()` 拿 `FileSystemDirectoryHandle`/`FileSystemFileHandle`，立即调用 `requestPermission({mode:'readwrite'})` 前置授权（一次性系统弹窗，之后所有磁盘操作免确认），递归 BFS 遍历目录；不支持 FS Access API 时降级 `DataTransfer.files` blob。
+- **粘贴**：优先调用后端 `POST /api/gallery/paste-paths` 读取 Windows 剪贴板 CF_HDROP 绝对路径（零弹窗）；若后端无路径（截图/非 Windows）则降级为 FSAA `clipboardData.items` blob。
+- **“打开”**：优先调用后端 `POST /api/gallery/open-dir`（原生 COM IFileOpenDialog 目录选择器，返回绝对路径 + 递归文件列表，后续磁盘操作零弹窗）；后端不可用时降级 `showDirectoryPicker({mode:'readwrite'})` / `showOpenFilePicker({multiple:true, mode:'readwrite'})`，无 FS Access API 时降级 `<input type=file multiple webkitdirectory>`。
 
 ### 支持格式
 `webp png jpg jpeg bmp tiff`（`tif` 同 tiff）。目录/单图/多图全部前端 `FsApi.BlobTracker.create(blob)` + `<img>` 显示（浏览器原生 GPU 加速，BlobTracker 追踪防泄漏）。TIFF 因 Chromium/WebView2 原生不支持 `<img>` 显示，走后端 `POST /api/gallery/tiff` 解码转 JPEG 后再显示。
 
 ### 后端协作
-仅 zip 与 tiff 需后端参与：
-- **POST `/api/gallery/zip`**：上 zip 二进制（500MB 上限覆盖 `/api` 1MB 组级限制），返回 `{sessionId, manifest:{entries:[{path,size,kind}], total}}`；zip bytes 缓存于进程内 LRU 会话（上限 32 个、5 分钟空闲过期，`internal/api/gallery_session.go:10`）。会话 ID 由 `newGallerySessionID`（`internal/api/gallery.go:23-29`）生成：`crypto/rand` 失败时返回 error（而非回退固定常量），`galleryListZip` 收到 error 后返回 HTTP 500。
+zip、tiff 及文件系统操作需后端参与：
+- **POST `/api/gallery/open-dir`**：后端调用 `fsutil.OpenDirectoryPicker()`（原生 COM 对话框），返回 `{dirPath, files:[{name,path,rel,size,kind}]}`（递归列出支持的图片/视频/zip 文件）。
+- **POST `/api/gallery/list-dir`**：按给定目录路径返回文件列表（用于粘贴路径展开目录）。
+- **GET `/api/gallery/file?path=`**：按绝对路径提供文件二进制（替代 FSAA `handle.getFile()`）。
+- **DELETE `/api/gallery/fs`**：按绝对路径删除文件/目录（`{path, recursive?}`），Go 后端 `os.Remove`/`os.RemoveAll`，零浏览器权限弹窗。
+- **POST `/api/gallery/zip-from-path`**：从磁盘路径直接创建 zip 会话（避免上传往返）。
+- **POST `/api/gallery/zip-writeback`**：将 zip 会话字节写回磁盘原文件（`fsutil.AtomicWrite`）。
+- **POST `/api/gallery/paste-paths`**：读取 Windows 剪贴板 CF_HDROP 格式文件路径（`fsutil.GetClipboardFilePaths()`）。
+- **POST `/api/gallery/zip`**：上 zip 二进制（500MB 上限覆盖 `/api` 1MB 组级限制），返回 `{sessionId, manifest:{entries:[{path,size,kind}], total}}`；zip bytes 缓存于进程内 LRU 会话（上限 32 个、5 分钟空闲过期，`internal/api/gallery_session.go:10`）。
 - **GET `/api/gallery/zip/{sessionId}/{entryPath:*}`**：从会话取 zip 内单张图二进制。`{entryPath:*}` 是 chi 通配匹配含 `/` 的路径；前端 `encodeURIComponent` 拼接。
 - **POST `/api/gallery/tiff`**：上 TIFF 二进制（50MB 上限），后端用 `golang.org/x/image/tiff` 解码后重编码为 JPEG 返回。解码后检查图片尺寸：任一维度超过 `maxTIFFDim`（16384）时返回错误，防止解压炸弹 DoS（`internal/gallery/tiff.go:15`、`internal/gallery/tiff.go:29-31`）。
 
@@ -692,6 +699,8 @@ Gallery 是 playground 构建变体（`-tags playground`）下的图片查看器
 进入全屏后**仅**键盘操作：`←` 前一张 / `→` 或 `Space` 下一张 / `Esc` / `Enter` 退出全屏 / `1`-`9` 设置 9 档间隔时间（按序映射到 1/2/3/5/10/15/30/60/120 秒）/ `a` 切换自动播放。capture 阶段绑定 keydown（`galleryState.keyHandler = onFullscreenKey`，`document.addEventListener('keydown', ..., true)`）以拦截 app.js 全局 F1-F6。
 
 > 2026-07-19：除 1-9（间隔档位，全屏内仍硬编码不可自定义）外的所有全屏键已切到 `web/static/shortcuts.js` 注册中心。`onFullscreenKey` 与 `onGalleryKeyDown` 改用 `Shortcuts.matchEvent('gallery.<actionID>', e)`：`gallery.prev`/`gallery.next`/`gallery.prev-folder`/`gallery.next-folder`/`gallery.toggle-autoplay`/`gallery.toggle-fullscreen`/`gallery.toggle-tree`/`gallery.exit-fullscreen`/`gallery.toggle-split`/`gallery.toggle-media`/`gallery.switch-focus`。视频激活时 `ArrowLeft/Right/Up/Down/Space/1-9`（媒体控制：倒退 10 秒、上一/下一视频、音量、暂停）仍保持硬编码，**刻意不纳入自定义**以避免与全局 quickslot-cycle 1-9 产生跨区域冲突；`Space`/`PageUp`/`PageDown` 仍走通用导览分支作为快捷的同义键。详见 §16.x（快捷键注册中心）与 §23"变更维护清单"。
+
+> 2026-07-22：`onFullscreenKey` 与 `onGalleryKeyDown` 顶部新增 `topOpenModal()` 前置检查——当任何 modal 打开时（app 退出确认、Gallery 删除确认等），Gallery 快捷键全部让位给 `app.js` 全局 modal handler 的 focus trap（Tab/方向键循环按钮、Enter 点击、Esc/右键关闭）。`onContextMenu`（全屏右键退出）同样增加 modal 前置检查，防止右键关闭弹窗时意外退出全屏。**全屏实现已移除 HTML5 Fullscreen API（`requestFullscreen`/`exitFullscreen`）**——因为浏览器引擎会在所有 JS handler 之前原生拦截 ESC 退出全屏，导致 modal 打开时 ESC 无法被 JavaScript 拦截。现仅依赖 CSS class `gallery-fullscreen-active`（视觉全屏）+ `toggleNativeFullscreen`（WebView2 原生窗口全屏，无 ESC 原生退出行为）。`app.js` 全局 modal handler 泛化为收集 modal 内所有可见 `button`/`.pg-btn`/`.btn` 元素进行焦点循环，不再仅限 `#modal-cancel`/`#modal-confirm`。Gallery 删除确认弹窗（Ctrl+Del / Shift+Del）打开后自动 focus 到"取消"按钮。`deleteItemMark`/`toggleReviewItemMark` 标记删除后增加 300ms 过渡延迟（红色遮罩可见）再自动前进，期间阻止重复标记但允许手动导航。
 
 ### 缩略图
 前端懒生成：IntersectionObserver 触发 → `createImageBitmap(blob)` + `OffscreenCanvas(THUMB_SIZE=300)` 等比例缩放 → `convertToBlob('image/jpeg',0.8)` → `FsApi.BlobTracker.create`；失败回退原 blob。
@@ -752,7 +761,10 @@ AI Review 从硬编码"广告审核"（`is_ad` 字段）泛化为通用二值判
 ### 变更维护清单
 | 触发变更 | 涉及源码 |
 |---|---|
-| 修改拖拽/粘贴/打开交互 | `web/playground/static-pg/gallery.js` |
+| 修改拖拽/粘贴/打开交互 | `web/playground/static-pg/gallery-io.js`（`onOpenClick`/`onOpenDirBackend`/`onPaste`/`onDrop`/`loadBackendPaths`）、`internal/api/gallery_fs.go`（后端 Picker/列表/删除/剪贴板） |
+| 修改磁盘删除/写回操作 | `web/playground/static-pg/gallery-fullscreen.js`（`deleteMarkedFromDisk`/`deleteNodeFromDisk`/`deleteCurrentVideo`）、`internal/api/gallery_fs.go`（`galleryDeleteFs`/`galleryZipWriteback`）、`internal/fsutil/clipboard_*.go` |
+| 修改 Gallery modal 交互/焦点 | `web/playground/static-pg/gallery-fullscreen.js`（`deleteItemPrompt`/`deleteZipPrompt`/`deleteCurrentVideo` 自动 focus）、`web/static/app.js`（全局 modal handler 按钮循环） |
+| 修改双屏 focus/树面板切换 | `web/playground/static-pg/gallery-layout.js`（`updateFocusUIOnly`/`bindEventsForCurrentLayout` 树面板点击）、`web/playground/static-pg/gallery-tree.js`（`toggleTreePanel` DOM focus 同步） |
 | 修改 zip 解压格式或上传限制 | `internal/gallery/zip.go`、`internal/api/gallery.go::galleryListZip`（500MB 上限） |
 | 修改 TIFF 转码质量或格式 | `internal/gallery/tiff.go`、`internal/api/gallery.go::galleryConvertTiff` |
 | 修改 zip 会话 LRU 容量/过期 | `internal/api/gallery_session.go` |

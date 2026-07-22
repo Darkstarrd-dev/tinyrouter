@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function navigateTo(page) {
-  var wasFullscreen = !!document.fullscreenElement || document.body.classList.contains('gallery-fullscreen-active') || (typeof isFullscreen === 'function' && isFullscreen());
+  var wasFullscreen = document.body.classList.contains('gallery-fullscreen-active') || (typeof isFullscreen === 'function' && isFullscreen());
   currentPage = page;
   var gen = ++navGen;
   currentProviderId = null;
@@ -83,9 +83,6 @@ function navigateTo(page) {
       document.body.classList.add('gallery-fullscreen-active');
       if (typeof window.toggleNativeFullscreen === 'function') {
         try { window.toggleNativeFullscreen(true); } catch (e) {}
-      }
-      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(function(e2) {});
       }
     }
   }
@@ -453,42 +450,46 @@ document.addEventListener('keydown', function(e) {
 
   // ---- Modal is open: modal interactions take precedence ----
   if (modal) {
+    // Collect all focusable buttons in the modal (supports both main-app
+    // .btn-ghost/.btn-primary and gallery .pg-btn button styles).
+    var modalBtns = Array.prototype.slice.call(modal.querySelectorAll('button, .pg-btn, .btn'));
+    modalBtns = modalBtns.filter(function(b) { return b.offsetParent !== null; }); // visible only
     if (e.key === 'Tab') {
       e.preventDefault();
-      var cancelBtn = modal.querySelector('#modal-cancel, .btn-ghost');
-      var confirmBtn = modal.querySelector('#modal-confirm, .btn-primary');
-      if (cancelBtn && confirmBtn) {
-        if (document.activeElement === confirmBtn) {
-          cancelBtn.focus();
-        } else {
-          confirmBtn.focus();
-        }
+      if (modalBtns.length > 1) {
+        var curIdx = modalBtns.indexOf(document.activeElement);
+        var nextIdx = e.shiftKey
+          ? (curIdx <= 0 ? modalBtns.length - 1 : curIdx - 1)
+          : (curIdx + 1) % modalBtns.length;
+        modalBtns[nextIdx].focus();
       }
       return;
     }
     if (e.key === 'Escape') { e.preventDefault(); dismissTopModal(); return; }
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      var cancelBtn = modal.querySelector('#modal-cancel, .btn-ghost');
-      var confirmBtn = modal.querySelector('#modal-confirm, .btn-primary');
-      if (cancelBtn && confirmBtn) {
+      if (modalBtns.length > 1) {
         e.preventDefault();
-        if (document.activeElement === confirmBtn) {
-          cancelBtn.focus();
+        var curIdx = modalBtns.indexOf(document.activeElement);
+        var nextIdx;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          nextIdx = curIdx < 0 ? 0 : (curIdx + 1) % modalBtns.length;
         } else {
-          confirmBtn.focus();
+          nextIdx = curIdx <= 0 ? modalBtns.length - 1 : curIdx - 1;
         }
+        modalBtns[nextIdx].focus();
         return;
       }
     }
     if (e.key === 'Enter') {
       var ae = document.activeElement;
       if (ae && ae.tagName === 'TEXTAREA') return; // allow newline in multi-line inputs
-      if (ae && (ae.id === 'modal-cancel' || ae.id === 'modal-confirm' || ae.classList.contains('btn'))) {
+      if (ae && (ae.tagName === 'BUTTON' || ae.classList.contains('btn') || ae.classList.contains('pg-btn'))) {
         e.preventDefault();
         ae.click();
         return;
       }
-      var primary = modal.querySelector('.btn-primary');
+      // No button focused: click the last button (typically Cancel) or primary
+      var primary = modal.querySelector('.btn-primary') || (modalBtns.length ? modalBtns[modalBtns.length - 1] : null);
       if (primary) { e.preventDefault(); primary.click(); }
       return;
     }
@@ -513,12 +514,9 @@ document.addEventListener('keydown', function(e) {
     if (typeof toggleFullscreen === 'function') {
       toggleFullscreen();
     } else {
-      var isFS = !!document.fullscreenElement || document.body.classList.contains('gallery-fullscreen-active');
+      var isFS = document.body.classList.contains('gallery-fullscreen-active');
       if (isFS) {
         document.body.classList.remove('gallery-fullscreen-active');
-        if (document.fullscreenElement) {
-          document.exitFullscreen().catch(function(e2) { console.warn('exitFullscreen failed:', e2); });
-        }
         if (typeof window.toggleNativeFullscreen === 'function') {
           try { window.toggleNativeFullscreen(false); } catch (e2) {}
         }
@@ -526,9 +524,6 @@ document.addEventListener('keydown', function(e) {
         document.body.classList.add('gallery-fullscreen-active');
         if (typeof window.toggleNativeFullscreen === 'function') {
           try { window.toggleNativeFullscreen(true); } catch (e2) {}
-        }
-        if (document.documentElement.requestFullscreen) {
-          document.documentElement.requestFullscreen().catch(function(e2) { console.warn('enterFullscreen failed:', e2); });
         }
       }
     }

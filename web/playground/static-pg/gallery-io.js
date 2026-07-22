@@ -490,6 +490,21 @@ async function onDrop(e) {
     }
     if (handlePromises.length) {
       var handles = await Promise.all(handlePromises);
+      // Front-load readwrite permission: request on the FIRST handle that
+      // needs it only. Chromium shares the grant across handles from the same
+      // parent directory, so a single dialog covers all dropped files.
+      var _permRequested = false;
+      for (var pi = 0; pi < handles.length; pi++) {
+        if (!handles[pi] || !handles[pi].requestPermission) continue;
+        try {
+          var _ps = await handles[pi].queryPermission({ mode: 'readwrite' });
+          if (_ps === 'granted') continue;
+          if (!_permRequested) {
+            await handles[pi].requestPermission({ mode: 'readwrite' });
+            _permRequested = true;
+          }
+        } catch (e) { /* best-effort */ }
+      }
       var out = [];
       var outVid = [];
       for (var j = 0; j < handles.length; j++) {
@@ -579,6 +594,30 @@ async function onPaste(e) {
   var cd = e.clipboardData;
   if (!cd || !cd.items) return;
 
+  // Check if clipboard has file items (not just text)
+  var hasFiles = false;
+  for (var fi = 0; fi < cd.items.length; fi++) {
+    if (cd.items[fi].kind === 'file') { hasFiles = true; break; }
+  }
+  if (!hasFiles) return;
+
+  // Try backend clipboard paths first (CF_HDROP on Windows — gives absolute
+  // paths for files copied in Explorer, enabling zero-dialog disk operations).
+  try {
+    var cpRes = await fetch('/api/gallery/paste-paths', { method: 'POST' });
+    if (cpRes.ok) {
+      var cpData = await cpRes.json();
+      if (cpData.paths && cpData.paths.length) {
+        e.preventDefault();
+        await loadBackendPaths(cpData.paths);
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn('paste-paths failed, falling back to FSAA:', err);
+  }
+
+  // Fallback: File System Access API (screenshots, non-Windows, etc.)
   // Modern path: File System Access API
   if (typeof DataTransferItem.prototype.getAsFileSystemHandle === 'function') {
     var handlePromises = [];
@@ -682,24 +721,222 @@ async function onPaste(e) {
 }
 
 function onOpenClick() {
-  var input = document.getElementById('gallery-file-input');
-  try {
+  // Prefer backend native picker (returns absolute paths, zero browser
+  // permission dialogs for subsequent disk operations).
+  onOpenDirBackend().catch(function(err) {
+    console.warn('backend open-dir failed, falling back to FSAA:', err);
+    // Fallback: File System Access API (for non-local or unsupported platforms)
     if (typeof window.showDirectoryPicker === 'function') {
-      onOpenDir().catch(function(err) { console.warn('showDirectoryPicker failed:', err); });
-      return;
+      onOpenDir().catch(function(e2) { console.warn('showDirectoryPicker failed:', e2); });
+    } else if (typeof window.showOpenFilePicker === 'function') {
+      onOpenFiles().catch(function(e2) { console.warn('showOpenFilePicker failed:', e2); });
+    } else {
+      var input = document.getElementById('gallery-file-input');
+      if (input) input.click();
     }
-    if (typeof window.showOpenFilePicker === 'function') {
-      onOpenFiles().catch(function(err) { console.warn('showOpenFilePicker failed:', err); });
-      return;
+  });
+}
+
+// onOpenDirBackend calls the backend native directory picker and loads files
+// via the backend file-serving API. Items get kind:'backend' with absolute
+// paths — all disk operations (delete/rename) go through the Go backend with
+// zero browser permission dialogs.
+async function onOpenDirBackend() {
+  var res = await fetch('/api/gallery/open-dir', { method: 'POST' });
+  if (!res.ok) throw new Error('open-dir http ' + res.status);
+  var data = await res.json();
+  if (!data.dirPath || !data.files || !data.files.length) return;
+
+  var out = [];
+  var outVid = [];
+  for (var i = 0; i < data.files.length; i++) {
+    var f = data.files[i];
+    if (f.kind === 'zip') {
+      // Create zip session from disk path (no upload needed)
+      try {
+        var zRes = await fetch('/api/gallery/zip-from-path', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: f.path })
+        });
+        if (!zRes.ok) continue;
+        var zData = await zRes.json();
+        var manifest = zData.manifest;
+        for (var j = 0; j < manifest.entries.length; j++) {
+          var e = manifest.entries[j];
+          out.push({
+            name: e.path.split('/').pop(),
+            path: f.rel + '/' + e.path,
+            kind: 'zip',
+            index: e.index,
+            zipPath: e.path,
+            sessionId: zData.sessionId,
+            size: e.size || 0,
+            getBlob: null,
+            zipFileHandle: null,
+            zipAbsPath: f.path // absolute path for backend writeback/delete
+          });
+        }
+      } catch (e) {
+        console.warn('zip-from-path failed:', e);
+      }
+    } else if (f.kind === 'video') {
+      outVid.push({
+        name: f.name,
+        path: f.rel,
+        kind: 'backend',
+        absPath: f.path,
+        rootDirPath: data.dirPath,
+        getBlob: function(p) { return function() {
+          return fetch('/api/gallery/file?path=' + encodeURIComponent(p)).then(function(r) {
+            if (!r.ok) throw new Error('file http ' + r.status);
+            return r.blob();
+          });
+        }; }(f.path),
+        size: f.size
+      });
+    } else {
+      out.push({
+        name: f.name,
+        path: f.rel,
+        kind: 'backend',
+        absPath: f.path,
+        rootDirPath: data.dirPath,
+        getBlob: function(p) { return function() {
+          return fetch('/api/gallery/file?path=' + encodeURIComponent(p)).then(function(r) {
+            if (!r.ok) throw new Error('file http ' + r.status);
+            return r.blob();
+          });
+        }; }(f.path),
+        size: f.size
+      });
     }
-  } catch (err) {
-    console.warn('picker unavailable:', err);
   }
-  if (input) input.click();
+  if (outVid.length) { appendVideoItems(outVid); }
+  if (out.length) { appendItems(out); }
+}
+
+// loadBackendPaths loads gallery items from absolute file/directory paths
+// (obtained from clipboard CF_HDROP or other backend sources). Directories
+// are expanded via /api/gallery/list-dir; individual files are classified
+// by extension.
+async function loadBackendPaths(paths) {
+  var out = [];
+  var outVid = [];
+  for (var i = 0; i < paths.length; i++) {
+    var p = paths[i];
+    // Determine if path is a directory by trying list-dir
+    try {
+      var listRes = await fetch('/api/gallery/list-dir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dir: p })
+      });
+      if (listRes.ok) {
+        // It's a directory — use its listing
+        var listData = await listRes.json();
+        processBackendFileList(listData.files, listData.dirPath, out, outVid);
+        continue;
+      }
+    } catch (e) { /* not a directory, treat as file */ }
+
+    // Individual file — classify by extension
+    var name = p.replace(/[\\\/]/g, '/').split('/').pop();
+    var lower = name.toLowerCase();
+    if (lower.endsWith('.zip')) {
+      try {
+        var zRes = await fetch('/api/gallery/zip-from-path', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: p })
+        });
+        if (zRes.ok) {
+          var zData = await zRes.json();
+          for (var j = 0; j < zData.manifest.entries.length; j++) {
+            var ze = zData.manifest.entries[j];
+            out.push({
+              name: ze.path.split('/').pop(),
+              path: name + '/' + ze.path,
+              kind: 'zip', index: ze.index, zipPath: ze.path,
+              sessionId: zData.sessionId, size: ze.size || 0,
+              getBlob: null, zipFileHandle: null, zipAbsPath: p
+            });
+          }
+        }
+      } catch (e) { console.warn('paste zip-from-path failed:', e); }
+    } else if (isSupportedExt(name)) {
+      var item = {
+        name: name, path: name, kind: 'backend', absPath: p,
+        rootDirPath: null,
+        getBlob: function(ap) { return function() {
+          return fetch('/api/gallery/file?path=' + encodeURIComponent(ap)).then(function(r) {
+            if (!r.ok) throw new Error('file http ' + r.status);
+            return r.blob();
+          });
+        }; }(p),
+        size: 0
+      };
+      if (isVideoExt(name)) { outVid.push(item); } else { out.push(item); }
+    }
+  }
+  if (outVid.length) { appendVideoItems(outVid); }
+  if (out.length) { appendItems(out); }
+}
+
+// processBackendFileList converts a backend file listing into gallery items.
+async function processBackendFileList(files, dirPath, out, outVid) {
+  for (var i = 0; i < files.length; i++) {
+    var f = files[i];
+    if (f.kind === 'zip') {
+      try {
+        var zRes = await fetch('/api/gallery/zip-from-path', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: f.path })
+        });
+        if (!zRes.ok) continue;
+        var zData = await zRes.json();
+        for (var j = 0; j < zData.manifest.entries.length; j++) {
+          var e = zData.manifest.entries[j];
+          out.push({
+            name: e.path.split('/').pop(),
+            path: f.rel + '/' + e.path,
+            kind: 'zip', index: e.index, zipPath: e.path,
+            sessionId: zData.sessionId, size: e.size || 0,
+            getBlob: null, zipFileHandle: null, zipAbsPath: f.path
+          });
+        }
+      } catch (e) { console.warn('zip-from-path failed:', e); }
+    } else if (f.kind === 'video') {
+      outVid.push({
+        name: f.name, path: f.rel, kind: 'backend', absPath: f.path,
+        rootDirPath: dirPath,
+        getBlob: function(p) { return function() {
+          return fetch('/api/gallery/file?path=' + encodeURIComponent(p)).then(function(r) {
+            if (!r.ok) throw new Error('file http ' + r.status);
+            return r.blob();
+          });
+        }; }(f.path),
+        size: f.size
+      });
+    } else {
+      out.push({
+        name: f.name, path: f.rel, kind: 'backend', absPath: f.path,
+        rootDirPath: dirPath,
+        getBlob: function(p) { return function() {
+          return fetch('/api/gallery/file?path=' + encodeURIComponent(p)).then(function(r) {
+            if (!r.ok) throw new Error('file http ' + r.status);
+            return r.blob();
+          });
+        }; }(f.path),
+        size: f.size
+      });
+    }
+  }
 }
 
 async function onOpenDir() {
-  var dirHandle = await window.showDirectoryPicker();
+  var dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
   var out = [];
   var outVid = [];
   await walkDir(dirHandle, '', out, outVid);
@@ -708,7 +945,7 @@ async function onOpenDir() {
 }
 
 async function onOpenFiles() {
-  var handles = await window.showOpenFilePicker({ multiple: true });
+  var handles = await window.showOpenFilePicker({ multiple: true, mode: 'readwrite' });
   var fsHandles = [];
   var blobs = [];
   for (var i = 0; i < handles.length; i++) {
