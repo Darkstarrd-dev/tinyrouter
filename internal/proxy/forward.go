@@ -296,15 +296,16 @@ func (h *Handler) forwardWithRetry(w http.ResponseWriter, r *http.Request, provi
 		// the recent-requests list shows the entry the moment it arrives.
 		reqID := generateRequestID()
 		processingEntry := usage.Entry{
-			ID:        reqID,
-			Timestamp: time.Now(),
-			Provider:  sel.Provider.Name,
-			Model:     upstreamModel,
+			ID:            reqID,
+			Timestamp:     time.Now(),
+			Provider:      sel.Provider.Name,
+			Model:         upstreamModel,
 			OriginalModel: originalModel,
-			KeyID:     sel.Key.ID,
-			KeyName:   sel.KeyName,
-			Status:    "processing",
-			InputTokens: len(bodyBytes) / 4, // rough estimate for live UI
+			KeyID:         sel.Key.ID,
+			KeyName:       sel.KeyName,
+			Status:        "processing",
+			Source:        r.Header.Get("X-TinyRouter-Source"),
+			InputTokens:   len(bodyBytes) / 4, // rough estimate for live UI
 		}
 		upstreamURL := BuildUpstreamURL(sel.Provider.BaseURL, path)
 		if len(bodyBytes) > 0 {
