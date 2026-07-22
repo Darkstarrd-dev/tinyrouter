@@ -12,68 +12,89 @@ import (
 
 // recordUsage records a completed (or errored) request into the usage ring
 // buffer, broadcasts a request-done event for the live UI, and signals the
-// usage broadcaster. It always captures request and response payloads/headers
-// for the request inspector.
+// usage broadcaster. Payload/headers are captured only when debugMode is on
+// or the request is from the playground source (always captured and routed to
+// a dedicated pg ring); reqBody is truncated to 64KB, respBody to 512KB.
 func (h *Handler) recordUsage(id string, provider, model string, sel *rotation.SelectedKey, status string, latencyMs int64, ttftMs int64, inputTokens, outputTokens int, errMsg string, reqBody []byte, respBody []byte, respHeaders http.Header, respStatus int, reqHeaders http.Header, upstreamURL string, originalModel string) {
 	entry := usage.Entry{
-		ID:           id,
-		Timestamp:    time.Now(),
-		Provider:     sel.Provider.Name,
-		Model:        model,
+		ID:            id,
+		Timestamp:     time.Now(),
+		Provider:      sel.Provider.Name,
+		Model:         model,
 		OriginalModel: originalModel,
-		KeyID:        sel.Key.ID,
-		KeyName:      sel.KeyName,
-		Status:       status,
-		LatencyMs:    latencyMs,
-		TTFTMs:       ttftMs,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		Error:        errMsg,
+		KeyID:         sel.Key.ID,
+		KeyName:       sel.KeyName,
+		Status:        status,
+		LatencyMs:     latencyMs,
+		TTFTMs:        ttftMs,
+		InputTokens:   inputTokens,
+		OutputTokens:  outputTokens,
+		Error:         errMsg,
 	}
 	if reqHeaders != nil {
 		entry.Source = reqHeaders.Get("X-TinyRouter-Source")
 	}
-	if len(reqBody) > 0 {
-		entry.ReqPayload = append([]byte(nil), reqBody...)
-	}
-	if len(respBody) > 0 {
-		const maxRespBody = 512 * 1024
-		// For image responses, replace base64 data with a placeholder to
-		// avoid storing megabytes of useless base64 in the debug panel.
-		if len(respBody) > maxRespBody && json.Valid(respBody) {
-			var obj map[string]any
-			if json.Unmarshal(respBody, &obj) == nil {
-				if data, ok := obj["data"].([]any); ok {
-					for _, d := range data {
-						if dm, ok := d.(map[string]any); ok {
-							if b64, ok := dm["b64_json"].(string); ok && len(b64) > 200 {
-								dm["b64_json"] = "[truncated: " + strconv.Itoa(len(b64)) + " bytes]"
+
+	// 分流与门控：
+	//   - source == "playground" 的请求写入独立的 pg ring（若已注入），始终捕获详情；
+	//   - 其余请求写入 Recent Requests ring，仅在 debugMode 时捕获 payload/headers。
+	// 这样两个列表物理隔离，且 Recent Requests 在非调试模式下只存元数据，降低内存。
+	isPlayground := entry.Source == "playground"
+	captureDetails := h.debugMode() || isPlayground
+	if captureDetails {
+		if len(reqBody) > 0 {
+			// reqBody 截断上限，与 respBody 的 512KB 同思路，避免单条过大。
+			const maxReqBody = 64 * 1024
+			if len(reqBody) > maxReqBody {
+				reqBody = reqBody[:maxReqBody]
+			}
+			entry.ReqPayload = append([]byte(nil), reqBody...)
+		}
+		if len(respBody) > 0 {
+			const maxRespBody = 512 * 1024
+			// For image responses, replace base64 data with a placeholder to
+			// avoid storing megabytes of useless base64 in the debug panel.
+			if len(respBody) > maxRespBody && json.Valid(respBody) {
+				var obj map[string]any
+				if json.Unmarshal(respBody, &obj) == nil {
+					if data, ok := obj["data"].([]any); ok {
+						for _, d := range data {
+							if dm, ok := d.(map[string]any); ok {
+								if b64, ok := dm["b64_json"].(string); ok && len(b64) > 200 {
+									dm["b64_json"] = "[truncated: " + strconv.Itoa(len(b64)) + " bytes]"
+								}
 							}
 						}
-					}
-					if rewritten, err := json.Marshal(obj); err == nil {
-						respBody = rewritten
+						if rewritten, err := json.Marshal(obj); err == nil {
+							respBody = rewritten
+						}
 					}
 				}
 			}
+			if len(respBody) > maxRespBody {
+				respBody = respBody[:maxRespBody]
+			}
+			if !json.Valid(respBody) {
+				respBody, _ = json.Marshal(map[string]string{"raw": string(respBody)})
+			}
+			entry.RespPayload = append([]byte(nil), respBody...)
 		}
-		if len(respBody) > maxRespBody {
-			respBody = respBody[:maxRespBody]
+		if len(respHeaders) > 0 {
+			entry.RespHeaders = respHeaders.Clone()
 		}
-		if !json.Valid(respBody) {
-			respBody, _ = json.Marshal(map[string]string{"raw": string(respBody)})
+		entry.RespStatus = respStatus
+		if len(reqHeaders) > 0 {
+			entry.ReqHeaders = reqHeaders.Clone()
 		}
-		entry.RespPayload = append([]byte(nil), respBody...)
+		entry.UpstreamURL = upstreamURL
 	}
-	if len(respHeaders) > 0 {
-		entry.RespHeaders = respHeaders.Clone()
+
+	// 按 source 分流写入 ring
+	if isPlayground && h.pgUsage != nil {
+		h.pgUsage.Add(entry)
+	} else {
+		h.usage.Add(entry)
 	}
-	entry.RespStatus = respStatus
-	if len(reqHeaders) > 0 {
-		entry.ReqHeaders = reqHeaders.Clone()
-	}
-	entry.UpstreamURL = upstreamURL
-	h.usage.Add(entry)
 
 	raw := MarshalEntryJSON(entry)
 	if raw != nil {
