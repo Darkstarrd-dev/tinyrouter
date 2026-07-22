@@ -8,13 +8,15 @@ var USAGE_CACHE_KEY = 'tinyrouter_usage_cache';
 
 function saveUsageCache() {
   try {
-    var slim = lastUsageEntries.slice(0, 200).map(function(e) {
-      return {
-        id: e.id, timestamp: e.timestamp, provider: e.provider,
-        model: e.model, keyName: e.keyName, status: e.status,
-        latencyMs: e.latencyMs, inputTokens: e.inputTokens, outputTokens: e.outputTokens
-      };
-    });
+    var slim = lastUsageEntries.slice(0, 200)
+      .filter(function(e) { return e && e.source !== 'playground'; })
+      .map(function(e) {
+        return {
+          id: e.id, timestamp: e.timestamp, provider: e.provider,
+          model: e.model, keyName: e.keyName, status: e.status,
+          latencyMs: e.latencyMs, inputTokens: e.inputTokens, outputTokens: e.outputTokens
+        };
+      });
     localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(slim));
   } catch(e) {}
 }
@@ -24,7 +26,11 @@ function loadUsageCache() {
     var raw = localStorage.getItem(USAGE_CACHE_KEY);
     if (!raw) return [];
     var arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
+    // 过滤掉历史残留的 Playground 条目（旧缓存兼容）
+    if (Array.isArray(arr)) {
+      return arr.filter(function(e) { return !e || e.source !== 'playground'; });
+    }
+    return [];
   } catch(e) { return []; }
 }
 var modelColorMap = {};
@@ -650,6 +656,8 @@ function applyUsageSSEHandlers(es) {
 
 function handleRequestStart(entry) {
   if (!entry) return;
+  // 排除 Playground 来源：Playground 请求由其独立列表展示，不进 Recent Requests
+  if (entry.source === 'playground') return;
   if (!entry.id) entry.id = 'inflight-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
   inflightEntries[entry.id] = entry;
   var found = lastUsageEntries.findIndex(function(x) { return x.id === entry.id; });
@@ -669,6 +677,8 @@ function handleRequestStart(entry) {
 
 function handleRequestDone(id, status, entry) {
   if (!id) return;
+  // 排除 Playground 来源（entry 可能为 undefined，需判空）
+  if (entry && entry.source === 'playground') return;
   var inflightEntry = inflightEntries[id];
   if (!inflightEntry && !entry) return;
   var completeEntry = entry || inflightEntry;

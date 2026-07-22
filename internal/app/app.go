@@ -40,6 +40,7 @@ type App struct {
 
 	logger       *console.Logger
 	usageBuf     *usage.RingBuffer
+	pgUsageBuf   *usage.RingBuffer // Playground 来源请求专用 ring
 	quotaTracker *usage.QuotaTracker
 	reg          *registry.Registry
 	selector     *rotation.Selector
@@ -125,6 +126,8 @@ func (a *App) buildComponents() error {
 
 	a.logger = console.New(cfg.ConsoleLogMaxLines)
 	a.usageBuf = usage.New(cfg.UsageRingSize)
+	// Playground 请求量由用户主动发起，可控；独立 ring 容量 50 足够，且始终捕获详情
+	a.pgUsageBuf = usage.New(50)
 	a.quotaTracker = usage.NewQuotaTracker()
 
 	a.reg = registry.New(cfg)
@@ -132,6 +135,7 @@ func (a *App) buildComponents() error {
 	a.comboRes = combo.New(a.reg)
 
 	a.proxyHandler = proxy.New(a.reg, a.selector, a.comboRes, a.usageBuf, a.quotaTracker, a.logger, cfg.Server.UpstreamTimeoutSec)
+	a.proxyHandler.SetPgUsage(a.pgUsageBuf)
 	if err := a.proxyHandler.SetProxy(cfg.Proxy.Enabled, cfg.Proxy.Host, cfg.Proxy.Port); err != nil {
 		a.logger.Warn("invalid upstream proxy config: %v", err)
 	}
@@ -175,7 +179,7 @@ func (a *App) buildComponents() error {
 	}
 
 	// API router + UI handler. Shutdown is triggered by POST /api/shutdown.
-	a.apiRouter = api.New(a.reg, cfg, a.configPath, a.usageBuf, a.quotaTracker, a.logger, a.proxyHandler, a.triggerShutdown, a.selector, a.comboRes, a.downloadMgr)
+	a.apiRouter = api.New(a.reg, cfg, a.configPath, a.usageBuf, a.pgUsageBuf, a.quotaTracker, a.logger, a.proxyHandler, a.triggerShutdown, a.selector, a.comboRes, a.downloadMgr)
 	a.proxyHandler.SetDebugModeProvider(a.apiRouter.DebugMode)
 
 	// HTTP server (not started until Run).

@@ -42,7 +42,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *registry.Registry, string
 	comboRes := combo.New(reg)
 	proxyHandler := proxy.New(reg, selector, comboRes, usageBuf, usage.NewQuotaTracker(), logger, 0)
 	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
-	apiRouter := New(reg, cfg, tmpFile, usageBuf, usage.NewQuotaTracker(), logger, proxyHandler, context.CancelFunc(func() {}), selector, comboRes, download.NewManager(download.RuntimeSettings{}, logger))
+	apiRouter := New(reg, cfg, tmpFile, usageBuf, usage.New(50), usage.NewQuotaTracker(), logger, proxyHandler, context.CancelFunc(func() {}), selector, comboRes, download.NewManager(download.RuntimeSettings{}, logger))
 	handler := apiRouter.Routes(proxyHandler)
 	return httptest.NewServer(handler), reg, tmpFile, apiRouter
 }

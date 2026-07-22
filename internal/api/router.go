@@ -34,6 +34,7 @@ type deps struct {
 	reg          *registry.Registry
 	configPath   string
 	usage        *usage.RingBuffer
+	pgUsage      *usage.RingBuffer // Playground 来源请求专用 ring
 	quotaTracker *usage.QuotaTracker
 	logger       *console.Logger
 	proxyHandler *proxy.Handler
@@ -74,12 +75,13 @@ type Router struct {
 
 // New creates an API Router. The signature is kept stable so existing callers
 // (main.go and the package tests) do not need to change.
-func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, quotaTracker *usage.QuotaTracker, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc, selector *rotation.Selector, comboRes *combo.Resolver, downloadMgr *download.Manager) *Router {
+func New(reg *registry.Registry, cfg *config.Config, configPath string, usageBuf *usage.RingBuffer, pgUsageBuf *usage.RingBuffer, quotaTracker *usage.QuotaTracker, logger *console.Logger, proxyHandler *proxy.Handler, shutdown context.CancelFunc, selector *rotation.Selector, comboRes *combo.Resolver, downloadMgr *download.Manager) *Router {
 	return &Router{
 		deps: deps{
 			reg:          reg,
 			configPath:   configPath,
 			usage:        usageBuf,
+			pgUsage:      pgUsageBuf,
 			quotaTracker: quotaTracker,
 			logger:       logger,
 			proxyHandler: proxyHandler,
@@ -311,6 +313,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 
 			// Usage
 			r.Get("/usage", rt.getUsage)
+			r.Get("/usage/playground", rt.getPlaygroundUsage)
 			r.Get("/usage/summary", rt.getUsageSummary)
 			r.Get("/usage/quotas", rt.getQuotas)
 			r.Get("/usage/model-keys", rt.getModelKeys)

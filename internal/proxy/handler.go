@@ -19,7 +19,8 @@ type Handler struct {
 	reg               ModelResolver // 原 *registry.Registry：provider/quickslot 解析 + key 运行时状态 + 模型列表
 	selector          KeyProvider   // 原 rotation.KeySelector：key 选择 + 冷却/退避/锁定
 	comboRes          ComboResolver // 原 *combo.Resolver：combo 解析
-	usage             UsageRecorder // 原 *usage.RingBuffer：usage 记录
+	usage             UsageRecorder // 原 *usage.RingBuffer：Recent Requests usage 记录（不含 playground 来源）
+	pgUsage           UsageRecorder // Playground 来源请求专用 ring（始终捕获详情）
 	quotaTracker      QuotaTracker  // 原 *usage.QuotaTracker：quota 展示
 	logger            Logger        // 原 *console.Logger：日志输出
 	client            *http.Client  // 非流式：300s 超时
@@ -230,4 +231,11 @@ func (h *Handler) debugMode() bool {
 		return h.debugModeProvider()
 	}
 	return false
+}
+
+// SetPgUsage 注入 Playground 来源请求专用的 usage ring。注入后，source ==
+// "playground" 的请求将写入该 ring 而非 Recent Requests 的 ring，实现两个
+// 列表物理隔离。未注入时 playground 请求回落到 h.usage。
+func (h *Handler) SetPgUsage(r UsageRecorder) {
+	h.pgUsage = r
 }

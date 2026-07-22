@@ -139,6 +139,9 @@ func sseContentLength(payload []byte) int {
 func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, normalize bool, reqID string, reqHeaders http.Header, upstreamURL string, entryFormat combo.EntryFormat, originalModel string) {
 	defer resp.Body.Close()
 
+	// 仅在需要捕获详情（debugMode 或 playground 来源）时累积 SSE 全量，否则跳过
+	captureDetails := h.debugMode() || reqHeaders.Get("X-TinyRouter-Source") == "playground"
+
 	streamStart := time.Now()
 	var inflightID int64
 	if sel != nil {
@@ -224,8 +227,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					if h.debugMode() && reqID != "" && entryFormat == combo.EntryFormatOpenAI {
 						h.parseAndBroadcastChunk(reqID, line, sb)
 					}
-					sseBuf.WriteString(line)
-					sseBuf.WriteByte('\n')
+					if captureDetails {
+						sseBuf.WriteString(line)
+						sseBuf.WriteByte('\n')
+					}
 				}
 			} else {
 				if _, err := w.Write(buf[:n]); err != nil {
@@ -265,8 +270,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					if h.debugMode() && reqID != "" && entryFormat == combo.EntryFormatOpenAI {
 						h.parseAndBroadcastChunk(reqID, line, sb)
 					}
-					sseBuf.WriteString(line)
-					sseBuf.WriteByte('\n')
+					if captureDetails {
+						sseBuf.WriteString(line)
+						sseBuf.WriteByte('\n')
+					}
 				}
 			}
 			flusher.Flush()
@@ -339,8 +346,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 				if h.debugMode() && reqID != "" && entryFormat == combo.EntryFormatOpenAI {
 					h.parseAndBroadcastChunk(reqID, line, sb)
 				}
-				sseBuf.WriteString(line)
-				sseBuf.WriteByte('\n')
+				if captureDetails {
+					sseBuf.WriteString(line)
+					sseBuf.WriteByte('\n')
+				}
 			}
 			break
 		}
@@ -354,7 +363,11 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	h.logger.Info("\U0001f4ca [stream] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	dspModel := resolveDisplayModel(sel.Provider.Name, model, originalModel, h.reg)
 	h.logger.Info("\U0001f300 [STREAM] %s | %s | %dms | %d", sel.Provider.Name, dspModel, totalLatencyMs, resp.StatusCode)
-	sseBody := sseBuf.Bytes()
+	// 非捕获模式下传 nil，recordUsage 内部 respBody 为空即不写 RespPayload
+	var sseBody []byte
+	if captureDetails {
+		sseBody = sseBuf.Bytes()
+	}
 	h.recordUsage(reqID, sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, sseBody, resp.Header, resp.StatusCode, reqHeaders, upstreamURL, originalModel)
 }
 
@@ -392,9 +405,15 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 		errMsg = werr.Error()
 		h.logger.Warn("client disconnected during pass-through: %v", werr)
 	}
+	// 仅在需要详情时把 body 传给 recordUsage；否则传 nil 避免写入 ring
+	captureDetails := h.debugMode() || reqHeaders.Get("X-TinyRouter-Source") == "playground"
+	var respBodyForEntry []byte
+	if captureDetails {
+		respBodyForEntry = bodyBytes
+	}
 	h.logger.Info("\U0001f4ca [response] %s | in=%d | out=%d | conn=%s", sel.Provider.Name, inputTokens, outputTokens, sel.KeyName)
 	h.logger.Info("\U0001f300 [RESPONSE] %s | %s | %dms | %d", sel.Provider.Name, resolveDisplayModel(sel.Provider.Name, model, originalModel, h.reg), latencyMs, resp.StatusCode)
-	h.recordUsage(reqID, sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, bodyBytes, resp.Header, resp.StatusCode, reqHeaders, upstreamURL, originalModel)
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, status, latencyMs, 0, inputTokens, outputTokens, errMsg, reqBody, respBodyForEntry, resp.Header, resp.StatusCode, reqHeaders, upstreamURL, originalModel)
 }
 
 // parseAndBroadcastChunk extracts delta text from an SSE data: line in debug
