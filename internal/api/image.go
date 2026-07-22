@@ -113,7 +113,10 @@ func (rt *Router) saveImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ensure imgs directory exists
-	imgsDir := "imgs"
+	imgsDir := rt.reg.Config().ImageSaveDir
+	if imgsDir == "" {
+		imgsDir = "imgs"
+	}
 	if err := os.MkdirAll(imgsDir, 0755); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "failed to create imgs directory")
 		return

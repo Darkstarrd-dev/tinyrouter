@@ -310,15 +310,10 @@ function pgSetupExportProfile(profile) {
   }
   var dateStr = new Date().toISOString().slice(0, 10);
   var filename = 'scenario-' + nameFragment + '-' + dateStr + '.json';
-  var blob = new Blob([JSON.stringify(p, null, 2)], { type: 'application/json' });
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(a.href);
-  pgToast(pgT('Scenario exported'), 'success');
+  var jsonStr = JSON.stringify(p, null, 2);
+  FsApi.saveFile(jsonStr, filename, 'application/json').then(function(saved) {
+    if (saved) pgToast(pgT('Scenario exported'), 'success');
+  });
 }
 
 // ----- §4.4: Import ------------------------------------------------

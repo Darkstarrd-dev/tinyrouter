@@ -39,14 +39,14 @@ const (
 
 // ModelDef represents one upstream model with its quota type tag.
 type ModelDef struct {
-	ID          string             `yaml:"id" json:"id"`
-	QuotaType   string             `yaml:"quotaType,omitempty" json:"quotaType,omitempty"`
-	Alias       string             `yaml:"alias,omitempty" json:"alias,omitempty"`
-	Note        string             `yaml:"note,omitempty" json:"note,omitempty"`
-	Kind        string             `yaml:"kind,omitempty" json:"kind,omitempty"`             // "text" (default/empty) | "image"
-	ImgProtocol string             `yaml:"imgProtocol,omitempty" json:"imgProtocol,omitempty"` // "gpt" | "xai" | "modelscope" (only when kind=image)
-	ImgSizes    []string           `yaml:"imgSizes,omitempty" json:"imgSizes,omitempty"`     // custom size option list (e.g. "1024x1024") for Playground image mode; empty = built-in defaults
-	NIMOver     *ModelNIMOverride  `yaml:"nim,omitempty" json:"nim,omitempty"`
+	ID          string            `yaml:"id" json:"id"`
+	QuotaType   string            `yaml:"quotaType,omitempty" json:"quotaType,omitempty"`
+	Alias       string            `yaml:"alias,omitempty" json:"alias,omitempty"`
+	Note        string            `yaml:"note,omitempty" json:"note,omitempty"`
+	Kind        string            `yaml:"kind,omitempty" json:"kind,omitempty"`               // "text" (default/empty) | "image"
+	ImgProtocol string            `yaml:"imgProtocol,omitempty" json:"imgProtocol,omitempty"` // "gpt" | "xai" | "modelscope" (only when kind=image)
+	ImgSizes    []string          `yaml:"imgSizes,omitempty" json:"imgSizes,omitempty"`       // custom size option list (e.g. "1024x1024") for Playground image mode; empty = built-in defaults
+	NIMOver     *ModelNIMOverride `yaml:"nim,omitempty" json:"nim,omitempty"`
 	// Protocols records the set of protocols this model was probed to support
 	// (legal values: ProtocolOpenAICompat, ProtocolOpenAIResponses,
 	// ProtocolAnthropic). An empty/nil slice means "not yet probed" OR "probed
@@ -295,4 +295,5 @@ type Config struct {
 	Shortcuts          ShortcutsConfig `yaml:"shortcuts,omitempty" json:"shortcuts,omitempty"`
 	ReviewPresets      []ReviewPreset  `yaml:"reviewPresets,omitempty" json:"reviewPresets,omitempty"`
 	AnySearch          AnySearchConfig `yaml:"anySearch,omitempty" json:"anySearch,omitempty"`
+	ImageSaveDir       string          `yaml:"imageSaveDir,omitempty" json:"imageSaveDir,omitempty"`
 }

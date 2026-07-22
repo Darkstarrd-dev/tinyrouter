@@ -251,8 +251,8 @@ function clearActiveSideTree() {
   if (isVidActive) {
     for (var i = 0; i < galleryState.videoItems.length; i++) {
       var vi = galleryState.videoItems[i];
-      if (vi && vi.mainURL && String(vi.mainURL).indexOf('blob:') === 0) URL.revokeObjectURL(vi.mainURL);
-      if (vi && vi.thumbURL && String(vi.thumbURL).indexOf('blob:') === 0) URL.revokeObjectURL(vi.thumbURL);
+      if (vi && vi.mainURL && String(vi.mainURL).indexOf('blob:') === 0) FsApi.BlobTracker.revoke(vi.mainURL);
+      if (vi && vi.thumbURL && String(vi.thumbURL).indexOf('blob:') === 0) FsApi.BlobTracker.revoke(vi.thumbURL);
     }
     galleryState.videoItems = [];
     galleryState.videoIndex = -1;
@@ -279,8 +279,8 @@ function clearActiveSideTree() {
 
   for (var j = 0; j < galleryState.items.length; j++) {
     var im = galleryState.items[j];
-    if (im && im.mainURL && String(im.mainURL).indexOf('blob:') === 0) URL.revokeObjectURL(im.mainURL);
-    if (im && im.thumbURL && String(im.thumbURL).indexOf('blob:') === 0) URL.revokeObjectURL(im.thumbURL);
+    if (im && im.mainURL && String(im.mainURL).indexOf('blob:') === 0) FsApi.BlobTracker.revoke(im.mainURL);
+    if (im && im.thumbURL && String(im.thumbURL).indexOf('blob:') === 0) FsApi.BlobTracker.revoke(im.thumbURL);
   }
   galleryState.items = [];
   galleryState.index = -1;
@@ -472,7 +472,7 @@ function setActive(index) {
   if (prevIndex >= 0 && prevIndex < galleryState.items.length) {
     var prev = galleryState.items[prevIndex];
     if (prev && prev.mainURL && prev.mainURL.indexOf('blob:') === 0) {
-      URL.revokeObjectURL(prev.mainURL);
+      FsApi.BlobTracker.revoke(prev.mainURL);
       prev.mainURL = null;
     }
   }
@@ -524,8 +524,8 @@ function removeItem(removedIndex) {
   var item = galleryState.items[removedIndex];
   // Revoke blob URLs of the removed item
   if (item) {
-    if (item.mainURL && item.mainURL.indexOf('blob:') === 0) URL.revokeObjectURL(item.mainURL);
-    if (item.thumbURL && item.thumbURL.indexOf('blob:') === 0) URL.revokeObjectURL(item.thumbURL);
+    if (item.mainURL && item.mainURL.indexOf('blob:') === 0) FsApi.BlobTracker.revoke(item.mainURL);
+    if (item.thumbURL && item.thumbURL.indexOf('blob:') === 0) FsApi.BlobTracker.revoke(item.thumbURL);
   }
   // Splice
   galleryState.items.splice(removedIndex, 1);
@@ -572,8 +572,8 @@ function removeItemsByFilter(filterFn) {
   // Revoke blobs of removed items
   for (var j = 0; j < removed.length; j++) {
     var r = removed[j];
-    if (r.mainURL && r.mainURL.indexOf('blob:') === 0) URL.revokeObjectURL(r.mainURL);
-    if (r.thumbURL && r.thumbURL.indexOf('blob:') === 0) URL.revokeObjectURL(r.thumbURL);
+    if (r.mainURL && r.mainURL.indexOf('blob:') === 0) FsApi.BlobTracker.revoke(r.mainURL);
+    if (r.thumbURL && r.thumbURL.indexOf('blob:') === 0) FsApi.BlobTracker.revoke(r.thumbURL);
   }
   // Determine current item's fate (by reference)
   var curItem = galleryState.items[galleryState.index];
@@ -612,8 +612,8 @@ function removeVideoItem(removedIndex) {
   var item = galleryState.videoItems[removedIndex];
   // Revoke blob URLs
   if (item) {
-    if (item.mainURL && item.mainURL.indexOf('blob:') === 0) URL.revokeObjectURL(item.mainURL);
-    if (item.thumbURL && item.thumbURL.indexOf('blob:') === 0) URL.revokeObjectURL(item.thumbURL);
+    if (item.mainURL && item.mainURL.indexOf('blob:') === 0) FsApi.BlobTracker.revoke(item.mainURL);
+    if (item.thumbURL && item.thumbURL.indexOf('blob:') === 0) FsApi.BlobTracker.revoke(item.thumbURL);
   }
   // Splice
   galleryState.videoItems.splice(removedIndex, 1);

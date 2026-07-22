@@ -375,14 +375,9 @@ async function fasBrowsePicker(inputEl, mode) {
       inputEl.value = res.path;
     }
   } catch (e) {
-    if (mode === 'directory' && typeof window.showDirectoryPicker === 'function') {
-      window.showDirectoryPicker().then(function(h) { if (h && h.name) inputEl.value = h.name; });
-    } else if (typeof window.showOpenFilePicker === 'function') {
-      window.showOpenFilePicker({ multiple: false }).then(function(h) {
-        var single = Array.isArray(h) ? h[0] : h;
-        if (single && single.name) inputEl.value = single.name;
-      });
-    }
+    // Backend picker unavailable; File System Access API cannot provide absolute
+    // paths (browser security), so we cannot offer a meaningful fallback here.
+    console.warn('browse picker failed:', e);
   }
 }
 

@@ -157,9 +157,9 @@ function pgOpenMermaidSvg(el) {
   if (!svg) return;
   var text = new XMLSerializer().serializeToString(svg);
   var blob = new Blob([text], { type: 'image/svg+xml' });
-  var url = URL.createObjectURL(blob);
+  var url = FsApi.BlobTracker.create(blob);
   window.open(url, '_blank');
-  setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
+  setTimeout(function() { FsApi.BlobTracker.revoke(url); }, 5000);
 }
 
 function pgRenderHtmlPreview(pre, html) {

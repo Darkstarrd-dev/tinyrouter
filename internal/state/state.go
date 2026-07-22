@@ -1,10 +1,10 @@
 package state
 
 import (
-	"fmt"
 	"os"
 	"time"
 
+	"github.com/tinyrouter/tinyrouter/internal/fsutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -99,27 +99,16 @@ func Load(path string) (*Snapshot, error) {
 	return &s, nil
 }
 
-// Save writes a snapshot to path atomically (temp file + rename).
+// Save writes a snapshot to path atomically (temp file + rename) via
+// fsutil.AtomicWrite.
 //
 // On Windows the target file may be locked by a stale handle, causing
-// os.Rename to fail. Save then falls back to a direct write; if that also
-// fails the .tmp file remains for the next restart to retry. In either
-// fallback case Save returns nil — the data is not lost.
+// os.Rename to fail. AtomicWrite then falls back to a direct write; if that
+// also fails the .tmp file remains for the next restart to retry.
 func Save(path string, s *Snapshot) error {
 	data, err := yaml.Marshal(s)
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return err
-	}
-	if renameErr := os.Rename(tmp, path); renameErr != nil {
-		if writeErr := os.WriteFile(path, data, 0600); writeErr != nil {
-			return fmt.Errorf("state file is locked; pending changes saved to %s", tmp)
-		}
-		_ = os.Remove(tmp)
-		return nil
-	}
-	return nil
+	return fsutil.AtomicWrite(path, data, 0600)
 }

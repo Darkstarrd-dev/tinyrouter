@@ -227,7 +227,7 @@ function clearObjectURLs() {
   if (galleryState.objectURLs && galleryState.objectURLs.length) {
     for (var i = 0; i < galleryState.objectURLs.length; i++) {
       var url = galleryState.objectURLs[i];
-      if (url) URL.revokeObjectURL(url);
+      if (url) FsApi.BlobTracker.revoke(url);
     }
     galleryState.objectURLs.length = 0;
   }
@@ -237,11 +237,11 @@ function clearObjectURLs() {
     var item = allItems[i];
     if (item) {
       if (item.mainURL && item.mainURL.indexOf('blob:') === 0) {
-        URL.revokeObjectURL(item.mainURL);
+        FsApi.BlobTracker.revoke(item.mainURL);
       }
       item.mainURL = null;
       if (item.thumbURL && item.thumbURL.indexOf('blob:') === 0) {
-        URL.revokeObjectURL(item.thumbURL);
+        FsApi.BlobTracker.revoke(item.thumbURL);
       }
       item.thumbURL = null;
     }
@@ -251,14 +251,14 @@ function clearObjectURLs() {
 
 function setMainURL(item, url) {
   if (item.mainURL && item.mainURL.startsWith('blob:')) {
-    URL.revokeObjectURL(item.mainURL);
+    FsApi.BlobTracker.revoke(item.mainURL);
   }
   item.mainURL = url;
 }
 
 function setThumbURL(item, url) {
   if (item.thumbURL && item.thumbURL.startsWith('blob:')) {
-    URL.revokeObjectURL(item.thumbURL);
+    FsApi.BlobTracker.revoke(item.thumbURL);
   }
   item.thumbURL = url;
 }

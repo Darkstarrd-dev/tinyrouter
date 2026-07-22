@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/tinyrouter/tinyrouter/internal/fsutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -69,13 +70,12 @@ func Load(path string) (*Config, error) {
 	return finalizeConfig(&cfg, data), nil
 }
 
-// Save writes config to path atomically (temp file + rename).
+// Save writes config to path atomically (temp file + rename) via fsutil.AtomicWrite.
 //
 // On Windows the target file may be locked by another process or a stale
-// handle, causing os.Rename to fail with ERROR_ACCESS_DENIED. Save then
-// falls back to a direct write of path; if that also fails the .tmp file
-// remains on disk and will be applied on the next startup via Load.
-// In either fallback case Save returns nil — the data is not lost.
+// handle, causing os.Rename to fail. AtomicWrite then falls back to a direct
+// write; if that also fails the .tmp file remains on disk and will be applied
+// on the next startup via Load.
 func Save(path string, cfg *Config) error {
 	marshalCfg := cfg
 	if cfg.Security.PasswordEnabled && cfg.Security.EncryptionKey != "" {
@@ -85,23 +85,8 @@ func Save(path string, cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return err
-	}
-	if renameErr := os.Rename(tmp, path); renameErr != nil {
-		// Fallback: direct write to target (works if the lock was transient).
-		if writeErr := os.WriteFile(path, data, 0600); writeErr != nil {
-			// Both rename and direct write failed — target is actively locked.
-			// .tmp retains the data; it will be applied on next restart via Load.
-			// Do NOT remove tmp — it is the only persistent copy of the change.
-			// 返回 error 让调用方知道状态未立即落盘到 path（pending 改动在 .tmp，
-			// 下次重启 Load 会自动应用）。
-			return fmt.Errorf("config file is locked (both rename and direct write failed); pending changes saved to %s and will be applied on next restart", tmp)
-		}
-		// Direct write succeeded; clean up the now-redundant .tmp file.
-		_ = os.Remove(tmp)
-		return nil
+	if err := fsutil.AtomicWrite(path, data, 0600); err != nil {
+		return fmt.Errorf("config file is locked (both rename and direct write failed); pending changes saved to %s.tmp and will be applied on next restart", path)
 	}
 	return nil
 }

@@ -49,7 +49,7 @@ async function ensureMainSrc(item) {
       blob = await getItemBlob(item);
     }
     if (!blob) return;
-    setMainURL(item, trackURL(URL.createObjectURL(blob)));
+    setMainURL(item, trackURL(FsApi.BlobTracker.create(blob)));
   } catch (e) {
     console.warn('ensureMainSrc failed:', e);
   }
@@ -72,9 +72,9 @@ async function ensureThumb(item) {
       ctx.drawImage(bitmap, 0, 0, w, h);
       bitmap.close && bitmap.close();
       var tblob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
-      url = trackURL(URL.createObjectURL(tblob));
+      url = trackURL(FsApi.BlobTracker.create(tblob));
     } catch (e) {
-      url = trackURL(URL.createObjectURL(blob));
+      url = trackURL(FsApi.BlobTracker.create(blob));
     }
     setThumbURL(item, url);
     item.thumbReady = true;

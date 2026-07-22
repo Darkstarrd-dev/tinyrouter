@@ -6,14 +6,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tinyrouter/tinyrouter/internal/download"
+	"github.com/tinyrouter/tinyrouter/internal/fsutil"
 )
 
 // --- Download API Handlers ---
@@ -366,7 +365,7 @@ func (rt *Router) openDownloadDir(w http.ResponseWriter, r *http.Request) {
 		path = absPath
 	}
 
-	if err := openInExplorer(path); err != nil {
+	if err := fsutil.OpenInFileManager(path); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, fmt.Sprintf("open folder: %s", err))
 		return
 	}
@@ -429,19 +428,7 @@ func (rt *Router) openExternalURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", input.URL)
-	case "darwin":
-		cmd = exec.Command("open", input.URL)
-	default:
-		cmd = exec.Command("xdg-open", input.URL)
-	}
-
-	setCmdHideWindow(cmd)
-
-	if err := cmd.Start(); err != nil {
+	if err := fsutil.OpenInBrowser(input.URL); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, fmt.Sprintf("open url: %s", err))
 		return
 	}
@@ -459,32 +446,10 @@ func (rt *Router) browseSystemPath(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&input)
 
 	var selectedPath string
-	switch runtime.GOOS {
-	case "windows":
-		var psCmd string
-		if input.Mode == "directory" {
-			psCmd = `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }`
-		} else {
-			psCmd = `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Executables (*.exe)|*.exe|All Files (*.*)|*.*'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }`
-		}
-		cmd := exec.Command("powershell", "-NoProfile", "-Command", psCmd)
-		setCmdHideWindow(cmd)
-		out, err := cmd.Output()
-		if err == nil {
-			selectedPath = strings.TrimSpace(string(out))
-		}
-	case "darwin":
-		var script string
-		if input.Mode == "directory" {
-			script = "posix path of (choose folder)"
-		} else {
-			script = "posix path of (choose file)"
-		}
-		cmd := exec.Command("osascript", "-e", script)
-		out, err := cmd.Output()
-		if err == nil {
-			selectedPath = strings.TrimSpace(string(out))
-		}
+	if input.Mode == "directory" {
+		selectedPath, _ = fsutil.OpenDirectoryPicker()
+	} else {
+		selectedPath, _ = fsutil.OpenFilePicker("Executables (*.exe)|*.exe|All Files (*.*)|*.*")
 	}
 
 	w.Header().Set("Content-Type", "application/json")

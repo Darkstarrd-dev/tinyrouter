@@ -80,35 +80,9 @@ async function pgSaveMarkdownFile(content, filename) {
   if (!content) return;
   filename = filename || ('search_result_' + Date.now() + '.md');
   if (!filename.endsWith('.md')) filename += '.md';
-  if (typeof window.showSaveFilePicker === 'function') {
-    try {
-      var handle = await window.showSaveFilePicker({
-        suggestedName: filename,
-        types: [{
-          description: 'Markdown Document',
-          accept: { 'text/markdown': ['.md'] },
-        }],
-      });
-      var writable = await handle.createWritable();
-      await writable.write(content);
-      await writable.close();
-      pgToast(pgT('pgSaveSuccess'), 'success');
-      return;
-    } catch (err) {
-      if (err && err.name === 'AbortError') return;
-    }
-  }
   try {
-    var blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
-    pgToast(pgT('pgSaveSuccess'), 'success');
+    var saved = await FsApi.saveFile(content, filename, 'text/markdown');
+    if (saved) pgToast(pgT('pgSaveSuccess'), 'success');
   } catch (e) {
     pgToast(pgT('pgError'), 'error');
   }
