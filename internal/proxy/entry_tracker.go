@@ -3,6 +3,7 @@ package proxy
 import (
 	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 )
@@ -105,4 +106,26 @@ func MarshalEntryJSON(e usage.Entry) json.RawMessage {
 		return nil
 	}
 	return b
+}
+
+// SweepStale removes and returns entries whose Timestamp is older than maxAge.
+// The caller is responsible for writing final error records for each returned
+// entry and broadcasting request-done events. This is a safety net for
+// processing entries that were never completed (e.g. due to a client disconnect
+// that bypassed recordUsage).
+func (t *EntryTracker) SweepStale(maxAge time.Duration) []usage.Entry {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.entries) == 0 {
+		return nil
+	}
+	cutoff := time.Now().Add(-maxAge)
+	var stale []usage.Entry
+	for id, e := range t.entries {
+		if e.Timestamp.Before(cutoff) {
+			stale = append(stale, e)
+			delete(t.entries, id)
+		}
+	}
+	return stale
 }

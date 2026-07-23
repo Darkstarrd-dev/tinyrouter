@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/tinyrouter/tinyrouter/internal/proxy"
 	"github.com/tinyrouter/tinyrouter/internal/usage"
 )
 
@@ -12,6 +14,27 @@ import (
 func (rt *Router) getUsage(w http.ResponseWriter, r *http.Request) {
 	limit := rt.getIntQuery(r, "limit", 500)
 	offset := rt.getIntQuery(r, "offset", 0)
+
+	// 兜底清理：将超过 10 分钟仍未完成的 processing 条目标记为 error
+	if rt.proxyHandler != nil && rt.proxyHandler.EntryTracker != nil {
+		staleEntries := rt.proxyHandler.EntryTracker.SweepStale(10 * time.Minute)
+		for _, e := range staleEntries {
+			e.Status = "error"
+			e.Error = "timeout"
+			e.LatencyMs = time.Since(e.Timestamp).Milliseconds()
+			rt.usage.Add(e)
+			raw := proxy.MarshalEntryJSON(e)
+			if raw != nil {
+				rt.proxyHandler.RequestUpdates.Broadcast(proxy.RequestEvent{
+					Type:   "request-done",
+					ID:     e.ID,
+					Status: "error",
+					Entry:  raw,
+				})
+			}
+			rt.proxyHandler.UsageUpdates.Signal()
+		}
+	}
 
 	ringEntries := rt.usage.All()
 

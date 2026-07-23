@@ -95,6 +95,8 @@ function hasProcessingEntries() {
   return lastUsageEntries.some(function(e) { return e.status === 'processing'; });
 }
 
+var MAX_PROCESSING_MS = 10 * 60 * 1000; // 10 分钟，超时停止计时
+
 function updateProcessingLatencyCells() {
   var rows = document.querySelectorAll('tr[data-status="processing"]');
   for (var i = 0; i < rows.length; i++) {
@@ -104,7 +106,12 @@ function updateProcessingLatencyCells() {
     var elapsed = Date.now() - new Date(ts).getTime();
     if (isNaN(elapsed) || elapsed < 0) elapsed = 0;
     var cell = rows[i].querySelector('.latency-cell');
-    if (cell) cell.textContent = formatLatency(elapsed);
+    if (!cell) continue;
+    if (elapsed > MAX_PROCESSING_MS) {
+      cell.textContent = '>10m';
+    } else {
+      cell.textContent = formatLatency(elapsed);
+    }
   }
 }
 
@@ -599,7 +606,13 @@ async function refreshQuotaData() {
     });
     Object.keys(inflightEntries).forEach(function(id) {
       if (!apiIds[id]) {
-        merged.unshift(inflightEntries[id]);
+        var ts = new Date(inflightEntries[id].timestamp).getTime();
+        if (Date.now() - ts > MAX_PROCESSING_MS) {
+          // 超过 10 分钟的 processing 条目，不再保留在 inflight，等待后端 SweepStale 产生的 error 记录
+          delete inflightEntries[id];
+        } else {
+          merged.unshift(inflightEntries[id]);
+        }
       }
     });
     sortEntriesByTimeDesc(merged);
@@ -659,6 +672,15 @@ function handleRequestStart(entry) {
   // 排除 Playground 来源：Playground 请求由其独立列表展示，不进 Recent Requests
   if (entry.source === 'playground') return;
   if (!entry.id) entry.id = 'inflight-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+  // 去重：如果 ID 已在 inflight 中，仅更新不做重复插入
+  if (inflightEntries[entry.id]) {
+    inflightEntries[entry.id] = entry;
+    var found2 = lastUsageEntries.findIndex(function(x) { return x.id === entry.id; });
+    if (found2 >= 0 && lastUsageEntries[found2].status === 'processing') {
+      lastUsageEntries[found2] = entry;
+    }
+    return;
+  }
   inflightEntries[entry.id] = entry;
   var found = lastUsageEntries.findIndex(function(x) { return x.id === entry.id; });
   if (found >= 0) {
@@ -689,7 +711,6 @@ function handleRequestDone(id, status, entry) {
   }
   if (completeEntry) {
     if (status) completeEntry.status = status;
-    if (entry) inflightEntries[id] = entry;
   }
   var found = lastUsageEntries.findIndex(function(x) { return x.id === id; });
   if (found >= 0) {

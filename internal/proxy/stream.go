@@ -184,6 +184,8 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	var contentCharsTotal int
 	var lastTokenBroadcast time.Time
 
+	var clientDisconnected bool
+
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
@@ -193,7 +195,8 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					out := normalizeSSEChunk(line)
 					if _, werr := w.Write([]byte(out + "\n")); werr != nil {
 						h.logger.Debug("client disconnected during SSE stream: %v", werr)
-						return
+						clientDisconnected = true
+						break
 					}
 					totalOutput += len(out) + 1
 					if strings.HasPrefix(strings.TrimSpace(line), "data:") {
@@ -235,7 +238,8 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 			} else {
 				if _, err := w.Write(buf[:n]); err != nil {
 					h.logger.Debug("client disconnected during SSE stream: %v", err)
-					return
+					clientDisconnected = true
+					break
 				}
 				for _, line := range sb.Feed(buf[:n]) {
 					line = strings.TrimSpace(line)
@@ -301,6 +305,9 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 				h.broadcastTokens(reqID, inputTokens, effectiveOutput)
 			}
 		}
+		if clientDisconnected {
+			break
+		}
 		if err != nil {
 			remaining := sb.Remaining()
 			if remaining != "" {
@@ -309,10 +316,12 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 					out := normalizeSSEChunk(remaining)
 					if _, werr := w.Write([]byte(out + "\n")); werr != nil {
 						h.logger.Debug("client disconnected during SSE stream: %v", werr)
-						return
+						clientDisconnected = true
+						break
+					} else {
+						totalOutput += len(out) + 1
+						remaining = out
 					}
-					totalOutput += len(out) + 1
-					remaining = out
 				} else {
 					// 非 normalize 路径：remaining 已经在循环中通过 w.Write(buf[:n]) 原样发出，
 					// 不应重复写出。仅提取 token 计入 totalOutput/usage。
@@ -368,7 +377,13 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, mod
 	if captureDetails {
 		sseBody = sseBuf.Bytes()
 	}
-	h.recordUsage(reqID, sel.Provider.Name, model, sel, "success", totalLatencyMs, latencyMs, inputTokens, outputTokens, "", reqBody, sseBody, resp.Header, resp.StatusCode, reqHeaders, upstreamURL, originalModel)
+	status := "success"
+	errMsg := ""
+	if clientDisconnected {
+		status = "error"
+		errMsg = "client disconnected"
+	}
+	h.recordUsage(reqID, sel.Provider.Name, model, sel, status, totalLatencyMs, latencyMs, inputTokens, outputTokens, errMsg, reqBody, sseBody, resp.Header, resp.StatusCode, reqHeaders, upstreamURL, originalModel)
 }
 
 func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response, model string, sel *rotation.SelectedKey, latencyMs int64, reqBody []byte, reqID string, reqHeaders http.Header, upstreamURL string, headersFlushed bool, originalModel string) {
@@ -389,6 +404,9 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	if err != nil {
 		h.logger.Error("failed to read upstream response: %v", err)
+		if sel != nil {
+			h.recordUsage(reqID, sel.Provider.Name, model, sel, "error", latencyMs, 0, 0, 0, err.Error(), reqBody, nil, nil, 0, reqHeaders, upstreamURL, originalModel)
+		}
 		return
 	}
 	_, werr := w.Write(bodyBytes)
@@ -401,8 +419,8 @@ func (h *Handler) passThroughResponse(w http.ResponseWriter, resp *http.Response
 	status := "success"
 	errMsg := ""
 	if werr != nil {
-		status = "client_disconnected"
-		errMsg = werr.Error()
+		status = "error"
+		errMsg = "client disconnected: " + werr.Error()
 		h.logger.Warn("client disconnected during pass-through: %v", werr)
 	}
 	// 仅在需要详情时把 body 传给 recordUsage；否则传 nil 避免写入 ring
