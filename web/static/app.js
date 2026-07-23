@@ -530,16 +530,18 @@ document.addEventListener('keydown', function(e) {
     return;
   }
 
-  // Number keys 1-9: cycle quickslot models (only when not in input and not in gallery)
+  // Number keys 1-9: open quickslot modal (only when not in input and not in gallery)
   if (!isInput) {
     if (typeof currentPage !== 'undefined' && currentPage === 'gallery') {
       // Gallery page owns these keys; do not double-trigger quickslot.
+    } else if (typeof isQuickSlotModalOpen === 'function' && isQuickSlotModalOpen()) {
+      // QuickSlot modal handles its own keys; skip global processing.
     } else {
       var matchedQuickslot = false;
       for (var n = 1; n <= 9; n++) {
         if (Shortcuts.matchEvent('global.quickslot-cycle-' + n, e)) {
           e.preventDefault();
-          if (typeof cycleQuickSlotModel === 'function') cycleQuickSlotModel(n);
+          if (typeof openQuickSlotModalByOrder === 'function') openQuickSlotModalByOrder(n, true);
           matchedQuickslot = true;
           break;
         }

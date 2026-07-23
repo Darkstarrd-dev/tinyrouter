@@ -411,6 +411,13 @@ function removeQuickSlotModel(idx) {
 
 // ===================== Header QuickSlots =====================
 
+// --- QuickSlot Modal State ---
+var _qsModalOverlay = null;
+var _qsModalData = null;       // { qsId, orderNum, models, selectedIndex, name }
+var _qsModalFocusIdx = 0;
+var _qsModalTimer = null;
+var _qsModalAutoClose = false;
+
 async function renderHeaderQuickSlots() {
   var container = document.getElementById('quickslot-header');
   if (!container) return;
@@ -450,7 +457,7 @@ async function renderHeaderQuickSlots() {
       var fullIdEsc = escapeHtml(fullId);
       var num = i + 1;
       var titleAttr = fullIdEsc ? nameEsc + '&#10;' + fullIdEsc : nameEsc;
-      html += '<div class="quickslot-btn" onclick="showQuickSlotDropdown(\'' + escapeAttr(qs.id) + '\')" oncontextmenu="event.preventDefault();importModelsForQuickSlotHeader(\'' + escapeAttr(qs.id) + '\')" data-qs-id="' + escapeAttr(qs.id) + '" title="' + titleAttr + '">\
+      html += '<div class="quickslot-btn" onclick="openQuickSlotModalById(\'' + escapeAttr(qs.id) + '\', false)" oncontextmenu="event.preventDefault();importModelsForQuickSlotHeader(\'' + escapeAttr(qs.id) + '\')" data-qs-id="' + escapeAttr(qs.id) + '" title="' + titleAttr + '">\
         <div class="qs-number">' + num + '</div>\
         <div class="qs-content">\
           <div class="qs-name">' + nameEsc + '</div>\
@@ -464,80 +471,25 @@ async function renderHeaderQuickSlots() {
   }
 }
 
-function showQuickSlotDropdown(id) {
-  removeQuickSlotDropdown();
-  var btn = document.querySelector('.quickslot-btn[data-qs-id="' + id + '"]');
-  if (!btn) return;
-  Promise.all([apiGet('/quickslots'), apiGet('/models')]).then(function(res) {
-    var data = res[0];
-    var modelsData = res[1] || {};
-    var noteMap = {};
-    (modelsData.models || []).forEach(function(m) {
-      if (m.note) noteMap[m.id] = m.note;
-    });
-    var qs = (data.quickslots || []).find(function(x) { return x.id === id; });
-    if (!qs) return;
-    var models = qs.models || [];
-    var sel = qs.selectedIndex || 0;
-    var html = '<div class="quickslot-dropdown" id="quickslot-dropdown" style="position:absolute;z-index:1000;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:8px;min-width:160px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.35)">';
-    if (models.length === 0) {
-      html += '<div class="quickslot-dropdown-item" style="opacity:0.6">' + escapeHtml('—') + '</div>';
-    } else {
-      for (var i = 0; i < models.length; i++) {
-        var note = noteMap[models[i]] || '';
-        var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '" class="quickslot-dropdown-item has-model-note' + (i === sel ? ' selected' : '') + '"' : ' class="quickslot-dropdown-item' + (i === sel ? ' selected' : '') + '"';
-        html += '<div' + noteAttr + ' onclick="selectQuickSlotModel(\'' + escapeAttr(id) + '\',' + i + ')" oncontextmenu="event.preventDefault();event.stopPropagation();confirmDeleteQuickSlotModel(\'' + escapeAttr(id) + '\',' + i + ')">' + escapeHtml(models[i]) + '</div>';
-      }
-    }
-    html += '</div>';
-    var dd = document.createElement('div');
-    dd.innerHTML = html;
-    var menu = dd.firstChild;
-    document.body.appendChild(menu);
-    var rect = btn.getBoundingClientRect();
-    menu.style.top = (rect.bottom + window.scrollY + 4) + 'px';
-    menu.style.left = (rect.left + window.scrollX) + 'px';
-    setTimeout(function() {
-      document.addEventListener('click', closeQuickSlotDropdownOutside);
-      document.addEventListener('keydown', closeQuickSlotDropdownEsc);
-    }, 0);
-  });
+// --- QuickSlot Modal ---
+
+function _qsModalClearTimer() {
+  if (_qsModalTimer) { clearTimeout(_qsModalTimer); _qsModalTimer = null; }
 }
 
-function closeQuickSlotDropdownOutside(e) {
-  var dd = document.getElementById('quickslot-dropdown');
-  if (!dd) return;
-  if (dd.contains(e.target)) return;
-  if (e.target.closest && e.target.closest('.quickslot-btn')) return;
-  removeQuickSlotDropdown();
+function _qsModalStartTimer() {
+  _qsModalClearTimer();
+  if (_qsModalAutoClose) {
+    _qsModalTimer = setTimeout(function() { closeQuickSlotModal(); }, 1000);
+  }
 }
 
-function closeQuickSlotDropdownEsc(e) {
-  if (e.key === 'Escape') removeQuickSlotDropdown();
+function _qsModalCancelAutoClose() {
+  _qsModalAutoClose = false;
+  _qsModalClearTimer();
 }
 
-function removeQuickSlotDropdown() {
-  var dd = document.getElementById('quickslot-dropdown');
-  if (dd && dd.parentNode) dd.parentNode.removeChild(dd);
-  document.removeEventListener('click', closeQuickSlotDropdownOutside);
-  document.removeEventListener('keydown', closeQuickSlotDropdownEsc);
-}
-
-function closeQuickSlotDropdown() {
-  removeQuickSlotDropdown();
-}
-
-async function selectQuickSlotModel(id, index) {
-  var data = await apiGet('/quickslots');
-  var qs = (data.quickslots || []).find(function(x) { return x.id === id; });
-  if (!qs) return;
-  qs.selectedIndex = index;
-  await apiPut('/quickslots/' + id, qs);
-  removeQuickSlotDropdown();
-  renderHeaderQuickSlots();
-}
-
-async function cycleQuickSlotModel(orderNum) {
+async function openQuickSlotModalByOrder(orderNum, autoClose) {
   var data = await apiGet('/quickslots');
   var quickslots = (data.quickslots || []).filter(function(qs) { return !qs.disabled; });
   var qs = null;
@@ -545,21 +497,272 @@ async function cycleQuickSlotModel(orderNum) {
     if (quickslots[i].order === orderNum) { qs = quickslots[i]; break; }
   }
   if (!qs) return;
+  _openQuickSlotModal(qs, autoClose);
+}
+
+async function openQuickSlotModalById(qsId, autoClose) {
+  var data = await apiGet('/quickslots');
+  var qs = (data.quickslots || []).find(function(x) { return x.id === qsId; });
+  if (!qs) return;
+  _openQuickSlotModal(qs, autoClose);
+}
+
+async function _openQuickSlotModal(qs, autoClose) {
+  closeQuickSlotModal();
+  var modelsData = await apiGet('/models');
+  var noteMap = {};
+  ((modelsData || {}).models || []).forEach(function(m) { if (m.note) noteMap[m.id] = m.note; });
   var models = qs.models || [];
-  var disabled = qs.disabledModels || [];
-  var enabledIdx = [];
-  for (var k = 0; k < models.length; k++) {
-    if (disabled.indexOf(models[k]) < 0) enabledIdx.push(k);
+  var sel = qs.selectedIndex || 0;
+  if (sel < 0 || sel >= models.length) sel = 0;
+  _qsModalData = { qsId: qs.id, orderNum: qs.order, models: models, selectedIndex: sel, name: qs.name, noteMap: noteMap, disabledModels: qs.disabledModels || [] };
+  _qsModalFocusIdx = sel;
+  _qsModalAutoClose = !!autoClose;
+  // Build overlay
+  var overlay = document.createElement('div');
+  overlay.className = 'qs-modal-overlay';
+  overlay.id = 'qs-modal-overlay';
+  overlay.innerHTML = _qsModalBuildHtml();
+  document.body.appendChild(overlay);
+  _qsModalOverlay = overlay;
+  requestAnimationFrame(function() { overlay.classList.add('show'); });
+  // Events
+  overlay.addEventListener('mousedown', function(e) {
+    if (e.target === overlay) { closeQuickSlotModal(); return; }
+    _qsModalCancelAutoClose();
+  });
+  overlay.addEventListener('mousemove', function() { /* no-op, mouse presence cancels via click */ });
+  _qsModalStartTimer();
+}
+
+function _qsModalBuildHtml() {
+  var d = _qsModalData;
+  var html = '<div class="qs-modal">';
+  html += '<div class="qs-modal-title">#' + d.orderNum + ' ' + escapeHtml(d.name) + '</div>';
+  html += '<div class="qs-modal-list">';
+  if (d.models.length === 0) {
+    html += '<div class="qs-modal-item muted">—</div>';
+  } else {
+    for (var i = 0; i < d.models.length; i++) {
+      var note = d.noteMap[d.models[i]] || '';
+      var cls = 'qs-modal-item' + (i === _qsModalFocusIdx ? ' focused' : '') + (i === d.selectedIndex ? ' selected' : '') + (note ? ' has-model-note' : '');
+      var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
+      html += '<div class="' + cls + '"' + noteAttr + ' data-idx="' + i + '" onclick="_qsModalItemClick(' + i + ')" oncontextmenu="event.preventDefault();event.stopPropagation();_qsModalItemDelete(' + i + ')">' + escapeHtml(d.models[i]) + '</div>';
+    }
   }
-  if (enabledIdx.length === 0) return;
-  var pos = enabledIdx.indexOf(qs.selectedIndex);
-  if (pos < 0) pos = enabledIdx.length - 1;
-  var nextPos = (pos + 1) % enabledIdx.length;
-  var nextIndex = enabledIdx[nextPos];
-  qs.selectedIndex = nextIndex;
-  await apiPut('/quickslots/' + qs.id, qs);
+  html += '</div>';
+  html += '<div class="qs-modal-hint">' + t('qsModalHint') + '</div>';
+  html += '</div>';
+  return html;
+}
+
+function _qsModalRefresh() {
+  if (!_qsModalOverlay) return;
+  var items = _qsModalOverlay.querySelectorAll('.qs-modal-item');
+  for (var i = 0; i < items.length; i++) {
+    var idx = parseInt(items[i].getAttribute('data-idx'), 10);
+    items[i].classList.toggle('focused', idx === _qsModalFocusIdx);
+    items[i].classList.toggle('selected', idx === _qsModalData.selectedIndex);
+  }
+  // Scroll focused item into view
+  var focused = _qsModalOverlay.querySelector('.qs-modal-item.focused');
+  if (focused) focused.scrollIntoView({ block: 'nearest' });
+}
+
+function _qsModalItemClick(idx) {
+  _qsModalCancelAutoClose();
+  _qsModalFocusIdx = idx;
+  _qsModalRefresh();
+  _qsModalSelectFocused();
+}
+
+function _qsModalItemDelete(idx) {
+  _qsModalCancelAutoClose();
+  _qsModalFocusIdx = idx;
+  _qsModalRefresh();
+  _qsModalDeleteFocused();
+}
+
+async function _qsModalSelectFocused() {
+  if (!_qsModalData) return;
+  var idx = _qsModalFocusIdx;
+  if (idx < 0 || idx >= _qsModalData.models.length) return;
+  var qsId = _qsModalData.qsId;
+  var modelName = _qsModalData.models[idx];
+  var qsName = _qsModalData.name;
+  var data = await apiGet('/quickslots');
+  var qs = (data.quickslots || []).find(function(x) { return x.id === qsId; });
+  if (!qs) return;
+  qs.selectedIndex = idx;
+  await apiPut('/quickslots/' + qsId, qs);
+  closeQuickSlotModal();
   renderHeaderQuickSlots();
-  toast(t('quickSlotSwitched', [qs.name, models[nextIndex]]), 'info', 2000, 'quickslot');
+  toast(t('quickSlotSwitched', [qsName, modelName]), 'info', 2000, 'quickslot');
+}
+
+async function _qsModalDeleteFocused() {
+  if (!_qsModalData) return;
+  var idx = _qsModalFocusIdx;
+  if (idx < 0 || idx >= _qsModalData.models.length) return;
+  var qsId = _qsModalData.qsId;
+  var modelName = _qsModalData.models[idx];
+  var ok = await confirmModal(t('confirmDeleteQuickSlotModel', [modelName]));
+  if (!ok) {
+    // Cancel: return to quickslot modal (do NOT close it)
+    return;
+  }
+  // Perform deletion
+  var data = await apiGet('/quickslots');
+  var qs = (data.quickslots || []).find(function(x) { return x.id === qsId; });
+  if (!qs) return;
+  var models = qs.models || [];
+  models.splice(idx, 1);
+  var sel = qs.selectedIndex || 0;
+  if (models.length === 0) {
+    sel = 0;
+  } else if (sel >= models.length) {
+    sel = models.length - 1;
+  } else if (sel === idx) {
+    sel = Math.min(idx, models.length - 1);
+  }
+  var updated = {
+    name: qs.name,
+    order: qs.order,
+    models: models,
+    disabledModels: (qs.disabledModels || []).filter(function(m) { return m !== modelName; }),
+    disabled: !!qs.disabled,
+    selectedIndex: sel
+  };
+  await apiPut('/quickslots/' + qsId, updated);
+  renderHeaderQuickSlots();
+  toast(t('quickSlotModelRemoved'), 'success');
+  // Update modal in-place
+  if (_qsModalOverlay) {
+    _qsModalData.models = models;
+    _qsModalData.selectedIndex = sel;
+    if (_qsModalFocusIdx >= models.length) _qsModalFocusIdx = Math.max(0, models.length - 1);
+    if (models.length === 0) { closeQuickSlotModal(); return; }
+    _qsModalOverlay.querySelector('.qs-modal').innerHTML = _qsModalBuildInner();
+    _qsModalRefresh();
+  }
+}
+
+function _qsModalBuildInner() {
+  var d = _qsModalData;
+  var html = '<div class="qs-modal-title">#' + d.orderNum + ' ' + escapeHtml(d.name) + '</div>';
+  html += '<div class="qs-modal-list">';
+  if (d.models.length === 0) {
+    html += '<div class="qs-modal-item muted">—</div>';
+  } else {
+    for (var i = 0; i < d.models.length; i++) {
+      var note = d.noteMap[d.models[i]] || '';
+      var cls = 'qs-modal-item' + (i === _qsModalFocusIdx ? ' focused' : '') + (i === d.selectedIndex ? ' selected' : '') + (note ? ' has-model-note' : '');
+      var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
+      html += '<div class="' + cls + '"' + noteAttr + ' data-idx="' + i + '" onclick="_qsModalItemClick(' + i + ')" oncontextmenu="event.preventDefault();event.stopPropagation();_qsModalItemDelete(' + i + ')">' + escapeHtml(d.models[i]) + '</div>';
+    }
+  }
+  html += '</div>';
+  html += '<div class="qs-modal-hint">' + t('qsModalHint') + '</div>';
+  return html;
+}
+
+function closeQuickSlotModal() {
+  _qsModalClearTimer();
+  if (_qsModalOverlay) {
+    _qsModalOverlay.classList.remove('show');
+    var el = _qsModalOverlay;
+    setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
+    _qsModalOverlay = null;
+  }
+  _qsModalData = null;
+  _qsModalFocusIdx = 0;
+  _qsModalAutoClose = false;
+}
+
+function isQuickSlotModalOpen() {
+  return !!_qsModalOverlay;
+}
+
+// Keyboard handler for quickslot modal (capture phase to take priority)
+document.addEventListener('keydown', function(e) {
+  if (!_qsModalOverlay) return;
+  // If a confirm modal is on top, let it handle keys
+  var mainOverlay = document.getElementById('modal-overlay');
+  if (mainOverlay && mainOverlay.classList.contains('show')) return;
+
+  var d = _qsModalData;
+  if (!d) return;
+  var len = d.models.length;
+
+  // Number keys: move focus down (restarts 1s timer)
+  if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (len > 0) {
+      _qsModalFocusIdx = (_qsModalFocusIdx + 1) % len;
+      _qsModalRefresh();
+    }
+    _qsModalStartTimer();
+    return;
+  }
+  // Arrow keys: navigate
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    _qsModalCancelAutoClose();
+    if (len > 0) {
+      if (e.key === 'ArrowDown') {
+        _qsModalFocusIdx = (_qsModalFocusIdx + 1) % len;
+      } else {
+        _qsModalFocusIdx = (_qsModalFocusIdx - 1 + len) % len;
+      }
+      _qsModalRefresh();
+    }
+    return;
+  }
+  // Enter: select focused
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    _qsModalCancelAutoClose();
+    _qsModalSelectFocused();
+    return;
+  }
+  // Delete: delete focused model
+  if (e.key === 'Delete') {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    _qsModalCancelAutoClose();
+    _qsModalDeleteFocused();
+    return;
+  }
+  // Escape: close modal
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    closeQuickSlotModal();
+    return;
+  }
+}, true); // capture phase
+
+// Right-click on quickslot modal background closes it
+document.addEventListener('contextmenu', function(e) {
+  if (!_qsModalOverlay) return;
+  var mainOverlay = document.getElementById('modal-overlay');
+  if (mainOverlay && mainOverlay.classList.contains('show')) return;
+  if (_qsModalOverlay.contains(e.target)) {
+    // Item contextmenu is handled inline; background closes
+    if (!e.target.closest('.qs-modal-item')) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closeQuickSlotModal();
+    }
+  }
+}, true);
+
+// Keep legacy cycleQuickSlotModel as opening the modal with auto-close
+async function cycleQuickSlotModel(orderNum) {
+  openQuickSlotModalByOrder(orderNum, true);
 }
 
 async function importModelsForQuickSlotHeader(qsId) {
@@ -691,36 +894,16 @@ async function importModelsForQuickSlotByOrder(orderNum) {
   }
 }
 
+// Legacy: confirmDeleteQuickSlotModel now handled by _qsModalDeleteFocused
 async function confirmDeleteQuickSlotModel(qsId, modelIndex) {
+  // Open the modal for this quickslot and trigger delete on the specified index
   var data = await apiGet('/quickslots');
   var qs = (data.quickslots || []).find(function(x) { return x.id === qsId; });
   if (!qs) return;
-  var models = qs.models || [];
-  if (modelIndex < 0 || modelIndex >= models.length) return;
-  var modelName = models[modelIndex];
-  var ok = await confirmModal(t('confirmDeleteQuickSlotModel', [modelName]));
-  if (!ok) return;
-  models.splice(modelIndex, 1);
-  var sel = qs.selectedIndex || 0;
-  if (models.length === 0) {
-    sel = 0;
-  } else if (sel >= models.length) {
-    sel = models.length - 1;
-  } else if (sel === modelIndex) {
-    sel = modelIndex;
-  }
-  var updated = {
-    name: qs.name,
-    order: qs.order,
-    models: models,
-    disabledModels: (qs.disabledModels || []).filter(function(m) { return m !== modelName; }),
-    disabled: !!qs.disabled,
-    selectedIndex: sel
-  };
-  await apiPut('/quickslots/' + qsId, updated);
-  removeQuickSlotDropdown();
-  renderHeaderQuickSlots();
-  toast(t('quickSlotModelRemoved'), 'success');
+  await _openQuickSlotModal(qs, false);
+  _qsModalFocusIdx = modelIndex;
+  _qsModalRefresh();
+  _qsModalDeleteFocused();
 }
 
 async function deleteCurrentQuickSlotModel(orderNum) {
@@ -737,24 +920,9 @@ async function deleteCurrentQuickSlotModel(orderNum) {
     toast(t('noModels'), 'warning');
     return;
   }
-  var modelName = models[sel];
-  var ok = await confirmModal(t('confirmDeleteQuickSlotModel', [modelName]));
-  if (!ok) return;
-  models.splice(sel, 1);
-  if (models.length === 0) {
-    sel = 0;
-  } else if (sel >= models.length) {
-    sel = models.length - 1;
-  }
-  var updated = {
-    name: qs.name,
-    order: qs.order,
-    models: models,
-    disabledModels: (qs.disabledModels || []).filter(function(m) { return m !== modelName; }),
-    disabled: !!qs.disabled,
-    selectedIndex: sel
-  };
-  await apiPut('/quickslots/' + qs.id, updated);
-  renderHeaderQuickSlots();
-  toast(t('quickSlotModelRemoved'), 'success');
+  // Open modal and trigger delete on current selection
+  await _openQuickSlotModal(qs, false);
+  _qsModalFocusIdx = sel;
+  _qsModalRefresh();
+  _qsModalDeleteFocused();
 }

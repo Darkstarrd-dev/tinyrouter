@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-**最后核对：** 2026-07-22，仓库工作区（`main`）。本次新增/核对：Gallery 交互修复——(1) 拖放权限请求改为仅首个 handle 弹窗（`queryPermission` + 单次 `requestPermission`），同目录文件共享授权；(2) 删除确认 modal 自动 focus 取消按钮，全局 modal handler 泛化支持 `.pg-btn` 按钮的 Tab/方向键/Enter 导航；(3) `onFullscreenKey`/`onGalleryKeyDown` 增加 `topOpenModal()` 前置检查实现 focus trap，防止 modal 打开时按键穿透到 Gallery；(4) 双屏模式 `updateFocusUIOnly` 同步隐藏非 focus 侧树面板，`toggleTreePanel` 检测 DOM activeElement 所在 pane 自动同步逻辑 focus；(5) 树面板节点点击根据 panel ID 判定所属侧并自动切换 focus。
+**最后核对：** 2026-07-23，仓库工作区（`main`）。本次新增/核对：QuickSlot 头部交互重构——1-9 快捷键从直接 cycle 改为弹出模型选择 modal（`openQuickSlotModalByOrder(n, true)`，1s 无操作自动关闭）；鼠标点击展开同 modal（无自动关闭）；新增 Del 键删除、方向键/鼠标取消自动关闭门限；确认删除取消时仅回退到 quickslot modal。涉及 `quickslots.js`、`app.js`、`style.css`、`i18n.js`。
 
 > **2026-07-22 更新（Search 模式 UI/UX 优化）：**
 > - **双窗口左右并列布局与交互：** `pgState.mode === 'search'` 时强制使用 2 窗口布局（`splitCount = 2`，`1fr 1fr`），左侧窗口显示 Search Strategy 与 Raw Search Results 视图，右侧窗口专门渲染 Synthesized 最终回复；问句留在 `#pg-input` 并呈灰色锁定态（`pg-input-search-locked`）；打字时恢复亮色编辑。
@@ -698,7 +698,7 @@ zip、tiff 及文件系统操作需后端参与：
 ### 全屏交互
 进入全屏后**仅**键盘操作：`←` 前一张 / `→` 或 `Space` 下一张 / `Esc` / `Enter` 退出全屏 / `1`-`9` 设置 9 档间隔时间（按序映射到 1/2/3/5/10/15/30/60/120 秒）/ `a` 切换自动播放。capture 阶段绑定 keydown（`galleryState.keyHandler = onFullscreenKey`，`document.addEventListener('keydown', ..., true)`）以拦截 app.js 全局 F1-F6。
 
-> 2026-07-19：除 1-9（间隔档位，全屏内仍硬编码不可自定义）外的所有全屏键已切到 `web/static/shortcuts.js` 注册中心。`onFullscreenKey` 与 `onGalleryKeyDown` 改用 `Shortcuts.matchEvent('gallery.<actionID>', e)`：`gallery.prev`/`gallery.next`/`gallery.prev-folder`/`gallery.next-folder`/`gallery.toggle-autoplay`/`gallery.toggle-fullscreen`/`gallery.toggle-tree`/`gallery.exit-fullscreen`/`gallery.toggle-split`/`gallery.toggle-media`/`gallery.switch-focus`。视频激活时 `ArrowLeft/Right/Up/Down/Space/1-9`（媒体控制：倒退 10 秒、上一/下一视频、音量、暂停）仍保持硬编码，**刻意不纳入自定义**以避免与全局 quickslot-cycle 1-9 产生跨区域冲突；`Space`/`PageUp`/`PageDown` 仍走通用导览分支作为快捷的同义键。详见 §16.x（快捷键注册中心）与 §23"变更维护清单"。
+> 2026-07-19：除 1-9（间隔档位，全屏内仍硬编码不可自定义）外的所有全屏键已切到 `web/static/shortcuts.js` 注册中心。`onFullscreenKey` 与 `onGalleryKeyDown` 改用 `Shortcuts.matchEvent('gallery.<actionID>', e)`：`gallery.prev`/`gallery.next`/`gallery.prev-folder`/`gallery.next-folder`/`gallery.toggle-autoplay`/`gallery.toggle-fullscreen`/`gallery.toggle-tree`/`gallery.exit-fullscreen`/`gallery.toggle-split`/`gallery.toggle-media`/`gallery.switch-focus`。视频激活时 `ArrowLeft/Right/Up/Down/Space/1-9`（媒体控制：倒退 10 秒、上一/下一视频、音量、暂停）仍保持硬编码，**刻意不纳入自定义**以避免与全局 quickslot 1-9（弹出模型选择 modal）产生跨区域冲突；`Space`/`PageUp`/`PageDown` 仍走通用导览分支作为快捷的同义键。详见 §16.x（快捷键注册中心）与 §23“变更维护清单”。
 
 > 2026-07-22：`onFullscreenKey` 与 `onGalleryKeyDown` 顶部新增 `topOpenModal()` 前置检查——当任何 modal 打开时（app 退出确认、Gallery 删除确认等），Gallery 快捷键全部让位给 `app.js` 全局 modal handler 的 focus trap（Tab/方向键循环按钮、Enter 点击、Esc/右键关闭）。`onContextMenu`（全屏右键退出）同样增加 modal 前置检查，防止右键关闭弹窗时意外退出全屏。**全屏实现已移除 HTML5 Fullscreen API（`requestFullscreen`/`exitFullscreen`）**——因为浏览器引擎会在所有 JS handler 之前原生拦截 ESC 退出全屏，导致 modal 打开时 ESC 无法被 JavaScript 拦截。现仅依赖 CSS class `gallery-fullscreen-active`（视觉全屏）+ `toggleNativeFullscreen`（WebView2 原生窗口全屏，无 ESC 原生退出行为）。`app.js` 全局 modal handler 泛化为收集 modal 内所有可见 `button`/`.pg-btn`/`.btn` 元素进行焦点循环，不再仅限 `#modal-cancel`/`#modal-confirm`。Gallery 删除确认弹窗（Ctrl+Del / Shift+Del）打开后自动 focus 到"取消"按钮。`deleteItemMark`/`toggleReviewItemMark` 标记删除后增加 300ms 过渡延迟（红色遮罩可见）再自动前进，期间阻止重复标记但允许手动导航。
 
@@ -742,7 +742,7 @@ AI Review 从硬编码"广告审核"（`is_ad` 字段）泛化为通用二值判
 - `internal/api/compress.go` `skipTypes` 追加 `image/tiff`
 - `internal/api/router.go` `pgJSFiles` 数组追加 `gallery.js`
 - `web/static/index.html` 增加 Gallery nav-item + `<script src="/gallery.js">`
-- `web/static/app.js` 加 `case 'gallery'` / F6 快捷键 / `cleanupGallery` 钩子；2026-07-19 起 F6 与 1-9 quickslot-cycle 改为经 `Shortcuts.matchEvent('global.goto-gallery' / 'global.quickslot-cycle-N', e)`
+- `web/static/app.js` 加 `case 'gallery'` / F6 快捷键 / `cleanupGallery` 钩子；2026-07-19 起 F6 与 1-9 quickslot 改为经 `Shortcuts.matchEvent('global.goto-gallery' / 'global.quickslot-cycle-N', e)`；2026-07-23 起 1-9 行为从直接 cycle 改为弹出 quickslot 模型选择 modal（`openQuickSlotModalByOrder(n, true)`，1s 无操作自动关闭）
 - `web/static/i18n.js` 加 `gallery` 与 14 个 gallery 专用 key（en/cn）+ 2026-07-19 新增 20 个 `shortcut*` key（en/cn，对应 Settings > Shortcut Settings 弹窗）
 - `web/static/style.css` 末尾追加 `.gallery-*` 段（约 35 行）
 - `go.mod` 新增直接依赖 `golang.org/x/image v0.44.0`
