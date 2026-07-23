@@ -1,295 +1,103 @@
 # TinyRouter
 
-轻量级 LLM API 代理，从 [9router](https://github.com/sst9/9router) 抽取代理功能，增加针对一些主流慈善供应商的专用机制，抽取 newAPI 的 playground 模块，魔改增加多模型同时请求测试功能、多模型聊天群聊天功能。
+> **About**  
+> **Lightweight Utilities bundled local based API router, AI Chat, Image Generation, Stream Video Download Manager, Image Viewer, Video Player ....... with extremely tiny size.**
 
-单二进制，内存占用 ~6 MB，内置 Web UI。
+TinyRouter 是一个极轻量级的本地端 AI 工具箱与 API 代理引擎。它以单二进制交付（解压即用、零外部依赖、极低内存占用），在提供 OpenAI 兼容代理与 Key 轮询退避能力的同时，深度集成了多模型 AI Playground、AI 联网检索、图像生成、流式音视频下载器、多媒体画廊（图片/漫画浏览器与视频播放器）以及交互终端与实时监控等核心功能。
 
-## 功能
+---
 
-- **多 Key 轮询** — fill-first / round-robin 两种策略，粘性轮询，指数退避冷却，429 日配额锁定，per-model 锁
-- **Provider 管理** — 通过 Web UI 增删改 Provider，连接测试、模型导入、单模型测试、密钥批量添加
-- **模型列表** — 自定义模型 ID，每个 Provider 独立配置
-- **Rotation 覆盖** — 每个 Provider 可独立设置轮询策略，覆盖全局默认
-- **前缀解析** — `ms/deepseek-chat` 格式自动解析为对应 Provider
-- **Combo** — fallback / round-robin 两种组合策略，支持从 Provider 导入模型
-- **EN / CN 双语 UI** — 侧边栏一键切换
-- **深色 / 浅色主题** — 玻璃拟态设计
-- **内存 Usage** — 环形缓冲 (默认 500 条)，实时统计请求数/成功率/平均延迟/Token 用量
-- **控制台日志** — 与 9router 格式一致的实时日志，SSE 流式推送
-- **Monitor** — 实时流式运行白名单命令（如 `nvidia-smi -l 1`），结果内嵌于 Console 页面
-- **Terminal** — Debug Mode 下开启完整交互式终端（xterm.js + WebSocket + ConPTY/PTY），支持 vim、Ctrl+C、Tab 补全；会话持久保持
-- **Video Download** — 基于 yt-dlp 的视频/音频下载，支持单链接 / 播放列表、画质选择、并发分片、代理、缩略图预览与任务队列；失败/取消任务原地重试（不再生成新任务项）；打开目录按钮正确打开下载位置（修复 explorer.exe 单实例 DDE 转发丢失路径问题）
-- **Download UI (v1.8.0)** — 解析卡片表头粘性置顶，多个解析卡片与任务列表共享同一滚动条，消除 card 与 task-item 之间的间隙；移除了 console 页面的重复 yt-dlp [debug] 信息（已在 download 页面 View Log 显示）
-- **Gallery (v1.7.8)** — 本地与 Zip 压缩包漫画/图片/视频浏览器，支持独立 Sub-Panel 左图右视频双屏 (`D`) / 单屏 (`S`) / 媒体 (`M`) 模式切换、Focus 焦点继承退回、全屏黄金比例自适应排布 (`autoBalanceFullscreenSplitRatio`)、视频状态感知连贯播放 (State-Aware Continuity)、多层子目录 Zip 压缩包秒解与直属计数 (`directCount`) 目录树、全量 SVG 图标与亮色主题完全兼容
-- **纯本地** — 无鉴权，无远程访问，任意 Key 或无 Key 均可访问
-- **多模型同时请求测试** — 一键对多个模型并行发起请求，对比延迟/速度/配额
-- **多模型聊天群聊** — 多个模型同场对话，并排对比回答
-- **Playground Search** — 联网搜索模式：AI 自动分类查询意图 → 调用 AnySearch 检索 → 流式合成回答，支持子域名过滤与页面内容提取
+## 核心功能概览
 
-## 页面
+### 1. 🔀 API Router & Provider Rotation (API 代理与轮询引擎)
+- **多 Key 轮询与智能退避**：支持 `fill-first`（按优先级填充）与 `round-robin`（粘性轮询）策略，提供指数退避冷却、429 日配额自动锁定与 per-model 独立锁机制。
+- **Provider & Combo 管理**：支持动态增加与管理 Provider、模型批量导入、连通性测试；支持 `fallback` / `round-robin` / `greedy-squirrel` 三种 Combo 组合策略。
+- **协议兼容与改写**：OpenAI / Anthropic / NVIDIA NIM 原生兼容，支持模型前缀自动路由解析（如 `ms/deepseek-chat`）。
 
-| 页面 | 功能 |
+### 2. 🧪 Playground (AI 多模型混合引擎)
+- **Normal 模式**：支持 1~4 窗口自由分割，对多个模型并行发起对话，对比回复延迟、生成速度与 Token 用量。
+- **Search 模式**：AI 联网检索合成模式。自动意图提取 → 调用 AnySearch 检索 → 左屏展示策略与 Raw 抓取结果、右屏流式合成 Synthesized 回复，并支持 Markdown 结构自动修复与删除单条 Search 历史。
+- **Image 模式**：AI 图像生成与创作控制台，支持画质比例预设管理与多尺寸切换。
+- **Auto (AutoChat) 模式**：多模型自动群聊与碰撞测试。设定角色与主题后，多个 AI 自动在多窗口间轮流对话与辩论。
+
+### 3. ⬇️ Stream Video Download Manager (音视频下载管理器)
+- 基于 `yt-dlp` 与 `ffmpeg` 驱动，支持单链接解析与播放列表批量下载。
+- 支持最高画质选择、仅提取音频、并发分片下载、代理设置、缩略图预览与任务队列生命周期管理。
+
+### 4. 🖼️ Gallery (Image Viewer & Video Player 多媒体画廊)
+- **图片与漫画浏览器**：支持单图/多图拖拽与粘贴、本地文件夹及多层 Zip 压缩包秒解解析，采用自然段排序（Natural Segment Path Order）。
+- **视频播放器**：支持状态感知连贯播放（State-Aware Continuity）与视频预览。
+- **分屏与多模式**：支持独立 Sub-Panel 左图右视频双屏 (`D`)、全屏黄金比例自适应排布 (`F`)、媒体模式切换 (`M`) 与直属计数目录树 (`T`)。
+
+### 5. 💻 Terminal & Monitor (交互终端与系统监控)
+- **Monitor**：实时流式运行白名单监控命令（如 `nvidia-smi -l 1`），结果内嵌于控制台。
+- **Terminal**：Debug 模式下提供完整 PTY 交互式终端（xterm.js + WebSocket + ConPTY/PTY），支持 vim、Ctrl+C 与 Tab 自动补全。
+
+---
+
+## 详细功能指南与快捷键
+
+### 页面全局导航
+
+| 快捷键 | 功能说明 |
 |---|---|
-| **Usage** | 实时请求统计：趋势图、Token 用量、最近请求、Quota 监控 |
-| **Settings** | 监听端口、上游代理、轮询策略、超时、密码保护、Provider / Combo / QuickSlot 管理 |
-| **Console** | 实时日志、Monitor 白名单命令、Terminal（Debug Mode） |
-| **Download** | yt-dlp 视频/音频下载，播放列表批量、画质、代理、任务队列 |
-| **Gallery** | 本地图片/Zip 漫画浏览器，支持拖拽粘贴、目录树、自动播放与全屏浏览 |
-| **Playground** | 多模型同时测试、群聊对比、联网搜索（仅 `-tags playground` 构建包含） |
+| `F1` | 快速切换到 **Usage** (实时统计与用量监控) 页面 |
+| `F2` | 快速切换到 **Settings** (配置、Provider 与 Combo 管理) 页面 |
+| `F3` | 快速切换到 **Console** (日志、Monitor 与 Terminal) 页面 |
+| `F4` | 快速切换到 **Playground** (多模型对话与 AI 测试) 页面 |
+| `F5` | 快速切换到 **Download** (视频/音频下载管理器) 页面 |
+| `F6` | 快速切换到 **Gallery** (图片/漫画/视频画廊) 页面 |
 
-Playground 的前后端事实基线见 [`docs/playground-architecture.md`](docs/playground-architecture.md)。
+---
 
-## Gallery 图片浏览器
+### Playground 专属快捷键与操作手势
 
-内置极速漫画与图片浏览器，支持拖拽、粘贴或选择本地图片与压缩包。
+Playground 支持每个模式独立的“状态沙盒”与消息隔离，随时自由双向切换：
 
-### 支持的能力
-
-- **文件与压缩包解析**：支持单个/批量图片文件（`webp` / `png` / `jpg` / `gif` / `bmp` / `avif`）直接拖入或粘贴；支持拖入/选择包含子目录的完整文件夹及多级嵌套 Zip 压缩包（自动进行反斜杠清洗与编码修复）；
-- **自然分段排序**：采用 Natural Segment Path Order，文件名与目录名自然数字排序（如 `1` -> `2` -> `10`），与 Windows 资源管理器逻辑保持一致；
-- **目录树面板 (`T`)**：侧边栏展示当前压缩包或文件夹的树状层级结构，带有直属图片计数 badge，点击节点直接跳至该目录直属首图；
-- **跨文件夹跳转 (`<|` / `|>`)**：一键在不同子目录或包之间来回切换；
-- **目录级直属缩略图**：底部缩略图栏与页码计数（如 `5 / 206`）按当前所处的子目录进行范围过滤；
-- **多档位自动播放 (`A`)**：悬停或按数字键可在 `1s` ~ `120s` 多档位间隔间快速切换自动播放；
-- **物理全屏 (`F`)**：支持网页全屏与 WebView2 独立窗口系统的原生无边框全屏（覆盖任务栏与标题栏），支持全屏下鼠标右键退出；
-- **进程内会话留存**：在应用内切换至其他页面（如 Usage / Playground）再切回时，自动保存加载状态与阅读位置。
-
-## Quick Slot 快速模型切换
-
-Quick Slot 是预设的「模型切换槽」，适合把常用的几个模型绑到一个数字键上，一键循环切换，无需打开下拉菜单。
-
-- **添加**：Settings 页面 → Quick Slots → 新建。填写名称、`order` (1~9)、并从 Provider 导入模型。
-- **绑定数字键**：`order` 决定对应哪个数字键（1→order 1，2→order 2，……，9→order 9，最多 9 个槽）。
-- **循环切换**：按下对应数字键，在当前槽「已启用」的模型之间循环切换；被停用的模型会自动跳过。
-- **当前选中**：顶部 header 会显示该槽的名称、当前模型的 `provider/末段模型名`，并带序号徽章；hover 显示完整 `provider/modelid`。
-- **快捷增删**：Header 右键打开「从 Provider 导入模型」弹窗；右键下拉菜单中的模型可确认删除。`Alt+数字` 快捷导入，`Ctrl+数字` 快捷删除当前模型。
-- **编辑**：在槽的编辑弹窗中可增删模型、拖拽排序。
-
-> 说明：若某槽被停用 (disabled)，其数字键不再生效。当所有模型都被停用或槽为空时，按键无效。
-
-## Video Download（需手动安装外部工具）
-
-Download 功能基于 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 驱动，并通过 [ffmpeg](https://ffmpeg.org/) 完成音视频合并/转码。**这两个工具需要自行下载安装**，并将可执行文件路径填入 Settings → Download Settings（默认从 `PATH` 查找 `yt-dlp` 和 `ffmpeg`）。
-
-- **yt-dlp**：<https://github.com/yt-dlp/yt-dlp/releases>（下载 `yt-dlp.exe` / `yt-dlp`，放到 PATH 或在设置中指定绝对路径）
-- **ffmpeg**：<https://ffmpeg.org/download.html>（下载构建产物，把 `ffmpeg` / `ffprobe` 可执行文件放到 PATH 或在设置中指定）
-
-### 支持的能力
-
-- 单链接 / 播放列表批量（可勾选条目）
-- 视频（最高画质 best → 最差 worst）/ 仅音频
-- 容器格式：mp4 / mkv / webm / mov
-- 并发分片下载、断点续传、任务队列
-- 缩略图预览、状态（pending / downloading / processing / completed / error / cancelled）
-- 代理（与全局上游代理解耦，单独设置）
-- 默认下载目录、yt-dlp / ffmpeg 自定义路径
-
-> **未安装 yt-dlp / ffmpeg 时**：Download 页面会提示工具未找到，任务无法启动。
-
-## 快捷键
-
-### 全局 / 页面导航
-
-| 快捷键 | 功能 |
+| 快捷键 | 功能说明 |
 |---|---|
-| `F1` | 切换到 Usage 统计页面 |
-| `F2` | 切换到 Settings 页面 |
-| `F3` | 切换到 Console 日志页面 |
-| `F4` | 切换到 Playground 页面 |
-| `F5` | 切换到 Download 页面 |
-| `F6` | 切换到 Gallery 页面 |
-| `1` ~ `9` | 循环切换对应 `order` 的 Quick Slot 模型（仅在非 Gallery 页面时生效） |
-| `Alt+1` ~ `Alt+9` | 为对应 Quick Slot 导入模型 |
-| `Ctrl+1` ~ `Ctrl+9` | 删除对应 Quick Slot 当前模型 |
-| `Esc` | 关闭弹窗；若没有弹窗则关闭服务器 |
+| `Alt + ~` | **聚焦输入框**：快速将光标聚焦到底部的 Prompt Input 文本框 |
+| `Alt + 1` | 切换到 **Normal** (多模型对话与请求测试) 模式 |
+| `Alt + 2` | 切换到 **Search** (AI 联网检索与双屏比对) 模式 |
+| `Alt + 3` | 切换到 **Image** (AI 图像生成) 模式 |
+| `Alt + 4` | 切换到 **Auto** (多模型自动群聊碰撞) 模式 |
+| `Alt + C` | **清空聊天**：清空当前模式下的会话历史记录 (`Clear Chat`) |
+| `Ctrl + 1` ~ `4` | **切换窗口数量**：一键切换 Playground 当前显示 1 ~ 4 个窗口屏数 (Auto 模式限定最少 2 窗口) |
+| `Shift + 1` ~ `4` | **切换活动焦点窗口**：快速将活动编辑窗口切换到第 1 ~ 4 窗口（输入框打字时自动放行放误触） |
 
-### Gallery 页面专用快捷键
+#### Search 模式操作手势：
+- **历史记录一键删除**：侧边栏 Search History 中的每一个历史记录项右侧均带有红色圆形 `✕` 删除按钮，支持独立移除单条历史。
+- **Markdown 结构修复**：左侧 Raw 抓取结果与右侧 Synthesized 回复卡片底部提供修复与 Markdown 保存按钮 (`↺` / `💾`)。
 
-| 快捷键 | 功能 |
+---
+
+### Gallery (画廊 & 视频播放器) 快捷键
+
+| 快捷键 | 功能说明 |
 |---|---|
-| `T` / `t` | 展开 / 收起侧边目录树面板（双屏下作用于 Focus 聚焦区侧边） |
-| `D` / `d` | 切换【双屏模式 ▍▍ (`S`)】/【单屏模式 (`D`)】 |
-| `P` / `V` / `M` / `m` | 切换【图片模式 (`V`)】/【视频模式 (`P`)】（单屏下生效） |
-| `Tab` | 【双屏模式下专用】无缝切换 Focus 焦点（图片 ↔ 视频，带脉冲高亮蒙层） |
-| `Up` (↑) / `Down` (↓) | 图片模式：切换文件夹；视频模式：上一个 / 下一个视频 |
-| `Left` (←) / `Right` (→) | 图片模式：翻到上一张 / 下一张图片；视频模式：视频快退 / 快进 10s |
-| `Space` (空格) | 图片模式：翻页；视频模式：切换播放 / 暂停 |
-| `A` / `a` | 开启 / 停止图片自动播放 |
-| `1` ~ `9` | 图片模式：设置自动播放间隔；视频 Focus 模式：调节音量 (11% ~ 99%) |
-| `F` / `f` | 切换全屏 / 退出全屏（全屏双屏模式下开启 Aspect-Ratio 自适应比例分配） |
-| `Esc` / `Enter` / `鼠标右键` | 退出全屏模式 |
+| `Space` | **播放 / 暂停**：播放或暂停当前视频 |
+| `F` | **全屏模式**：切换网页全屏 / 原生无边框全屏 (支持鼠标右键一键退出) |
+| `D` | **切换视图**：切换单屏 (Single View) / 左图右视频双屏 (Dual View) |
+| `M` | **切换媒体模式**：切换图片模式 (Picture Mode) / 视频模式 (Video Mode) |
+| `A` | **自动播放**：开启/关闭图片自动播放（悬停可调节 1s ~ 120s 间隔） |
+| `T` | **目录树面板**：展开/收起压缩包或文件夹的直属计数层级目录树 |
+| `←` / `→` | 切换上张 / 下张图片（或视频快退 / 快进 5 秒） |
+| `↑` / `↓` / `PageUp` / `PageDown` | 切换上一个 / 下一个文件夹或子目录 |
 
-> 数字键 `1`~`9` 仅在未聚焦输入框 / 无弹窗时生效，避免与正文输入冲突。
+---
 
-## 弹窗交互（统一行为）
+### Quick Slot (快速模型槽) 指南
 
-所有点击弹出的弹窗（增删改 Provider / Combo / Quick Slot、导入模型、模型信息、确认框等）遵循统一规则：
+Quick Slot 支持将常用的模型绑定到数字键上进行循环快速切换：
 
-- **点击弹窗外部不关闭**；
-- **`Esc` / 鼠标右键 / 「取消」按钮** → 关闭弹窗；
-- **`Enter`** → 触发弹窗内的主操作（主按钮）并关闭。
+- **快捷按键**：按数字键 `1` ~ `9` 在当前对应槽中的已启用模型间循环切换。
+- **快捷导入与删除**：Header 处 `Alt + 数字键` 快捷导入当前模型至指定槽；`Ctrl + 数字键` 快捷删除当前选中的模型。
+- **状态显示**：顶部 Header 实时显示当前槽的名称、序号徽章与 `provider/modelid`。
 
-## 快速开始
+---
 
-```bash
-# 构建
-go build -o tinyrouter .
+### Stream Video Download 外部依赖说明
 
-# 运行 (首次自动生成 config.yaml)
-./tinyrouter
-
-# 浏览器自动打开
-# 或手动访问 http://localhost:20128
-```
-
-## 构建变体 TinyRouter
-
-TinyRouter 提供多套构建变体，通过 build tag 与链接器 flag 组合控制是否带托盘常驻、是否内嵌 Playg 模块、是否裁剪二进制。Windows 下推荐用 `build.ps1` 一键产出。
-
-### 构建命令
-
-```powershell
-# 默认：console 窗口 + 自动打开浏览器 (当前行为)
-./build.ps1
-
-# 一次性产出全部 13 个变体到 dist/（忽略其他参数）
-./build.ps1 -All
-
-# 默认 + 裁剪符号表 (-s -w)
-./build.ps1 -Strip
-
-# 带 Playground 模块 (内嵌 Playground static-pg 资产)
-./build.ps1 -Playground
-
-# 托盘常驻：右下角图标右键菜单 "打开控制台/退出",无 console 窗口
-./build.ps1 -Variant tray
-
-# 托盘 + Playground + 裁剪 (最小托盘带 Playg 版)
-./build.ps1 -Variant tray -Playground -Strip
-
-# 托盘 + 原生 WebView2 独立窗口：右键菜单多一项 "打开独立窗口",弹出原生窗口加载 UI,不开浏览器
-./build.ps1 -Variant webview
-
-# Webview + Playground + 裁剪
-./build.ps1 -Variant webview -Playground -Strip
-
-# 调试版：全 DWARF/无裁剪/console 窗口，供 dlv 使用
-./build.ps1 -Variant debug
-```
-
-### 构建矩阵产出文件名 (位于 `dist/`)
-
-| Variant | Playground | Strip | 输出文件 | 体积 |
-|---|---|---|---|---|
-| default | 否 | 否 | `tinyrouter.exe` | ~15.15 MB |
-| default | 否 | 是 | `tinyrouter-stripped.exe` | ~11.51 MB |
-| default | 是 | 否 | `tinyrouter-pg.exe` | ~19.17 MB |
-| default | 是 | 是 | `tinyrouter-pg-stripped.exe` | ~15.53 MB |
-| tray | 否 | 否 | `tinyrouter-tray.exe` | ~15.62 MB |
-| tray | 否 | 是 | `tinyrouter-tray-stripped.exe` | ~11.77 MB |
-| tray | 是 | 否 | `tinyrouter-tray-pg.exe` | ~19.64 MB |
-| tray | 是 | 是 | `tinyrouter-tray-pg-stripped.exe` | ~15.79 MB |
-| webview | 否 | 否 | `tinyrouter-webview.exe` | ~16.02 MB |
-| webview | 否 | 是 | `tinyrouter-webview-stripped.exe` | ~12.09 MB |
-| webview | 是 | 否 | `tinyrouter-webview-pg.exe` | ~20.04 MB |
-| webview | 是 | 是 | `tinyrouter-webview-pg-stripped.exe` | ~16.11 MB |
-| debug | — | — | `tinyrouter-debug.exe` | ~15.15 MB |
-
-### Variant 含义
-
-- **default**: 当前行为，启动 console 子系统窗口，自动打开浏览器
-- **tray**: 隐藏 console (-H windowsgui),依靠系统托盘图标驻留,右键菜单项 "打开控制台/退出"。Ctrl+C 与 UI 触发的 `POST /api/shutdown` 都会优雅退出
-- **webview**: 在 tray 基础上用 WebView2 弹出原生窗口承载 UI。托盘菜单多一项 "打开独立窗口",点击后弹出 1280×800 原生窗口加载 admin 界面,关闭窗口不退出进程仍可再次打开。纯 Go + Win10/11 自带 WebView2 Runtime,无需 CGO、无需随包分发 DLL
-- **debug**: 无 windowsgui,不裁剪,保留完整 DWARF 供 `dlv` 调试;Playground/Strip 开关被忽略
-
-### Build tag 详解
-
-- `-tags tray`: 启用 `host_tray_windows.go`,编译 `fyne.io/systray`;无此 tag 则用 `host_console.go`(原行为)。在非 Windows 平台自动降级为 console 行为
-- `-tags webview`: 启用 `host_webview_windows.go`,编译 `jchv/go-webview2`(纯 Go,无 CGO);需 `-tags tray` 同时生效。非 Windows 平台降级为 stub
-- `-tags playground`: 启用 `web/embed_playground.go`,内嵌 `web/playground/static-pg` 资产;否则用 `web/embed_playground_stub.go`(空 FS)
-- `-ldflags "-H windowsgui"`: Windows 链接器去掉控制台子系统,只对 tray/webview 变体生效
-- `-ldflags "-s -w"`: 剥离符号表与 DWARF,约减 3.6 MB,失去 `dlv` 调试能力,运行不感知
-
-### 图标资源
-
-`web/static/favicon.ico` 通过 `gen-icon.ps1` 从 `web/static/logo.png` (1024×1024) 生成,内嵌 7 个尺寸 (16/24/32/48/64/128/256),覆盖托盘、资源管理器、任务栏、Alt+Tab、jumplist 全部 DPI 场景。`rsrc.syso` 自动同步,无需手动维护;改 logo 后跑 `./gen-icon.ps1` 再 `go generate ./...`。
-
-## 配置
-
-编辑 `config.yaml` 或通过 Web UI 管理：
-
-```yaml
-port: 20128
-consoleLogMaxLines: 200
-usageRingSize: 500
-
-rotation:
-  strategy: "fill-first"
-  stickyLimit: 3
-  maxRetries: 5
-  retryDelaySec: 5
-  backoffMaxSec: 240
-
-providers:
-  - id: "prov_1"
-    name: "My Provider"
-    prefix: "my"
-    baseUrl: "https://api.example.com/v1"  # 可含 /v1 或不含，系统智能识别注入
-    apiType: "openai-compatible"
-    isActive: true
-    rotationStrategy: ""          # 空=继承全局
-    stickyLimit: 0                # 0=继承全局
-    keys:
-      - id: "k1"
-        key: "sk-xxx"
-        name: "Main"
-        priority: 1
-        isActive: true
-    models:
-      - "gpt-4o"
-
-combos:
-  - id: "combo1"
-    name: "Fast + Smart"
-    strategy: "fallback"
-    models:
-      - "my/gpt-4o"
-
-# Video Download（可选）：yt-dlp / ffmpeg 路径、默认下载目录、代理
-download:
-  enabled: true
-  ytDlpPath: ""                  # 留空走 PATH
-  ffmpegPath: ""                 # 留空走 PATH
-  defaultDir: ""                 # 留空走系统下载目录
-  maxConcurrent: 3
-  concurrentFragments: 4
-  proxy: ""                      # 可选，仅作用于下载请求
-```
-
-## 客户端配置
-
-将客户端 (Claude Code, Cursor, OpenCode 等) 的 API Base URL 指向：
-
-```
-http://localhost:20128/v1
-```
-
-模型名格式：`{provider前缀}/{模型ID}`，例如 `ms/deepseek-chat`。
-
-无需 API Key，任意值或留空均可。
-
-## 使用示例
-
-```bash
-curl http://localhost:20128/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "ms/deepseek-chat",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "stream": true
-  }'
-```
-
-## License
-
-MIT
+Download 功能依赖 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 抓取与 [ffmpeg](https://ffmpeg.org/) 音视频转码工具：
+1. **yt-dlp**：下载 `yt-dlp.exe` 或 `yt-dlp` 二进制放至系统 `PATH` 或在 `Settings → Download Settings` 中指定路径。
+2. **ffmpeg**：下载 `ffmpeg` 可执行文件放至系统 `PATH` 或在设置中指定路径。
