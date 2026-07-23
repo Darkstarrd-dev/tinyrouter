@@ -946,6 +946,18 @@ tbody tr:last-child td{border-bottom:none}
   line-height: 1.1;
   margin-top: 1px;
 }
+.quickslot-btn.active {
+  border-color: rgba(79, 195, 247, 0.20);
+  background: rgba(79, 195, 247, 0.10);
+  box-shadow: 0 0 8px rgba(79, 195, 247, 0.08);
+}
+.quickslot-btn.active .qs-name {
+  color: var(--accent);
+}
+.quickslot-btn.active .qs-bottom {
+  color: var(--accent);
+  opacity: 0.85;
+}
 
 /* ---------------------------------------------------------------------
    QuickSlot Dropdown

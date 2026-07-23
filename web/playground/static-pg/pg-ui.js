@@ -1151,7 +1151,17 @@ function pgRemoveInputImage(idx) {
 }
 
 // ----- Event handlers ----------------------------------------------
-function pgOnModelChange(v) { var w = pgWin(); if (w) { w.config.model = v; pgSave(); pgRenderPanes(); pgUpdateInputBar(); } }
+function pgApplyActiveQuickSlot(model) {
+  if (!model) return;
+  if (pgState.mode !== 'normal' && pgState.mode !== 'search') return;
+  var w = pgWin(); if (!w) return;
+  w.config.model = model;
+  pgSave();
+  pgRenderSidebar();
+  pgRenderPanes();
+  pgUpdateInputBar();
+}
+function pgOnModelChange(v) { var w = pgWin(); if (w) { w.config.model = v; if (typeof qsClearActive === 'function') qsClearActive(); pgSave(); pgRenderPanes(); pgUpdateInputBar(); } }
 function pgOnParam(name, v) {
   var w = pgWin();
   if (!w) return;

@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-**最后核对：** 2026-07-23，仓库工作区（`main`）。本次新增/核对：QuickSlot 头部交互重构——1-9 快捷键从直接 cycle 改为弹出模型选择 modal（`openQuickSlotModalByOrder(n, true)`，1s 无操作自动关闭）；鼠标点击展开同 modal（无自动关闭）；新增 Del 键删除、方向键/鼠标取消自动关闭门限；确认删除取消时仅回退到 quickslot modal。涉及 `quickslots.js`、`app.js`、`style.css`、`i18n.js`。
+**最后核对：** 2026-07-25，仓库工作区（`main`）。本次新增/核对：QuickSlot Active 联动——会话级 active quickslot（`_qsActiveId`，仅内存），被选中按钮复用 `.nav-item.active` accent 辉光遮罩；点击 header 按钮或 1-9 快捷键打开 modal 时激活（`qsSetActive`），modal 内提交模型亦跟随；active 项的模型自动写入 Playground normal/search 模式的当前活动窗口 `config.model`（`pgApplyActiveQuickSlot`）；用户在 Playground selectmodel 手动重选时解绑 active（`qsClearActive`）。涉及 `quickslots.js`、`style.css`、`pg-ui.js`、`pg-lifecycle.js`。
 
 > **2026-07-22 更新（Search 模式 UI/UX 优化）：**
 > - **双窗口左右并列布局与交互：** `pgState.mode === 'search'` 时强制使用 2 窗口布局（`splitCount = 2`，`1fr 1fr`），左侧窗口显示 Search Strategy 与 Raw Search Results 视图，右侧窗口专门渲染 Synthesized 最终回复；问句留在 `#pg-input` 并呈灰色锁定态（`pg-input-search-locked`）；打字时恢复亮色编辑。

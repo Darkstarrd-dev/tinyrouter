@@ -45,7 +45,21 @@ function renderPlayground(container) {
     }
   }
 
-  pgLoadModels().then(function() { pgRenderSidebar(); pgRenderPanes(); pgUpdateInputBar(); });
+  // Apply active quickslot model (if any) before loading models & rendering
+  var activePromise = typeof qsGetActiveModel === 'function'
+    ? qsGetActiveModel().then(function(a) {
+        if (a && a.model && (pgState.mode === 'normal' || pgState.mode === 'search')) {
+          pgWin().config.model = a.model;
+        }
+      })
+    : Promise.resolve();
+  activePromise.then(function() {
+    return pgLoadModels();
+  }).then(function() {
+    pgRenderSidebar();
+    pgRenderPanes();
+    pgUpdateInputBar();
+  });
 }
 
 function cleanupPlayground() {
