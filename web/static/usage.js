@@ -417,6 +417,14 @@ function initTrendChart(entries) {
   requestAnimationFrame(function() {
     if (trendChartInstance) trendChartInstance.resize();
   });
+  if (!window._usageTrendResizeListenerAdded) {
+    window._usageTrendResizeListenerAdded = true;
+    window.addEventListener('resize', function() {
+      if (trendChartInstance && typeof currentPage !== 'undefined' && currentPage === 'usage') {
+        trendChartInstance.resize();
+      }
+    });
+  }
 }
 
 function updateTrendChart(entries) {

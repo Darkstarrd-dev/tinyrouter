@@ -344,9 +344,9 @@ AnySearch JSON-RPC API 的 Go 客户端，供 Playground Search 模式使用。
 | 类别 | 文件 |
 |---|---|
 | 入口 | `index.html`、`index-nopg.html`（无 playground 变体） |
-| JS 模块 | `app.js`、`api.js`、`auth.js`、`i18n.js`、`info_common.js`、`providers.js`、`combos.js`、`quickslots.js`、`usage.js`（`handleRequestStart` 去重、`handleRequestDone` 兜底清理、`updateProcessingLatencyCells` 超 10 分钟停止计时、`refreshQuotaData` stale 判定）、`console.js`、`terminal.js`、`monitor.js`、`download.js`、`endpoint.js`、`headerStats.js`、`shortcuts.js`（快捷键注册中心：系统预设 + 用户覆盖 + `Shortcuts.matchEvent`）、`fs-api.js`（统一文件 API：`FsApi.BlobTracker` 泄漏防护 + `pickFiles`/`pickDirectory`/`saveFile`/`collectFilesFromDataTransfer`/`walkDir`） |
+| JS 模块 | `app.js`、`api.js`、`auth.js`、`i18n.js`、`info_common.js`、`providers.js`、`combos.js`、`quickslots.js`、`usage.js`（`handleRequestStart` 去重、`handleRequestDone` 兜底清理、`updateProcessingLatencyCells` 超 10 分钟停止计时、`refreshQuotaData` stale 判定、`initTrendChart` resize 监听）、`console.js`、`terminal.js`、`monitor.js`、`download.js`、`endpoint.js`、`headerStats.js`、`shortcuts.js`（快捷键注册中心：系统预设 + 用户覆盖 + `Shortcuts.matchEvent`）、`fs-api.js`（统一文件 API：`FsApi.BlobTracker` 泄漏防护 + `pickFiles`/`pickDirectory`/`saveFile`/`collectFilesFromDataTransfer`/`walkDir`） |
 | 三方 JS | `chart.umd.js` |
-| 样式 | `style.css` |
+| 样式 | `style.css`（Usage & Gallery 贴边无缝矩形容器；修复全屏模式下动态自适应底部面板高度与视频进度条/控制栏联动 hover 呈现） |
 | 图标 | `logo.png`(1024 源)、`logo-sm.png`、`favicon.ico`(7 尺寸)、`favicon.png`、`icon-192.png`、`icon-512.png`、`apple-touch-icon.png`、`site.webmanifest` |
 | 终端模拟器 | `xterm/`：`xterm.js`、`xterm.css`、`xterm-addon-fit.js` |
 

@@ -167,15 +167,7 @@ function buildPanelHTML(type, isSplit) {
     '<video class="gallery-main-video" id="gallery-main-video"></video>' +
     '<div class="gallery-video-hover-ctrl" id="gallery-video-ctrl">' +
       '<input type="range" class="gallery-video-seeker" id="gallery-video-seeker" value="0" min="0" max="100" step="0.1">' +
-      '<div class="gallery-video-bar">' +
-        '<div style="display:flex;align-items:center;gap:6px">' +
-          '<span id="gallery-vid-time" style="font-family:monospace">00:00 / 00:00</span>' +
-        '</div>' +
-        '<div style="display:flex;align-items:center;gap:6px">' +
-          '<span>' + GALLERY_ICONS.volume + '</span>' +
-          '<span id="gallery-vid-info" style="font-family:monospace">-</span>' +
-        '</div>' +
-      '</div>' +
+      '<span id="gallery-vid-time" class="gallery-video-time">00:00 / 00:00</span>' +
     '</div>'
     :
     '<img class="gallery-main-img" id="gallery-main-img" alt="">' +

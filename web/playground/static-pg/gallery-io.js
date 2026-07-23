@@ -459,6 +459,37 @@ function onDragLeave(e) {
   if (zone) zone.classList.remove('drag-active');
 }
 
+function showPermissionNoticeModal() {
+  return new Promise(function(resolve) {
+    var overlay = document.createElement('div');
+    overlay.className = 'pg-modal-overlay show';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);opacity:1;pointer-events:auto;';
+    
+    var modal = document.createElement('div');
+    modal.className = 'pg-modal';
+    modal.style.cssText = 'background:var(--modal-bg);border:1px solid var(--glass-border);border-radius:var(--radius-lg);padding:24px;width:90%;max-width:440px;box-shadow:0 20px 50px rgba(0,0,0,0.5);color:var(--text);font-family:inherit;text-align:center;';
+    
+    modal.innerHTML = 
+      '<div style="font-size:36px;margin-bottom:12px">📁</div>' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:8px">' + (pgT('File Permission Required') || '需要文件读写权限确认') + '</div>' +
+      '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:20px">' + 
+        (pgT('To allow file deletion, renaming, and editing directly within Gallery, browser read/write permission is required. Please click "Allow" in the upcoming browser prompt.') || '为了支持在 Gallery 中对拖入的文件进行重命名、修改与删除，稍后浏览器将在窗口顶部弹出读写授权请求，请点击“允许”。') + 
+      '</div>' +
+      '<button id="perm-notice-ok-btn" class="pg-btn" style="width:100%;padding:10px 16px;background:var(--accent);color:#fff;border-radius:var(--radius-sm);font-weight:600;cursor:pointer;border:none">' + 
+        (pgT('Continue') || '我知道了，继续授权') + 
+      '</button>';
+      
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    
+    var btn = modal.querySelector('#perm-notice-ok-btn');
+    btn.onclick = function() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      resolve();
+    };
+  });
+}
+
 async function onDrop(e) {
   e.preventDefault();
   var zone = document.getElementById('gallery-layout');
@@ -500,6 +531,7 @@ async function onDrop(e) {
           var _ps = await handles[pi].queryPermission({ mode: 'readwrite' });
           if (_ps === 'granted') continue;
           if (!_permRequested) {
+            await showPermissionNoticeModal();
             await handles[pi].requestPermission({ mode: 'readwrite' });
             _permRequested = true;
           }
