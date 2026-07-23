@@ -19,6 +19,7 @@ function renderPlayground(container) {
   }
 
   pgInitMarker();
+  if (typeof pgInitGlobalShortcuts === 'function') pgInitGlobalShortcuts();
   container.style.height = '100%';
   container.style.overflow = 'hidden';
   container.innerHTML =

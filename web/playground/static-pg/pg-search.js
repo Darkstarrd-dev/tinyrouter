@@ -316,17 +316,32 @@ function pgRenderSearchHistory() {
   for (var i = history.length - 1; i >= 0; i--) {
     var entry = history[i];
     var isActive = entry.id === pgState.activeSearchId;
-    var display = entry.query.length > 40 ? entry.query.substring(0, 40) + '…' : entry.query;
+    var display = entry.query.length > 30 ? entry.query.substring(0, 30) + '…' : entry.query;
     var timeStr = pgFormatTime(entry.ts);
     var num = i + 1;  // search number: 1 = first, N = latest
     html += '<li class="pg-search-history-item' + (isActive ? ' active' : '') + '" title="' + pgEscapeAttr(entry.query) + '" onclick="pgSwitchSearch(' + entry.id + ')">' +
       '<span class="pg-search-history-num">' + num + '</span>' +
       '<span class="pg-search-history-text">' + pgEscapeHtml(display) + '</span>' +
       '<span class="pg-search-history-time">' + pgEscapeHtml(timeStr) + '</span>' +
+      '<button class="pg-search-history-del" onclick="event.stopPropagation(); pgDeleteSearchHistory(' + entry.id + ')" title="Delete search history">✕</button>' +
     '</li>';
   }
   html += '</ul>';
   return html;
+}
+
+function pgDeleteSearchHistory(searchId) {
+  pgState.searchHistory = pgState.searchHistory.filter(function(item) {
+    return item.id !== searchId;
+  });
+  if (pgState.activeSearchId === searchId) {
+    pgState.activeSearchId = pgState.searchHistory.length ? pgState.searchHistory[pgState.searchHistory.length - 1].id : null;
+  }
+  pgSaveSearchHistory();
+  if (typeof pgSyncSearchMessages === 'function') pgSyncSearchMessages();
+  pgRenderSidebar();
+  pgRenderMessages(0);
+  if (typeof pgWinAt === 'function' && pgWinAt(1)) pgRenderMessages(1);
 }
 
 function pgSwitchSearch(searchId) {

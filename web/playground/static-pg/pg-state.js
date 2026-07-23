@@ -45,6 +45,18 @@ var PG_SEARCH_MAX_ENTRIES = 50; // Max search history entries in localStorage
 var pgState = {
   winInit: false,
   splitCount: 1,
+  modeSplitCounts: {
+    normal: 1,
+    search: 2,
+    image: 1,
+    autochat: 2
+  },
+  modeWindows: {
+    normal: null,
+    search: null,
+    image: null,
+    autochat: null
+  },
   activeWin: 0,
   windows: [],
   models: [],

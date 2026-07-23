@@ -321,36 +321,77 @@ function pgRenderPanes() {
 
 function pgSetMode(mode) {
   if (mode === pgState.mode) return;
+  var oldMode = pgState.mode;
+
+  if (!pgState.modeWindows) {
+    pgState.modeWindows = { normal: null, search: null, image: null, autochat: null };
+  }
+
+  // 1. Save oldMode's windows & splitCount
+  if (oldMode) {
+    pgState.modeWindows[oldMode] = pgState.windows;
+    if (pgState.modeSplitCounts) {
+      pgState.modeSplitCounts[oldMode] = pgState.splitCount;
+    }
+  }
+
+  pgState.mode = mode;
+
+  // 2. Calculate mode's splitCount
+  var targetSplit = (pgState.modeSplitCounts && pgState.modeSplitCounts[mode]) || 1;
+  if (mode === 'search') {
+    targetSplit = 2;
+  } else if (mode === 'autochat') {
+    if (targetSplit < 2) targetSplit = 2;
+  }
+  pgState.splitCount = targetSplit;
+  if (pgState.modeSplitCounts) {
+    pgState.modeSplitCounts[mode] = targetSplit;
+  }
+
+  // 3. Load mode's dedicated windows (data isolation & state preservation across modes)
+  if (pgState.modeWindows[mode] && pgState.modeWindows[mode].length > 0) {
+    pgState.windows = pgState.modeWindows[mode];
+  } else {
+    pgState.windows = [];
+    for (var wI = 0; wI < targetSplit; wI++) {
+      if (typeof makeWin === 'function') pgState.windows.push(makeWin());
+    }
+    pgState.modeWindows[mode] = pgState.windows;
+  }
+
+  while (pgState.windows.length < targetSplit) {
+    if (typeof makeWin === 'function') pgState.windows.push(makeWin());
+  }
+
+  if (pgState.activeWin >= targetSplit) {
+    pgState.activeWin = targetSplit - 1;
+  }
+
+  // 4. Mode-specific lifecycle actions
   if (mode === 'autochat') {
     pgAutoChatToggle(true);
   } else {
-    if (pgState.mode === 'autochat') pgAutoChatToggle(false);
+    if (oldMode === 'autochat') pgAutoChatToggle(false);
     if (mode === 'search') {
-      pgSearchSavedSplit = pgState.splitCount;
-      pgState.splitCount = 2;
-      while (pgState.windows.length < 2) {
-        pgState.windows.push(makeWin());
-      }
-      pgSearchLoadSettings();
-      pgSyncSearchMessages();
-    } else if (pgState.mode === 'search') {
-      pgLoad();
-      if (pgSearchSavedSplit > 0) {
-        pgState.splitCount = pgSearchSavedSplit;
-        pgSearchSavedSplit = 0;
-      }
+      if (typeof pgSearchLoadSettings === 'function') pgSearchLoadSettings();
+      if (typeof pgSyncSearchMessages === 'function') pgSyncSearchMessages();
     }
-    pgState.mode = mode;
-    pgSaveMode();
-    pgRenderSidebar();
-    pgRenderPanes();
-    pgRenderInputBar();
   }
+
+  pgSaveMode();
+  pgRenderSidebar();
+  pgRenderPanes();
+  pgRenderInputBar();
 }
 
 function pgSetSplitCount(n) {
   if (pgIsGenerating()) { pgToast(pgT('pgGenSwitchLock'), 'warning'); return; }
+  if (pgState.mode === 'autochat' && n < 2) n = 2;
   pgState.splitCount = n;
+  if (pgState.modeSplitCounts) {
+    pgState.modeSplitCounts[pgState.mode] = n;
+  }
   if (pgState.activeWin >= n) pgState.activeWin = n - 1;
   pgRenderPanes();
   pgRenderSidebar();
@@ -394,29 +435,35 @@ function pgRenderSidebar() {
     winBtns += '<button class="pg-win-btn' + isActive + '" onclick="pgSetActiveWin(' + k + ')"' + (isDisabled ? ' disabled' : '') + ' title="' + pgEscapeHtml(pgT('pgWinBtnTitle', [k + 1])) + '">' + (k + 1) + '</button>';
   }
   var splitOpts = '';
-  for (var s = 1; s <= 4; s++) {
+  var startSplit = (pgState.mode === 'autochat') ? 2 : 1;
+  for (var s = startSplit; s <= 4; s++) {
     splitOpts += '<option value="' + s + '"' + (pgState.splitCount === s ? ' selected' : '') + '>' + s + '</option>';
   }
   var winbarRow = pgState.mode === 'search' ? '' : (
+    '<div class="pg-panel-title" style="margin-bottom:8px">' + pgEscapeHtml(pgT('pgWinBarTitle')) + '</div>' +
     '<div class="pg-winbar-row">' +
-      '<div class="pg-winbar-btns">' + winBtns + '</div>' +
+      '<div class="pg-winbar-btns">' +
+        winBtns +
+        '<button class="pg-win-btn pg-reset-btn" onclick="pgResetSettings()"' + (generating ? ' disabled' : '') + ' title="' + pgEscapeHtml(pgT('pgResetCfg')) + '">' + PG_ICON_RESET + '</button>' +
+      '</div>' +
       '<select onchange="pgSetSplitCount(parseInt(this.value,10))"' + (generating ? ' disabled' : '') + '>' + splitOpts + '</select>' +
-    '</div>' +
-    '<div class="pg-winbar-hint">' + pgEscapeHtml(pgT('pgEditWindow', [pgState.activeWin + 1])) + '</div>' +
-    '<button class="pg-btn" style="width:100%;margin-top:6px" onclick="pgResetSettings()">' + pgEscapeHtml(pgT('pgResetCfg')) + '</button>'
+    '</div>'
   );
 
+  var currentMode = pgState.mode;
+
+  var winbarContent = winbarRow ? ('<div class="pg-winbar-body">' + winbarRow + '</div>') : '';
   var winbar =
     '<div class="pg-panel pg-winbar">' +
-      '<div class="pg-panel-title">' + pgEscapeHtml(pgT('pgWinBarTitle')) +
+      '<div class="pg-winbar-header">' +
         '<div class="pg-mode-toggle">' +
-          '<button class="pg-mode-btn' + (pgState.mode === 'normal' ? ' active' : '') + '" onclick="pgSetMode(\'normal\')">' + pgEscapeHtml(pgT('pgModeNormal')) + '</button>' +
-          '<button class="pg-mode-btn' + (pgState.mode === 'autochat' ? ' active' : '') + '" onclick="pgSetMode(\'autochat\')">' + pgEscapeHtml(pgT('pgModeAutoChat')) + '</button>' +
-          '<button class="pg-mode-btn' + (pgState.mode === 'image' ? ' active' : '') + '" onclick="pgSetMode(\'image\')">' + pgEscapeHtml(pgT('pgModeImage')) + '</button>' +
-          '<button class="pg-mode-btn' + (pgState.mode === 'search' ? ' active' : '') + '" onclick="pgSetMode(\'search\')">' + pgEscapeHtml(pgT('pgModeSearch')) + '</button>' +
+          '<button class="pg-mode-btn' + (currentMode === 'normal' ? ' active' : '') + '" onclick="pgSetMode(\'normal\')">' + pgEscapeHtml(pgT('pgModeNormal')) + '</button>' +
+          '<button class="pg-mode-btn' + (currentMode === 'search' ? ' active' : '') + '" onclick="pgSetMode(\'search\')">' + pgEscapeHtml(pgT('pgModeSearch')) + '</button>' +
+          '<button class="pg-mode-btn' + (currentMode === 'image' ? ' active' : '') + '" onclick="pgSetMode(\'image\')">' + pgEscapeHtml(pgT('pgModeImage')) + '</button>' +
+          '<button class="pg-mode-btn' + (currentMode === 'autochat' ? ' active' : '') + '" onclick="pgSetMode(\'autochat\')">' + pgEscapeHtml(pgT('pgModeAutoChat')) + '</button>' +
         '</div>' +
       '</div>' +
-      winbarRow +
+      winbarContent +
     '</div>';
 
   // --- Model select ---
@@ -1258,4 +1305,91 @@ function pgNormalizeLoadedMessage(msg) {
     }
   }
   return msg;
+}
+
+// ----- Global Shortcuts System -----
+function pgIsEditingTarget(el) {
+  if (!el) return false;
+  var tag = el.tagName ? el.tagName.toLowerCase() : '';
+  return tag === 'input' || tag === 'textarea' || el.isContentEditable;
+}
+
+function pgInitGlobalShortcuts() {
+  if (window._pgGlobalShortcutsBound) return;
+  window._pgGlobalShortcutsBound = true;
+
+  document.addEventListener('keydown', function(e) {
+    // 1. Alt + ~ (Backquote / ~) -> focus #pg-input
+    if (e.altKey && (e.key === '`' || e.key === '~' || e.code === 'Backquote')) {
+      e.preventDefault();
+      var input = document.getElementById('pg-input');
+      if (input) {
+        input.focus();
+        if (typeof input.select === 'function') {
+          input.selectionStart = input.selectionEnd = input.value.length;
+        }
+      }
+      return;
+    }
+
+    // 2. Alt + 1~4 -> switch mode (1: normal, 2: search, 3: image, 4: autochat)
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      var modes = ['normal', 'search', 'image', 'autochat'];
+      var digit = null;
+      if (e.code && e.code.startsWith('Digit')) {
+        digit = parseInt(e.code.replace('Digit', ''), 10);
+      } else if (e.key >= '1' && e.key <= '4') {
+        digit = parseInt(e.key, 10);
+      }
+      if (digit >= 1 && digit <= 4) {
+        e.preventDefault();
+        pgSetMode(modes[digit - 1]);
+        return;
+      }
+    }
+
+    // 3. Alt + c -> clear chat
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC')) {
+      e.preventDefault();
+      if (typeof pgClear === 'function') pgClear();
+      return;
+    }
+
+    // 4. Ctrl + 1~4 -> switch splitCount (1~4)
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      var splitNum = null;
+      if (e.code && e.code.startsWith('Digit')) {
+        splitNum = parseInt(e.code.replace('Digit', ''), 10);
+      } else if (e.key >= '1' && e.key <= '4') {
+        splitNum = parseInt(e.key, 10);
+      }
+      if (splitNum >= 1 && splitNum <= 4) {
+        e.preventDefault();
+        if (typeof pgSetSplitCount === 'function') {
+          pgSetSplitCount(splitNum);
+        }
+        return;
+      }
+    }
+
+    // 5. Shift + 1~4 -> switch active window (0~3)
+    if (e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      var winIdx = null;
+      if (e.code && e.code.startsWith('Digit')) {
+        winIdx = parseInt(e.code.replace('Digit', ''), 10) - 1;
+      } else if (['!', '@', '#', '$'].indexOf(e.key) !== -1) {
+        winIdx = ['!', '@', '#', '$'].indexOf(e.key);
+      } else if (e.key >= '1' && e.key <= '4') {
+        winIdx = parseInt(e.key, 10) - 1;
+      }
+      if (winIdx !== null && winIdx >= 0 && winIdx < 4) {
+        if (pgIsEditingTarget(e.target)) return;
+        e.preventDefault();
+        if (winIdx < pgState.splitCount && typeof pgSetActiveWin === 'function') {
+          pgSetActiveWin(winIdx);
+        }
+        return;
+      }
+    }
+  });
 }

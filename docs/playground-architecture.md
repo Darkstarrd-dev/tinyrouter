@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-**最后核对：** 2026-07-26，仓库工作区（`main`）。本次新增/核对：(1) Usage & Gallery 页面无缝矩形化改造——移除页面与组件内边距/外边距/圆角，支持单屏、多屏、分屏无缝贴边与 1px 网格分割，Usage 解决双屏/低 DPI 切换时 50/50 布局破坏与图表重绘；(2) Gallery 视频控制栏与交互优化——单行化显示 Seek 进度条与播放时间，移除音量控件，非全屏模式下 Seek 进度条贴底常驻；(3) 拖入文件权限提示优化——在调用 File System Access API 之前展示屏幕正中央说明模态框，解释读写权限用途；(4) 全屏控件 Overlay 与 hover 联动修复——控制栏 `height: auto` 动态自适应包裹缩略图与操作工具栏，修正在全屏下仅在划到底部热区时进度条与操作栏合体联动浮现。涉及 `style.css`、`usage.js`、`gallery-layout.js`、`gallery-video.js`、`gallery-io.js`、`PROJECT_MAP.md`。
+**最后核对：** 2026-07-26，仓库工作区（`main`）。本次新增/核对：(1) 输入栏按钮组固定宽度约束——给 `.pg-input-actions` 设置固定 `120px` 宽度（`flex: 0 0 120px`）与居中对齐，解决在英文模式下 Image（Generate）与 Normal（Send）等模式间切换时导致的按钮组宽度跳动与输入框挤压问题。涉及 `playground.css`、`playground-architecture.md`；(2) AutoChat 模式切换覆盖判定修复与 Search History 项一键删除功能。
 
 > **2026-07-22 更新（Search 模式 UI/UX 优化）：**
 > - **双窗口左右并列布局与交互：** `pgState.mode === 'search'` 时强制使用 2 窗口布局（`splitCount = 2`，`1fr 1fr`），左侧窗口显示 Search Strategy 与 Raw Search Results 视图，右侧窗口专门渲染 Synthesized 最终回复；问句留在 `#pg-input` 并呈灰色锁定态（`pg-input-search-locked`）；打字时恢复亮色编辑。

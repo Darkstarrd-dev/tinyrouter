@@ -18,13 +18,17 @@
 
 function pgAutoChatToggle(enabled) {
   if (enabled && pgState.splitCount < 2) {
-    pgToast(pgT('pgAutoChatNeedMinWindows'), 'warning');
-    pgRenderSidebar();
-    return;
+    pgState.splitCount = 2;
+    if (pgState.modeSplitCounts) pgState.modeSplitCounts.autochat = 2;
+    while (pgState.windows.length < 2) {
+      if (typeof makeWin === 'function') pgState.windows.push(makeWin());
+    }
   }
   var wasRunning = pgState.autoChat.isRunning;
   pgState.autoChat.enabled = enabled;
-  pgState.mode = enabled ? 'autochat' : 'normal';
+  if (enabled) {
+    pgState.mode = 'autochat';
+  }
   pgRenderSidebar();
   pgRenderPanes();
   pgRenderInputBar();
