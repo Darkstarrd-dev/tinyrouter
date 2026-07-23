@@ -284,6 +284,7 @@ type Config struct {
 	UsageRingSize      int             `yaml:"usageRingSize" json:"usageRingSize"`
 	Rotation           RotationConfig  `yaml:"rotation" json:"rotation"`
 	EnablePlayground   bool            `yaml:"enablePlayground" json:"enablePlayground"`
+	QuickSlotOnly      bool            `yaml:"quickSlotOnly" json:"quickSlotOnly"`
 	Providers          []Provider      `yaml:"providers" json:"providers"`
 	Combos             []Combo         `yaml:"combos" json:"combos"`
 	QuickSlots         []QuickSlot     `yaml:"quickSlots" json:"quickSlots"`

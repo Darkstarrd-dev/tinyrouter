@@ -37,6 +37,7 @@ type Handler struct {
 	EntryTracker      *EntryTracker
 	sigCache          SignatureCacheProvider
 	debugModeProvider func() bool
+	quickSlotOnlyProvider func() bool
 }
 
 // New constructs a proxy Handler from capability interfaces rather than concrete
@@ -229,6 +230,17 @@ func (h *Handler) SetDebugModeProvider(fn func() bool) {
 func (h *Handler) debugMode() bool {
 	if h.debugModeProvider != nil {
 		return h.debugModeProvider()
+	}
+	return false
+}
+
+func (h *Handler) SetQuickSlotOnlyProvider(fn func() bool) {
+	h.quickSlotOnlyProvider = fn
+}
+
+func (h *Handler) quickSlotOnly() bool {
+	if h.quickSlotOnlyProvider != nil {
+		return h.quickSlotOnlyProvider()
 	}
 	return false
 }

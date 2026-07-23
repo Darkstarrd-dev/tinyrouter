@@ -20,7 +20,7 @@ async function renderEndpoint(c) {
       <div class="settings-panel-left">\
         <div class="settings-row">\
           <span class="settings-row-title" title="' + escapeHtml(t('listenPortDesc')) + '">' + t('listenPort') + '</span>\
-          <span class="code copyable settings-row-endpoint" onclick="copyToClipboard(this.textContent, this.textContent)" title="' + t('clickToCopy') + '">http://localhost:' + s.port + '/v1</span>\
+          <span class="code copyable settings-row-endpoint" onclick="copyToClipboard(this.dataset.url, this.dataset.url)" data-url="http://localhost:' + s.port + '/v1" title="' + escapeHtml(t('clickToCopy')) + '">' + s.port + '</span>\
           <button type="button" class="btn btn-sm settings-row-btn" onclick="openPortModal()">' + t('settings') + '</button>\
         </div>\
         <div class="settings-row">\
@@ -42,13 +42,16 @@ async function renderEndpoint(c) {
           <button type="button" class="btn btn-sm settings-row-btn" onclick="openPasswordModal()">' + t('settings') + '</button>\
         </div>\
         <div class="settings-row">\
-          <span class="settings-row-title" title="' + escapeHtml(t('debugModeDesc')) + '">' + t('debugMode') + '</span>\
-          <label class="toggle-switch settings-row-toggle" title="' + escapeHtml(t('debugModeDesc')) + '"><input type="checkbox" id="debug-mode-toggle"' + (s.debugMode ? ' checked' : '') + ' onchange="toggleDebugMode(this.checked)"><span class="toggle-slider"></span></label>\
-          <button type="button" class="btn btn-sm settings-row-btn" onclick="openDebugModal()">' + t('settings') + '</button>\
-        </div>\
-        <div class="settings-row">\
           <span class="settings-row-title" title="' + escapeHtml(t('shortcutSettingsDesc')) + '">' + t('shortcutSettings') + '</span>\
           <button type="button" class="btn btn-sm settings-row-btn" onclick="openShortcutsModal()">' + t('settings') + '</button>\
+        </div>\
+        <div class="settings-row">\
+          <span class="settings-row-title" title="' + escapeHtml(t('debugModeDesc')) + '">' + t('debugMode') + '</span>\
+          <label class="toggle-switch settings-row-toggle" title="' + escapeHtml(t('debugModeDesc')) + '"><input type="checkbox" id="debug-mode-toggle"' + (s.debugMode ? ' checked' : '') + ' onchange="toggleDebugMode(this.checked)"><span class="toggle-slider"></span></label>\
+        </div>\
+        <div class="settings-row">\
+          <span class="settings-row-title" title="' + escapeHtml(t('quickSlotOnlyDesc')) + '">' + t('quickSlotOnly') + '</span>\
+          <label class="toggle-switch settings-row-toggle" title="' + escapeHtml(t('quickSlotOnlyDesc')) + '"><input type="checkbox" id="quickslot-only-toggle"' + (s.quickSlotOnly ? ' checked' : '') + ' onchange="toggleQuickSlotOnly(this.checked)"><span class="toggle-slider"></span></label>\
         </div>\
       </div>\
       <div class="settings-panel-right">\
@@ -168,6 +171,17 @@ async function toggleDebugMode(enabled) {
   } catch (e) {
     toast(t('failed', [e.message]), 'error');
     var toggle = document.getElementById('debug-mode-toggle');
+    if (toggle) toggle.checked = !enabled;
+  }
+}
+
+async function toggleQuickSlotOnly(enabled) {
+  try {
+    await apiPatch('/settings', { quickSlotOnly: enabled });
+    toast(enabled ? t('quickSlotOnlyOn') : t('quickSlotOnlyOff'), 'success');
+  } catch (e) {
+    toast(t('failed', [e.message]), 'error');
+    var toggle = document.getElementById('quickslot-only-toggle');
     if (toggle) toggle.checked = !enabled;
   }
 }
@@ -452,12 +466,6 @@ function openPasswordModal() {
   document.getElementById('settings-modal-save').onclick = function() {
     withLoading(this, function() { return savePasswordModal(); });
   };
-}
-
-function openDebugModal() {
-  openInfoModal(t('debugMode'),
-    '<p class="muted">' + escapeHtml(t('debugModeDesc')) + '</p>'
-  );
 }
 
 // ===================== Shortcut Settings Modal =====================

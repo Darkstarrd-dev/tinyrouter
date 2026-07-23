@@ -49,6 +49,8 @@ type deps struct {
 	monitorMgr *monitor.Manager
 	// debugMode reflects the live debug flag toggled from settings.
 	debugMode atomic.Bool
+	// quickSlotOnly reflects the live QuickSlot-only toggle from settings.
+	quickSlotOnly atomic.Bool
 
 	// The following callbacks are configured after construction via setters.
 	restartFn         func(string)
@@ -137,6 +139,14 @@ func (rt *Router) DebugMode() bool {
 
 func (rt *Router) SetDebugMode(on bool) {
 	rt.debugMode.Store(on)
+}
+
+func (rt *Router) QuickSlotOnly() bool {
+	return rt.quickSlotOnly.Load()
+}
+
+func (rt *Router) SetQuickSlotOnly(on bool) {
+	rt.quickSlotOnly.Store(on)
 }
 
 // Cleanup stops the monitor manager and closes any active terminal session.

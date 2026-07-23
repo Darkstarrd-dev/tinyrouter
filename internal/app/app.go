@@ -181,6 +181,7 @@ func (a *App) buildComponents() error {
 	// API router + UI handler. Shutdown is triggered by POST /api/shutdown.
 	a.apiRouter = api.New(a.reg, cfg, a.configPath, a.usageBuf, a.pgUsageBuf, a.quotaTracker, a.logger, a.proxyHandler, a.triggerShutdown, a.selector, a.comboRes, a.downloadMgr)
 	a.proxyHandler.SetDebugModeProvider(a.apiRouter.DebugMode)
+	a.proxyHandler.SetQuickSlotOnlyProvider(a.apiRouter.QuickSlotOnly)
 
 	// HTTP server (not started until Run).
 	a.sm = NewServerManager(a.apiRouter.Routes(a.proxyHandler), a.addr, a.logger, cfg.Server)

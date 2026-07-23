@@ -20,6 +20,27 @@ func (h *Handler) ListModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var models []modelObj = []modelObj{}
+
+	// quickSlotOnly 模式：仅返回 quickslot 中的模型，不返回 provider/combo 模型
+	if h.quickSlotOnly() {
+		for _, qs := range h.reg.ListQuickSlots() {
+			if qs.Disabled {
+				continue
+			}
+			models = append(models, modelObj{
+				ID:      qs.Name,
+				Object:  "model",
+				OwnedBy: "quickslot",
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data":   models,
+		})
+		return
+	}
+
 	for _, p := range providers {
 		if !p.IsActive {
 			continue

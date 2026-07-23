@@ -23,6 +23,7 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 		"usageRingSize":      cfg.UsageRingSize,
 		"rotation":           cfg.Rotation,
 		"enablePlayground":   cfg.EnablePlayground,
+		"quickSlotOnly":      cfg.QuickSlotOnly,
 		"debugMode":          rt.DebugMode(),
 		"proxy":              cfg.Proxy,
 		"server":             cfg.Server,
@@ -46,6 +47,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		UsageRingSize      *int                   `json:"usageRingSize"`
 		Rotation           *config.RotationConfig `json:"rotation"`
 		EnablePlayground   *bool                  `json:"enablePlayground"`
+		QuickSlotOnly      *bool                  `json:"quickSlotOnly"`
 		DebugMode          *bool                  `json:"debugMode"`
 		Proxy              *config.ProxyConfig    `json:"proxy"`
 		Server             *config.ServerConfig   `json:"server"`
@@ -94,6 +96,10 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if updates.EnablePlayground != nil {
 		cfg.EnablePlayground = *updates.EnablePlayground
+	}
+	if updates.QuickSlotOnly != nil {
+		cfg.QuickSlotOnly = *updates.QuickSlotOnly
+		rt.SetQuickSlotOnly(*updates.QuickSlotOnly)
 	}
 	if updates.DebugMode != nil {
 		rt.SetDebugMode(*updates.DebugMode)
