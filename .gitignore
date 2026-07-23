@@ -50,5 +50,8 @@ dist/
 
 tmp/
 
+# pi-subagents artifact directory
+.pi-subagents/
+
 # Runtime lock file (PID for single-instance lock)
 .tinyrouter.lock
