@@ -16,18 +16,28 @@ function renderQuickSlotListInline(quickslots) {
     return;
   }
   el.innerHTML = list.map(function(qs) {
+    var modelsStr = qs.models ? qs.models.join(', ') : 'none';
+    var fullModelsText = t('models') + ' ' + modelsStr;
     return '\
-    <div class="card' + (qs.disabled ? ' quickslot-disabled' : '') + '">\
-      <div class="card-header">\
-        <span class="card-title copyable" data-name="' + escapeHtml(qs.name) + '" onclick="copyToClipboard(this.dataset.name, this.dataset.name)" title="' + t('clickToCopy') + '">#' + (qs.order || 0) + ' ' + escapeHtml(qs.name) + '</span>\
-        <div class="flex" style="gap:8px">\
-          <span class="badge ' + (qs.disabled ? 'badge-inactive' : 'badge-active') + '">order: ' + (qs.order || 0) + '</span>\
-          <button type="button" class="btn btn-sm" onclick="toggleQuickSlotDisabled(\'' + escapeAttr(qs.id) + '\')">' + (qs.disabled ? t('enable') : t('disable')) + '</button>\
-          <button type="button" class="btn btn-sm" onclick="showEditQuickSlot(\'' + escapeAttr(qs.id) + '\')">' + t('edit') + '</button>\
-          <button type="button" class="btn btn-sm btn-danger" onclick="deleteQuickSlot(\'' + escapeAttr(qs.id) + '\')">' + t('delete') + '</button>\
+    <div class="card quickslot-card' + (qs.disabled ? ' quickslot-disabled' : '') + '">\
+      <div class="provider-card-row">\
+        <div class="provider-card-left">\
+          <span class="card-title copyable" data-name="' + escapeHtml(qs.name) + '" onclick="copyToClipboard(this.dataset.name, this.dataset.name)" title="' + t('clickToCopy') + '">' + escapeHtml(qs.name) + '</span>\
+        </div>\
+        <div class="provider-card-actions">\
+          <span class="badge provider-btn-col1 ' + (qs.disabled ? 'badge-inactive' : 'badge-active') + '">order: ' + (qs.order || 0) + '</span>\
+          <button type="button" class="btn btn-sm provider-btn-col2" onclick="toggleQuickSlotDisabled(\'' + escapeAttr(qs.id) + '\')">' + (qs.disabled ? t('enable') : t('disable')) + '</button>\
         </div>\
       </div>\
-      <p class="muted">' + t('models') + ' ' + (qs.models ? qs.models.join(', ') : 'none') + '</p>\
+      <div class="provider-card-row mt-12">\
+        <div class="provider-card-left">\
+          <span class="muted card-left-models" title="' + escapeHtml(fullModelsText) + '">' + escapeHtml(fullModelsText) + '</span>\
+        </div>\
+        <div class="provider-card-actions">\
+          <button type="button" class="btn btn-sm provider-btn-col1" onclick="showEditQuickSlot(\'' + escapeAttr(qs.id) + '\')">' + t('edit') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger provider-btn-col2" onclick="deleteQuickSlot(\'' + escapeAttr(qs.id) + '\')">' + t('delete') + '</button>\
+        </div>\
+      </div>\
     </div>';
   }).join('');
 }

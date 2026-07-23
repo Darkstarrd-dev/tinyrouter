@@ -148,18 +148,28 @@ function renderComboListInline(combos) {
     return;
   }
   el.innerHTML = combos.map(function(cb) {
+    var modelsStr = cb.models ? cb.models.join(', ') : 'none';
+    var fullModelsText = t('models') + ' ' + modelsStr;
     return '\
-    <div class="card' + (cb.disabled ? ' combo-disabled' : '') + '">\
-      <div class="card-header">\
-        <span class="card-title copyable" data-name="' + escapeHtml(cb.name) + '" onclick="copyToClipboard(this.dataset.name, this.dataset.name)" title="' + t('clickToCopy') + '">' + escapeHtml(cb.name) + '</span>\
-        <div class="flex" style="gap:8px">\
-          <span class="badge ' + (cb.disabled ? 'badge-inactive' : 'badge-active') + '">' + escapeHtml(cb.strategy) + '</span>\
-          <button type="button" class="btn btn-sm" onclick="toggleComboDisabled(\'' + cb.id + '\')">' + (cb.disabled ? t('enable') : t('disable')) + '</button>\
-          <button type="button" class="btn btn-sm" onclick="showEditCombo(\'' + cb.id + '\')">' + t('edit') + '</button>\
-          <button type="button" class="btn btn-sm btn-danger" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
+    <div class="card combo-card' + (cb.disabled ? ' combo-disabled' : '') + '">\
+      <div class="provider-card-row">\
+        <div class="provider-card-left">\
+          <span class="card-title copyable" data-name="' + escapeHtml(cb.name) + '" onclick="copyToClipboard(this.dataset.name, this.dataset.name)" title="' + t('clickToCopy') + '">' + escapeHtml(cb.name) + '</span>\
+        </div>\
+        <div class="provider-card-actions">\
+          <span class="badge provider-btn-col1 ' + (cb.disabled ? 'badge-inactive' : 'badge-active') + '">' + escapeHtml(cb.strategy) + '</span>\
+          <button type="button" class="btn btn-sm provider-btn-col2" onclick="toggleComboDisabled(\'' + cb.id + '\')">' + (cb.disabled ? t('enable') : t('disable')) + '</button>\
         </div>\
       </div>\
-      <p class="muted">' + t('models') + ' ' + (cb.models ? cb.models.join(', ') : 'none') + '</p>\
+      <div class="provider-card-row mt-12">\
+        <div class="provider-card-left">\
+          <span class="muted card-left-models" title="' + escapeHtml(fullModelsText) + '">' + escapeHtml(fullModelsText) + '</span>\
+        </div>\
+        <div class="provider-card-actions">\
+          <button type="button" class="btn btn-sm provider-btn-col1" onclick="showEditCombo(\'' + cb.id + '\')">' + t('edit') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger provider-btn-col2" onclick="deleteCombo(\'' + cb.id + '\')">' + t('delete') + '</button>\
+        </div>\
+      </div>\
     </div>';
   }).join('');
 }

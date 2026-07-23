@@ -1,7 +1,7 @@
 # TinyRouter Config / Registry / State 基础设施架构
 
 > **文档定位：** `internal/config/`、`internal/registry/`、`internal/state/` 三个包共同构成的 **配置定义 + 内存注册表 + 运行时状态持久化** 基础设施的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
-> **最后核对：** 2026-07-23，仓库工作区（`main`）。本轮新增：Provider 列表排序控制与全区间避让重排功能（`ReorderProvider` 方法、`reorderProvider` Handler、`PUT /providers/{id}/reorder` 路由，以及前端 `providers.js` 顶栏排序输入框 `.btn-order-input` 交互与样式）；`openModelSelectorModal` 统一模型选择模态框模块。
+> **最后核对：** 2026-07-23，仓库工作区（`main`）。本轮新增：Provider 列表排序控制与全区间避让重排功能；`openModelSelectorModal` 统一模型选择模态框模块；Provider、Combo 与 Quick Slots 卡片 UI 重构（统一 2 行结构、右侧 2x2 固定 80px 宽度按钮组对齐、Prefix 标签字号与 Title 同大粗体且去左侧色条、Models 单行截断与 hover tooltip 浮窗、`endpoint.js`/`combos.js`/`quickslots.js`/`providers.js` 布局与 CSS flex 防爆排框一致化）。
 
 ## 1. 范围与结论
 

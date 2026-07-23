@@ -29,21 +29,27 @@ function renderProviderList() {
     return;
   }
   el.innerHTML = providersCache.map(function(p) {
-    var brand = getProviderBrand(p.name);
-    var brandStyle = brand ? ' style="border-left:3px solid ' + brand + ';padding-left:18px"' : '';
     return '\
-    <div class="card provider-card"' + brandStyle + '>\
-      <div class="card-header">\
-        <span class="card-title">' + escapeHtml(p.name) + '</span>\
-        <div class="flex" style="gap:8px">\
-          <span class="badge ' + (p.isActive ? 'badge-active' : 'badge-inactive') + '">' + (p.isActive ? t('active') : t('inactive')) + '</span>\
-          <button type="button" class="btn btn-sm" onclick="toggleProviderList(event, \'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
-          <button type="button" class="btn btn-sm" onclick="event.stopPropagation(); openProviderDetail(\'' + p.id + '\')">' + t('edit') + '</button>\
-          <button type="button" class="btn btn-sm btn-danger" onclick="deleteProviderFromList(event, \'' + p.id + '\')">' + t('delete') + '</button>\
+    <div class="card provider-card">\
+      <div class="provider-card-row">\
+        <div class="provider-card-left">\
+          <span class="code provider-prefix-tag">' + escapeHtml(p.prefix) + '</span>\
+          <span class="card-title">' + escapeHtml(p.name) + '</span>\
+        </div>\
+        <div class="provider-card-actions">\
+          <span class="badge provider-btn-col1 ' + (p.isActive ? 'badge-active' : 'badge-inactive') + '">' + (p.isActive ? t('active') : t('inactive')) + '</span>\
+          <button type="button" class="btn btn-sm provider-btn-col2" onclick="toggleProviderList(event, \'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
         </div>\
       </div>\
-      <p class="muted">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code">' + escapeHtml(p.baseUrl) + '</span></p>\
-      <p class="muted mt-12">' + t('keys') + ' ' + (p.keys ? p.keys.length : 0) + ' | ' + t('models') + ' ' + (p.models ? p.models.length : 0) + '</p>\
+      <div class="provider-card-row mt-12">\
+        <div class="provider-card-left">\
+          <span class="muted">' + t('keys') + ' ' + (p.keys ? p.keys.length : 0) + ' | ' + t('models') + ' ' + (p.models ? p.models.length : 0) + '</span>\
+        </div>\
+        <div class="provider-card-actions">\
+          <button type="button" class="btn btn-sm provider-btn-col1" onclick="event.stopPropagation(); openProviderDetail(\'' + p.id + '\')">' + t('edit') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger provider-btn-col2" onclick="deleteProviderFromList(event, \'' + p.id + '\')">' + t('delete') + '</button>\
+        </div>\
+      </div>\
     </div>';
   }).join('');
 }
