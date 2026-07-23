@@ -188,12 +188,16 @@ function focusNewProviderCard(prefix) {
 async function renderProviderDetail(c, id) {
   showSkeleton(c, 1);
   const data = await apiGet('/providers');
-  const p = (data.providers || []).find(function(x) { return x.id === id; });
+  const allProviders = data.providers || [];
+  const p = allProviders.find(function(x) { return x.id === id; });
   if (!p) {
     c.innerHTML = emptyState(t('providerNotFound'));
     return;
   }
   providerDetailCache = p;
+  var totalProviders = allProviders.length;
+  var currentOrder = allProviders.findIndex(function(x) { return x.id === id; }) + 1;
+  var orderTitle = (t('providerOrderTooltip') || 'Display order (1-{0})').replace('{0}', totalProviders);
   var baseUrlEsc = escapeHtml(p.baseUrl);
   var baseUrlAttr = escapeHtml(p.baseUrl);
   c.innerHTML = '\
@@ -202,11 +206,12 @@ async function renderProviderDetail(c, id) {
         <div style="display:flex;align-items:baseline;gap:10px;min-width:0;flex:1;flex-wrap:wrap">\
           <h2>' + escapeHtml(p.name) + '</h2>\
           <p class="muted" id="detail-info-summary" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + t('prefix') + ' <span class="code">' + escapeHtml(p.prefix) + '</span> | ' + t('baseUrl') + ' <span class="code copyable" data-copy="' + baseUrlAttr + '" onclick="copyToClipboard(this.getAttribute(\'data-copy\'))" title="' + t('clickToCopy') + '">' + baseUrlEsc + '</span></p>\
-          <div class="flex" style="gap:8px;flex-shrink:0">\
+          <div class="flex" style="gap:8px;flex-shrink:0;align-items:center">\
             <button type="button" class="btn btn-sm" onclick="backToProviderList()">' + t('back') + '</button>\
             <button type="button" class="btn btn-sm" onclick="showEditProvider(\'' + p.id + '\')">' + t('edit') + '</button>\
             <button type="button" class="btn btn-sm ' + (p.isActive ? '' : 'btn-primary') + '" onclick="toggleProvider(\'' + p.id + '\',' + (!p.isActive) + ')">' + (p.isActive ? t('disable') : t('enable')) + '</button>\
             <button type="button" class="btn btn-sm btn-danger" onclick="deleteProvider(\'' + p.id + '\')">' + t('delete') + '</button>\
+            <input type="number" class="btn-order-input" id="provider-order-input" min="1" max="' + totalProviders + '" value="' + currentOrder + '" title="' + escapeHtml(orderTitle) + '" onchange="changeProviderOrder(\'' + p.id + '\', ' + currentOrder + ', ' + totalProviders + ', this.value)" onkeydown="if(event.key===\'Enter\') this.blur()"/>\
           </div>\
         </div>\
       </div>\
@@ -220,6 +225,27 @@ async function renderProviderDetail(c, id) {
   renderDetailKeys(p);
   renderDetailModels(p);
 }
+
+async function changeProviderOrder(id, oldOrder, totalCount, valStr) {
+  var inputEl = document.getElementById('provider-order-input');
+  var newOrder = parseInt(valStr, 10);
+  if (isNaN(newOrder) || newOrder < 1 || newOrder > totalCount) {
+    toast((t('invalidOrderRange') || 'Order must be between 1 and {0}').replace('{0}', totalCount), 'error');
+    if (inputEl) inputEl.value = oldOrder;
+    return;
+  }
+  if (newOrder === oldOrder) return;
+  try {
+    var res = await apiPut('/providers/' + encodeURIComponent(id) + '/reorder', { index: newOrder });
+    providersCache = res.providers || [];
+    toast(t('providerOrderUpdated'), 'success');
+    openProviderDetail(id);
+  } catch (err) {
+    if (inputEl) inputEl.value = oldOrder;
+    toast(err.message || 'Error updating order', 'error');
+  }
+}
+
 
 function renderDetailKeys(p) {
   const el = document.getElementById('detail-keys');

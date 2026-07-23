@@ -238,6 +238,10 @@ h3{font-size:var(--font-h3);font-weight:600;color:var(--text-secondary);margin-b
 .btn-ghost{background:transparent;border-color:transparent;color:var(--text-secondary)}
 .btn-ghost:hover{background:var(--glass-hover);color:var(--text);box-shadow:none}
 .btn-sm{padding:4px 11px;font-size:calc(var(--font-base) - 1px);border-radius:var(--radius-sm)}
+.btn-order-input{width:46px;text-align:center;padding:4px 4px;font-size:calc(var(--font-base) - 1px);border-radius:var(--radius-sm);background:var(--glass-hover);color:var(--text);border:1px solid var(--glass-border);font-weight:600;-moz-appearance:textfield}
+.btn-order-input::-webkit-outer-spin-button,.btn-order-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.btn-order-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow)}
+
 .btn-spinner{width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
 .btn:disabled{opacity:0.6;cursor:not-allowed}

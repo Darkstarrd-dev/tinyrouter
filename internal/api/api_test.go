@@ -153,6 +153,19 @@ func TestProviders_CRUD(t *testing.T) {
 		t.Errorf("provider not updated: %+v", updated)
 	}
 
+	// Reorder p1 to index 1 (moves p1 to first position)
+	resp = requestJSON(t, "PUT", srv.URL+"/api/providers/p1/reorder", `{"index":1}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on reorder, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	resp = requestJSON(t, "GET", srv.URL+"/api/providers", "")
+	json.Unmarshal([]byte(readBody(t, resp)), &listResp)
+	providers = listResp["providers"].([]any)
+	p0 := providers[0].(map[string]any)
+	if p0["id"] != "p1" {
+		t.Errorf("expected p1 at index 0 after reorder, got %v", p0["id"])
+	}
+
 	// Delete
 	resp = requestJSON(t, "DELETE", srv.URL+"/api/providers/p1", "")
 	if resp.StatusCode != http.StatusOK {

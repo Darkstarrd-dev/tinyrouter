@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/tinyrouter/tinyrouter/internal/config"
@@ -125,3 +126,40 @@ func (r *Registry) UpdateProviderStrategy(providerID, strategy string, stickyLim
 	}
 	return false
 }
+
+// ReorderProvider moves the provider with the given ID to targetIndex (1-indexed).
+// Remaining providers shift according to the yield/insertion rule.
+func (r *Registry) ReorderProvider(id string, targetIndex int) error {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+
+	providers := r.config.Providers
+	n := len(providers)
+	if targetIndex < 1 || targetIndex > n {
+		return fmt.Errorf("target index %d out of range [1, %d]", targetIndex, n)
+	}
+
+	oldIdx := -1
+	for i, p := range providers {
+		if p.ID == id {
+			oldIdx = i
+			break
+		}
+	}
+	if oldIdx == -1 {
+		return fmt.Errorf("provider %s not found", id)
+	}
+
+	newIdx := targetIndex - 1
+	if oldIdx == newIdx {
+		return nil
+	}
+
+	targetProv := providers[oldIdx]
+	providers = append(providers[:oldIdx], providers[oldIdx+1:]...)
+	providers = append(providers[:newIdx], append([]config.Provider{targetProv}, providers[newIdx:]...)...)
+
+	r.config.Providers = providers
+	return nil
+}
+

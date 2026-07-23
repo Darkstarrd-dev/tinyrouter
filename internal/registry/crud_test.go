@@ -308,3 +308,51 @@ func TestSnapshotAndRestoreKeyStates(t *testing.T) {
 		t.Error("RestoreKeyState on missing key should error")
 	}
 }
+
+func TestReorderProvider(t *testing.T) {
+	cfg := config.Config{
+		Providers: []config.Provider{
+			{ID: "p1", Name: "P1"},
+			{ID: "p2", Name: "P2"},
+			{ID: "p3", Name: "P3"},
+			{ID: "p4", Name: "P4"},
+		},
+	}
+	r := New(&cfg)
+
+	// Invalid index
+	if err := r.ReorderProvider("p1", 0); err == nil {
+		t.Error("expected error for index 0")
+	}
+	if err := r.ReorderProvider("p1", 5); err == nil {
+		t.Error("expected error for index 5")
+	}
+	// Non-existent provider
+	if err := r.ReorderProvider("ghost", 2); err == nil {
+		t.Error("expected error for non-existent provider")
+	}
+
+	// Move p1 (1-indexed: 1) to targetIndex 3 -> expected order: P2, P3, P1, P4
+	if err := r.ReorderProvider("p1", 3); err != nil {
+		t.Fatalf("ReorderProvider failed: %v", err)
+	}
+	list := r.ListProviders()
+	expected := []string{"p2", "p3", "p1", "p4"}
+	for i, exp := range expected {
+		if list[i].ID != exp {
+			t.Errorf("at index %d expected %s, got %s", i, exp, list[i].ID)
+		}
+	}
+
+	// Move p4 (4) to targetIndex 1 -> expected order: P4, P2, P3, P1
+	if err := r.ReorderProvider("p4", 1); err != nil {
+		t.Fatalf("ReorderProvider failed: %v", err)
+	}
+	list = r.ListProviders()
+	expected = []string{"p4", "p2", "p3", "p1"}
+	for i, exp := range expected {
+		if list[i].ID != exp {
+			t.Errorf("at index %d expected %s, got %s", i, exp, list[i].ID)
+		}
+	}
+}

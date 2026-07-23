@@ -94,3 +94,31 @@ func (rt *Router) deleteProvider(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "provider not found")
 	}
 }
+
+type reorderRequest struct {
+	Index int `json:"index"`
+}
+
+func (rt *Router) reorderProvider(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req reorderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if err := rt.reg.ReorderProvider(id, req.Index); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	cfg := rt.reg.Config()
+	if err := rt.saveConfig(&cfg); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to save config")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"ok":        true,
+		"providers": rt.reg.ListProviders(),
+	})
+}
+

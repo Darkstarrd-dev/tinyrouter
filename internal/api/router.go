@@ -274,6 +274,7 @@ func (rt *Router) Routes(proxyHandler *proxy.Handler) http.Handler {
 			r.Post("/providers", rt.createProvider)
 			r.Post("/providers/validate", rt.validateProvider)
 			r.Put("/providers/{id}", rt.updateProvider)
+			r.Put("/providers/{id}/reorder", rt.reorderProvider)
 			r.Delete("/providers/{id}", rt.deleteProvider)
 
 			// Provider testing
