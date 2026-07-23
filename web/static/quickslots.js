@@ -158,23 +158,359 @@ async function saveEditQuickSlot(id) {
   }
 }
 
-async function importModelsForQuickSlot() {
-  var providers = await apiGet('/providers');
-  providers = providers.providers || [];
-  var combosData = await apiGet('/combos');
-  var combos = (combosData.combos || []).filter(function(c) { return !c.disabled; });
+function attachModalFocusTrap(modalOverlay, initialFocusEl) {
+  function handleGlobalKeyDown(e) {
+    if (!document.body.contains(modalOverlay)) {
+      document.removeEventListener('keydown', handleGlobalKeyDown, true);
+      document.removeEventListener('focusin', handleGlobalFocusIn, true);
+      return;
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }
+
+  function handleGlobalFocusIn(e) {
+    if (!document.body.contains(modalOverlay)) {
+      document.removeEventListener('keydown', handleGlobalKeyDown, true);
+      document.removeEventListener('focusin', handleGlobalFocusIn, true);
+      return;
+    }
+    if (!modalOverlay.contains(e.target)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (initialFocusEl && modalOverlay.contains(initialFocusEl)) {
+        initialFocusEl.focus();
+      } else {
+        var firstFocusable = modalOverlay.querySelector('input, button, [tabindex]');
+        if (firstFocusable) firstFocusable.focus();
+      }
+    }
+  }
+
+  document.addEventListener('keydown', handleGlobalKeyDown, true);
+  document.addEventListener('focusin', handleGlobalFocusIn, true);
+}
+
+function setupImportModalKeyboardAndFocus(importOverlay, onConfirm, onClose) {
+  var filterInput = importOverlay.querySelector('#import-filter');
+  var selectAllBtn = importOverlay.querySelector('#import-select-all');
+  var deselectAllBtn = importOverlay.querySelector('#import-deselect-all');
+  var closeBtn = importOverlay.querySelector('#import-close');
+  var addBtn = importOverlay.querySelector('#import-add');
+
+  attachModalFocusTrap(importOverlay, filterInput);
+
+  function getVisibleModelItems() {
+    var items = importOverlay.querySelectorAll('.import-model-item');
+    var visible = [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].style.display !== 'none') visible.push(items[i]);
+    }
+    return visible;
+  }
+
+  function clearModelItemsFocus() {
+    var items = importOverlay.querySelectorAll('.import-model-item');
+    for (var i = 0; i < items.length; i++) {
+      items[i].classList.remove('focused');
+    }
+  }
+
+  function getFocusedModelItemIdx() {
+    var visible = getVisibleModelItems();
+    var active = document.activeElement;
+    for (var i = 0; i < visible.length; i++) {
+      if (visible[i] === active || visible[i].classList.contains('focused')) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function setModelItemFocus(idx) {
+    var visible = getVisibleModelItems();
+    if (visible.length === 0) {
+      clearModelItemsFocus();
+      return false;
+    }
+    if (idx < 0) idx = 0;
+    if (idx >= visible.length) idx = visible.length - 1;
+    clearModelItemsFocus();
+    var target = visible[idx];
+    target.classList.add('focused');
+    target.setAttribute('tabindex', '-1');
+    target.focus();
+    target.scrollIntoView({ block: 'nearest' });
+    return true;
+  }
+
+  function findFirstItemInView(container, visibleItems) {
+    if (!container || visibleItems.length === 0) return -1;
+    var containerRect = container.getBoundingClientRect();
+    var containerTop = containerRect.top;
+    var containerBottom = containerRect.bottom;
+
+    for (var i = 0; i < visibleItems.length; i++) {
+      var rect = visibleItems[i].getBoundingClientRect();
+      if (rect.top >= containerTop - 5 && rect.top < containerBottom - 10) {
+        return i;
+      }
+    }
+    for (var j = 0; j < visibleItems.length; j++) {
+      var r = visibleItems[j].getBoundingClientRect();
+      if (r.bottom > containerTop + 10) {
+        return j;
+      }
+    }
+    return 0;
+  }
+
+  if (filterInput) filterInput.focus();
+
+  filterInput.addEventListener('focus', clearModelItemsFocus);
+  selectAllBtn.addEventListener('focus', clearModelItemsFocus);
+  deselectAllBtn.addEventListener('focus', clearModelItemsFocus);
+  closeBtn.addEventListener('focus', clearModelItemsFocus);
+  addBtn.addEventListener('focus', clearModelItemsFocus);
+
+  importOverlay.addEventListener('focusin', function(e) {
+    var item = e.target.closest('.import-model-item');
+    if (item) {
+      clearModelItemsFocus();
+      item.classList.add('focused');
+    }
+  });
+
+  filterInput.addEventListener('input', function() {
+    var visible = getVisibleModelItems();
+    var curIdx = getFocusedModelItemIdx();
+    if (curIdx >= 0 && (curIdx >= visible.length || !visible[curIdx] || visible[curIdx].style.display === 'none')) {
+      clearModelItemsFocus();
+    }
+  });
+
+  importOverlay.addEventListener('keydown', function(e) {
+    var active = document.activeElement;
+    var visibleItems = getVisibleModelItems();
+    var curListIdx = getFocusedModelItemIdx();
+    var isListFocused = (curListIdx >= 0) || (active && active.classList && active.classList.contains('import-model-item'));
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onClose();
+      return;
+    }
+
+    if (e.key === 'PageDown' || e.key === 'PageUp') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      var modalBody = importOverlay.querySelector('.modal-body');
+      if (modalBody && visibleItems.length > 0) {
+        var pageSize = Math.max(100, modalBody.clientHeight - 40);
+        if (e.key === 'PageDown') {
+          modalBody.scrollTop += pageSize;
+        } else {
+          modalBody.scrollTop -= pageSize;
+        }
+        setTimeout(function() {
+          var targetIdx = findFirstItemInView(modalBody, visibleItems);
+          if (targetIdx >= 0) {
+            setModelItemFocus(targetIdx);
+          }
+        }, 30);
+      }
+      return;
+    }
+
+    if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (visibleItems.length > 0) {
+        if (e.key === 'Home') {
+          setModelItemFocus(0);
+        } else {
+          setModelItemFocus(visibleItems.length - 1);
+        }
+      }
+      return;
+    }
+
+    if (e.key === ' ' || e.key === 'Spacebar') {
+      if (isListFocused) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var targetEl = (curListIdx >= 0 && visibleItems[curListIdx]) ? visibleItems[curListIdx] : active;
+        toggleImportModel(targetEl);
+        return;
+      }
+    }
+
+    if (e.key === 'Enter') {
+      if (active === closeBtn) {
+        return;
+      }
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onConfirm();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
+      if (e.shiftKey) { // Shift+Tab
+        if (active === filterInput) {
+          addBtn.focus();
+        } else if (active === selectAllBtn || active === deselectAllBtn) {
+          filterInput.focus();
+        } else if (isListFocused) {
+          clearModelItemsFocus();
+          selectAllBtn.focus();
+        } else if (active === closeBtn) {
+          if (visibleItems.length > 0) {
+            setModelItemFocus(visibleItems.length - 1);
+          } else {
+            deselectAllBtn.focus();
+          }
+        } else if (active === addBtn) {
+          closeBtn.focus();
+        } else {
+          filterInput.focus();
+        }
+      } else { // Tab
+        if (active === filterInput) {
+          selectAllBtn.focus();
+        } else if (active === selectAllBtn) {
+          deselectAllBtn.focus();
+        } else if (active === deselectAllBtn) {
+          if (visibleItems.length > 0) {
+            deselectAllBtn.blur();
+            setModelItemFocus(0);
+          } else {
+            closeBtn.focus();
+          }
+        } else if (isListFocused) {
+          clearModelItemsFocus();
+          closeBtn.focus();
+        } else if (active === closeBtn) {
+          addBtn.focus();
+        } else if (active === addBtn) {
+          filterInput.focus();
+        } else {
+          filterInput.focus();
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
+      if (e.key === 'ArrowDown') {
+        if (active === filterInput) {
+          selectAllBtn.focus();
+        } else if (active === selectAllBtn || active === deselectAllBtn) {
+          if (visibleItems.length > 0) {
+            if (active) active.blur();
+            setModelItemFocus(0);
+          } else {
+            closeBtn.focus();
+          }
+        } else if (isListFocused) {
+          if (curListIdx < visibleItems.length - 1) {
+            setModelItemFocus(curListIdx + 1);
+          } else {
+            clearModelItemsFocus();
+            closeBtn.focus();
+          }
+        } else if (active === closeBtn || active === addBtn) {
+          filterInput.focus();
+        } else {
+          filterInput.focus();
+        }
+      } else { // ArrowUp
+        if (active === filterInput) {
+          addBtn.focus();
+        } else if (active === selectAllBtn || active === deselectAllBtn) {
+          filterInput.focus();
+        } else if (isListFocused) {
+          if (curListIdx > 0) {
+            setModelItemFocus(curListIdx - 1);
+          } else {
+            clearModelItemsFocus();
+            selectAllBtn.focus();
+          }
+        } else if (active === closeBtn || active === addBtn) {
+          if (visibleItems.length > 0) {
+            if (active) active.blur();
+            setModelItemFocus(visibleItems.length - 1);
+          } else {
+            deselectAllBtn.focus();
+          }
+        } else {
+          filterInput.focus();
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (active === selectAllBtn) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        deselectAllBtn.focus();
+      } else if (active === deselectAllBtn) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        selectAllBtn.focus();
+      } else if (active === closeBtn) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        addBtn.focus();
+      } else if (active === addBtn) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        closeBtn.focus();
+      }
+    }
+  }, true);
+}
+
+async function openModelSelectorModal(opts) {
+  opts = opts || {};
+  var initialSelected = opts.initialSelected || [];
+  var includeCombos = !!opts.includeCombos;
+  var onConfirm = opts.onConfirm || function() {};
+  var onClose = opts.onClose || function() {};
+
+  var providersData = await apiGet('/providers');
+  var providers = providersData.providers || [];
+  var combos = [];
+  if (includeCombos) {
+    var combosData = await apiGet('/combos');
+    combos = (combosData.combos || []).filter(function(c) { return !c.disabled; });
+  }
   if (providers.length === 0 && combos.length === 0) {
     toast(t('noModelsAvailable'), 'warning');
     return;
   }
-  var html = '<div class="modal" style="width:500px">\
-    <div class="modal-title">' + t('selectModels') + '</div>\
-    <div class="modal-body" style="max-height:400px;overflow-y:auto">\
-    <input type="text" id="import-filter" placeholder="' + t('filterModels') + '" style="width:100%;margin-bottom:8px;padding:6px 10px;box-sizing:border-box;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--text-primary)">\
-    <div style="display:flex;gap:6px;margin-bottom:12px">\
-      <button type="button" class="btn btn-sm" id="import-select-all">' + t('selectAll') + '</button>\
-      <button type="button" class="btn btn-sm" id="import-deselect-all">' + t('deselectAll') + '</button>\
-    </div>';
+
+  var html = '<div class="modal" style="width:500px;padding:20px 24px">\
+    <div class="modal-title" style="margin-bottom:12px">' + t('selectModels') + '</div>\
+    <div class="modal-header-controls" style="margin-bottom:12px;padding:2px">\
+      <input type="text" id="import-filter" placeholder="' + t('filterModels') + '" style="width:100%;margin-bottom:10px;padding:6px 10px;box-sizing:border-box;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--text-primary)">\
+      <div style="display:flex;gap:8px;padding:2px">\
+        <button type="button" class="btn btn-sm" id="import-select-all">' + t('selectAll') + '</button>\
+        <button type="button" class="btn btn-sm" id="import-deselect-all">' + t('deselectAll') + '</button>\
+      </div>\
+    </div>\
+    <div class="modal-body" style="max-height:360px;overflow-y:auto;padding:4px 6px">';
+
   for (var i = 0; i < providers.length; i++) {
     var p = providers[i];
     if (!p.isActive) continue;
@@ -188,42 +524,77 @@ async function importModelsForQuickSlot() {
         var displayId = models[j].alias || models[j].id;
         var fullId = p.prefix + '/' + displayId;
         var note = models[j].note || '';
-        var itemCls = 'import-model-item' + (note ? ' has-model-note' : '');
+        var isInList = initialSelected.indexOf(fullId) >= 0;
+        var itemCls = 'import-model-item' + (isInList ? ' selected' : '') + (note ? ' has-model-note' : '');
         var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
-        html += '<div class="' + itemCls + '"' + noteAttr + ' data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
+        html += '<div class="' + itemCls + '" tabindex="-1"' + noteAttr + ' data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
       }
     }
     html += '</div>';
   }
+
   if (combos.length > 0) {
     html += '<div class="import-provider-group" style="margin-bottom:12px">';
     html += '<div><strong>' + t('combos') + '</strong></div>';
     for (var c = 0; c < combos.length; c++) {
       var comboName = combos[c].name;
-      var isInList = qsEditingModels.indexOf(comboName) >= 0;
-      html += '<div class="import-model-item' + (isInList ? ' selected' : '') + '" data-value="' + escapeHtml(comboName) + '" data-is-combo="1" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent"><span class="badge badge-combo" style="margin-right:6px">' + t('combo') + '</span>' + escapeHtml(comboName) + '</div>';
+      var isInList = initialSelected.indexOf(comboName) >= 0;
+      html += '<div class="import-model-item' + (isInList ? ' selected' : '') + '" tabindex="-1" data-value="' + escapeHtml(comboName) + '" data-is-combo="1" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent"><span class="badge badge-combo" style="margin-right:6px">' + t('combo') + '</span>' + escapeHtml(comboName) + '</div>';
     }
     html += '</div>';
   }
+
   html += '</div>\
-    <div class="modal-footer">\
+    <div class="modal-footer" style="margin-top:16px">\
       <button type="button" class="btn btn-ghost" id="import-close">' + t('close') + '</button>\
       <button type="button" class="btn btn-primary" id="import-add">' + t('addSelected') + '</button>\
     </div></div>';
+
   var importOverlay = document.createElement('div');
   importOverlay.className = 'modal-overlay';
   importOverlay.innerHTML = html;
   document.body.appendChild(importOverlay);
   requestAnimationFrame(function() { importOverlay.classList.add('show'); });
-  importOverlay.__close = closeImport;
+
   var filterInput = importOverlay.querySelector('#import-filter');
-  if (filterInput) filterInput.focus();
-  function closeImport() {
+  var importAdd = importOverlay.querySelector('#import-add');
+  var importClose = importOverlay.querySelector('#import-close');
+  var importSelectAll = importOverlay.querySelector('#import-select-all');
+  var importDeselectAll = importOverlay.querySelector('#import-deselect-all');
+
+  function closeOverlay() {
     importOverlay.classList.remove('show');
     setTimeout(function() { if (importOverlay.parentNode) importOverlay.remove(); }, 400);
-    renderQuickSlotModelsList();
   }
-  importOverlay.querySelector('#import-filter').oninput = function() {
+
+  function handleClose() {
+    closeOverlay();
+    onClose();
+  }
+
+  function handleConfirm() {
+    var selected = [];
+    var items = importOverlay.querySelectorAll('.import-model-item.selected');
+    for (var k = 0; k < items.length; k++) {
+      selected.push(items[k].getAttribute('data-value'));
+    }
+    closeOverlay();
+    onConfirm(selected);
+  }
+
+  if (importClose) importClose.onclick = handleClose;
+  if (importAdd) importAdd.onclick = handleConfirm;
+
+  if (importSelectAll) importSelectAll.onclick = function() {
+    var items = importOverlay.querySelectorAll('.import-model-item');
+    for (var k = 0; k < items.length; k++) items[k].classList.add('selected');
+  };
+  if (importDeselectAll) importDeselectAll.onclick = function() {
+    var items = importOverlay.querySelectorAll('.import-model-item');
+    for (var k = 0; k < items.length; k++) items[k].classList.remove('selected');
+  };
+
+  if (filterInput) filterInput.oninput = function() {
     var keyword = this.value.toLowerCase().trim();
     var groups = importOverlay.querySelectorAll('.import-provider-group');
     for (var gi = 0; gi < groups.length; gi++) {
@@ -242,24 +613,21 @@ async function importModelsForQuickSlot() {
       group.style.display = visibleCount > 0 ? '' : 'none';
     }
   };
-  importOverlay.querySelector('#import-close').onclick = closeImport;
-  importOverlay.querySelector('#import-select-all').onclick = function() {
-    var items = importOverlay.querySelectorAll('.import-model-item');
-    for (var k = 0; k < items.length; k++) { items[k].classList.add('selected'); }
-  };
-  importOverlay.querySelector('#import-deselect-all').onclick = function() {
-    var items = importOverlay.querySelectorAll('.import-model-item');
-    for (var k = 0; k < items.length; k++) { items[k].classList.remove('selected'); }
-  };
-  importOverlay.querySelector('#import-add').onclick = function() {
-    var selected = [];
-    var items = importOverlay.querySelectorAll('.import-model-item.selected');
-    for (var k = 0; k < items.length; k++) selected.push(items[k].getAttribute('data-value'));
-    for (var k = 0; k < selected.length; k++) {
-      if (qsEditingModels.indexOf(selected[k]) < 0) qsEditingModels.push(selected[k]);
+
+  setupImportModalKeyboardAndFocus(importOverlay, handleConfirm, handleClose);
+}
+
+async function importModelsForQuickSlot() {
+  openModelSelectorModal({
+    initialSelected: qsEditingModels,
+    includeCombos: true,
+    onConfirm: function(selected) {
+      for (var k = 0; k < selected.length; k++) {
+        if (qsEditingModels.indexOf(selected[k]) < 0) qsEditingModels.push(selected[k]);
+      }
+      renderQuickSlotModelsList();
     }
-    closeImport();
-  };
+  });
 }
 
 async function loadQuickSlotProvidersAndRender() {
@@ -504,7 +872,7 @@ async function renderHeaderQuickSlots() {
       var fullIdEsc = escapeHtml(fullId);
       var num = i + 1;
       var titleAttr = fullIdEsc ? nameEsc + '&#10;' + fullIdEsc : nameEsc;
-      html += '<div class="quickslot-btn" onclick="openQuickSlotModalById(\'' + escapeAttr(qs.id) + '\', false)" oncontextmenu="event.preventDefault();importModelsForQuickSlotHeader(\'' + escapeAttr(qs.id) + '\')" data-qs-id="' + escapeAttr(qs.id) + '" title="' + titleAttr + '">\
+      html += '<div class="quickslot-btn" onclick="openQuickSlotModalById(\'' + escapeAttr(qs.id) + '\', false)" oncontextmenu="event.preventDefault();" data-qs-id="' + escapeAttr(qs.id) + '" title="' + titleAttr + '">\
         <div class="qs-number">' + num + '</div>\
         <div class="qs-content">\
           <div class="qs-name">' + nameEsc + '</div>\
@@ -574,6 +942,7 @@ async function _openQuickSlotModal(qs, autoClose) {
   overlay.innerHTML = _qsModalBuildHtml();
   document.body.appendChild(overlay);
   _qsModalOverlay = overlay;
+  attachModalFocusTrap(overlay, null);
   requestAnimationFrame(function() { overlay.classList.add('show'); });
   // Events
   overlay.addEventListener('mousedown', function(e) {
@@ -582,6 +951,13 @@ async function _openQuickSlotModal(qs, autoClose) {
   });
   overlay.addEventListener('mousemove', function() { /* no-op, mouse presence cancels via click */ });
   _qsModalStartTimer();
+}
+
+function _qsModalOpenImport() {
+  if (!_qsModalData) return;
+  var qsId = _qsModalData.qsId;
+  closeQuickSlotModal();
+  importModelsForQuickSlotHeader(qsId);
 }
 
 function _qsModalBuildHtml() {
@@ -599,6 +975,9 @@ function _qsModalBuildHtml() {
       html += '<div class="' + cls + '"' + noteAttr + ' data-idx="' + i + '" onclick="_qsModalItemClick(' + i + ')" oncontextmenu="event.preventDefault();event.stopPropagation();_qsModalItemDelete(' + i + ')">' + escapeHtml(d.models[i]) + '</div>';
     }
   }
+  var isImportFocused = (_qsModalFocusIdx === d.models.length);
+  var importCls = 'qs-modal-item qs-modal-import-item' + (isImportFocused ? ' focused' : '');
+  html += '<div class="' + importCls + '" data-idx="' + d.models.length + '" onclick="_qsModalOpenImport()">' + t('import') + '...</div>';
   html += '</div>';
   html += '<div class="qs-modal-hint">' + t('qsModalHint') + '</div>';
   html += '</div>';
@@ -611,7 +990,7 @@ function _qsModalRefresh() {
   for (var i = 0; i < items.length; i++) {
     var idx = parseInt(items[i].getAttribute('data-idx'), 10);
     items[i].classList.toggle('focused', idx === _qsModalFocusIdx);
-    items[i].classList.toggle('selected', idx === _qsModalData.selectedIndex);
+    if (_qsModalData) items[i].classList.toggle('selected', idx === _qsModalData.selectedIndex);
   }
   // Scroll focused item into view
   var focused = _qsModalOverlay.querySelector('.qs-modal-item.focused');
@@ -635,6 +1014,10 @@ function _qsModalItemDelete(idx) {
 async function _qsModalSelectFocused() {
   if (!_qsModalData) return;
   var idx = _qsModalFocusIdx;
+  if (idx === _qsModalData.models.length) {
+    _qsModalOpenImport();
+    return;
+  }
   if (idx < 0 || idx >= _qsModalData.models.length) return;
   var qsId = _qsModalData.qsId;
   var modelName = _qsModalData.models[idx];
@@ -656,6 +1039,7 @@ async function _qsModalSelectFocused() {
 async function _qsModalDeleteFocused() {
   if (!_qsModalData) return;
   var idx = _qsModalFocusIdx;
+  if (idx === _qsModalData.models.length) return;
   if (idx < 0 || idx >= _qsModalData.models.length) return;
   var qsId = _qsModalData.qsId;
   var modelName = _qsModalData.models[idx];
@@ -714,6 +1098,9 @@ function _qsModalBuildInner() {
       html += '<div class="' + cls + '"' + noteAttr + ' data-idx="' + i + '" onclick="_qsModalItemClick(' + i + ')" oncontextmenu="event.preventDefault();event.stopPropagation();_qsModalItemDelete(' + i + ')">' + escapeHtml(d.models[i]) + '</div>';
     }
   }
+  var isImportFocused = (_qsModalFocusIdx === d.models.length);
+  var importCls = 'qs-modal-item qs-modal-import-item' + (isImportFocused ? ' focused' : '');
+  html += '<div class="' + importCls + '" data-idx="' + d.models.length + '" onclick="_qsModalOpenImport()">' + t('import') + '...</div>';
   html += '</div>';
   html += '<div class="qs-modal-hint">' + t('qsModalHint') + '</div>';
   return html;
@@ -745,7 +1132,16 @@ document.addEventListener('keydown', function(e) {
 
   var d = _qsModalData;
   if (!d) return;
-  var len = d.models.length;
+  var len = d.models.length + 1;
+
+  // '+' or '=' key: trigger import modal directly
+  if (e.key === '+' || e.key === '=') {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    _qsModalCancelAutoClose();
+    _qsModalOpenImport();
+    return;
+  }
 
   // Number keys: move focus down (restarts 1s timer)
   if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -822,121 +1218,32 @@ async function importModelsForQuickSlotHeader(qsId) {
   var data = await apiGet('/quickslots');
   var qs = (data.quickslots || []).find(function(x) { return x.id === qsId; });
   if (!qs) return;
-  var providers = await apiGet('/providers');
-  providers = providers.providers || [];
-  var combosData = await apiGet('/combos');
-  var combos = (combosData.combos || []).filter(function(c) { return !c.disabled; });
-  if (providers.length === 0 && combos.length === 0) {
-    toast(t('noModelsAvailable'), 'warning');
-    return;
-  }
-  var html = '<div class="modal" style="width:500px">\
-    <div class="modal-title">' + t('selectModels') + '</div>\
-    <div class="modal-body" style="max-height:400px;overflow-y:auto">\
-    <input type="text" id="import-filter" placeholder="' + t('filterModels') + '" style="width:100%;margin-bottom:8px;padding:6px 10px;box-sizing:border-box;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--text-primary)">\
-    <div style="display:flex;gap:6px;margin-bottom:12px">\
-      <button type="button" class="btn btn-sm" id="import-select-all">' + t('selectAll') + '</button>\
-      <button type="button" class="btn btn-sm" id="import-deselect-all">' + t('deselectAll') + '</button>\
-    </div>';
-  for (var i = 0; i < providers.length; i++) {
-    var p = providers[i];
-    if (!p.isActive) continue;
-    var models = p.models || [];
-    html += '<div class="import-provider-group" style="margin-bottom:12px">';
-    html += '<div><strong>' + escapeHtml(p.name) + ' (' + escapeHtml(p.prefix) + ')</strong></div>';
-    if (models.length === 0) {
-      html += '<div class="muted" style="margin-bottom:8px">' + t('noModels') + '</div>';
-    } else {
-      for (var j = 0; j < models.length; j++) {
-        var displayId = models[j].alias || models[j].id;
-        var fullId = p.prefix + '/' + displayId;
-        var note = models[j].note || '';
-        var itemCls = 'import-model-item' + (note ? ' has-model-note' : '');
-        var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
-        html += '<div class="' + itemCls + '"' + noteAttr + ' data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
+
+  openModelSelectorModal({
+    initialSelected: qs.models || [],
+    includeCombos: true,
+    onConfirm: function(selected) {
+      var newModels = (qs.models || []).slice();
+      for (var k = 0; k < selected.length; k++) {
+        if (newModels.indexOf(selected[k]) < 0) newModels.push(selected[k]);
       }
+      var updated = {
+        name: qs.name,
+        order: qs.order,
+        models: newModels,
+        disabledModels: (qs.disabledModels || []).slice(),
+        disabled: !!qs.disabled,
+        selectedIndex: qs.selectedIndex || 0
+      };
+      apiPut('/quickslots/' + qsId, updated).then(function() {
+        renderHeaderQuickSlots();
+        openQuickSlotModalById(qsId, false);
+      });
+    },
+    onClose: function() {
+      openQuickSlotModalById(qsId, false);
     }
-    html += '</div>';
-  }
-  if (combos.length > 0) {
-    html += '<div class="import-provider-group" style="margin-bottom:12px">';
-    html += '<div><strong>' + t('combos') + '</strong></div>';
-    for (var c = 0; c < combos.length; c++) {
-      var comboName = combos[c].name;
-      var isInList = (qs.models || []).indexOf(comboName) >= 0;
-      html += '<div class="import-model-item' + (isInList ? ' selected' : '') + '" data-value="' + escapeHtml(comboName) + '" data-is-combo="1" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent"><span class="badge badge-combo" style="margin-right:6px">' + t('combo') + '</span>' + escapeHtml(comboName) + '</div>';
-    }
-    html += '</div>';
-  }
-  html += '</div>\
-    <div class="modal-footer">\
-      <button type="button" class="btn btn-ghost" id="import-close">' + t('close') + '</button>\
-      <button type="button" class="btn btn-primary" id="import-add">' + t('addSelected') + '</button>\
-    </div></div>';
-  var importOverlay = document.createElement('div');
-  importOverlay.className = 'modal-overlay';
-  importOverlay.innerHTML = html;
-  document.body.appendChild(importOverlay);
-  requestAnimationFrame(function() { importOverlay.classList.add('show'); });
-  var filterInput = importOverlay.querySelector('#import-filter');
-  if (filterInput) filterInput.focus();
-  var importAdd = importOverlay.querySelector('#import-add');
-  var importClose = importOverlay.querySelector('#import-close');
-  var importSelectAll = importOverlay.querySelector('#import-select-all');
-  var importDeselectAll = importOverlay.querySelector('#import-deselect-all');
-  function closeImportOverlay() {
-    importOverlay.classList.remove('show');
-    setTimeout(function() { if (importOverlay.parentNode) importOverlay.remove(); }, 400);
-  }
-  if (importClose) importClose.onclick = closeImportOverlay;
-  if (importSelectAll) importSelectAll.onclick = function() {
-    var items = importOverlay.querySelectorAll('.import-model-item');
-    for (var k = 0; k < items.length; k++) items[k].classList.add('selected');
-  };
-  if (importDeselectAll) importDeselectAll.onclick = function() {
-    var items = importOverlay.querySelectorAll('.import-model-item');
-    for (var k = 0; k < items.length; k++) items[k].classList.remove('selected');
-  };
-  if (filterInput) filterInput.oninput = function() {
-    var keyword = this.value.toLowerCase().trim();
-    var groups = importOverlay.querySelectorAll('.import-provider-group');
-    for (var gi = 0; gi < groups.length; gi++) {
-      var group = groups[gi];
-      var items = group.querySelectorAll('.import-model-item');
-      var visibleCount = 0;
-      for (var ii = 0; ii < items.length; ii++) {
-        var val = items[ii].getAttribute('data-value') || '';
-        if (keyword === '' || val.toLowerCase().indexOf(keyword) >= 0) {
-          items[ii].style.display = '';
-          visibleCount++;
-        } else {
-          items[ii].style.display = 'none';
-        }
-      }
-      group.style.display = visibleCount > 0 ? '' : 'none';
-    }
-  };
-  if (importAdd) importAdd.onclick = function() {
-    var selected = [];
-    var items = importOverlay.querySelectorAll('.import-model-item.selected');
-    for (var k = 0; k < items.length; k++) selected.push(items[k].getAttribute('data-value'));
-    var newModels = (qs.models || []).slice();
-    for (var k = 0; k < selected.length; k++) {
-      if (newModels.indexOf(selected[k]) < 0) newModels.push(selected[k]);
-    }
-    var updated = {
-      name: qs.name,
-      order: qs.order,
-      models: newModels,
-      disabledModels: (qs.disabledModels || []).slice(),
-      disabled: !!qs.disabled,
-      selectedIndex: qs.selectedIndex || 0
-    };
-    apiPut('/quickslots/' + qsId, updated).then(function() {
-      renderHeaderQuickSlots();
-    });
-    closeImportOverlay();
-  };
+  });
 }
 
 async function importModelsForQuickSlotByOrder(orderNum) {

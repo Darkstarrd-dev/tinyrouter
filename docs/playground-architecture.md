@@ -2,7 +2,7 @@
 
 > **文档定位：** Playground 前后端实现的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
 >
-**最后核对：** 2026-07-25，仓库工作区（`main`）。本次新增/核对：QuickSlot Active 联动——会话级 active quickslot（`_qsActiveId`，仅内存），被选中按钮复用 `.nav-item.active` accent 辉光遮罩；点击 header 按钮或 1-9 快捷键打开 modal 时激活（`qsSetActive`），modal 内提交模型亦跟随；active 项的模型自动写入 Playground normal/search 模式的当前活动窗口 `config.model`（`pgApplyActiveQuickSlot`）；用户在 Playground selectmodel 手动重选时解绑 active（`qsClearActive`）。涉及 `quickslots.js`、`style.css`、`pg-ui.js`、`pg-lifecycle.js`。
+**最后核对：** 2026-07-26，仓库工作区（`main`）。本次新增/核对：(1) 模型选择 Modal 统一模块化——`openModelSelectorModal` 统一 Combo、QuickSlot 复制/编辑与 Header QuickSlot 3 处调用的 DOM 结构与全套键盘交互；(2) 键盘交互与 Focus 锁——`attachModalFocusTrap` 全局拦截 Tab 避免焦点逸出背景，`setupImportModalKeyboardAndFocus` 支持 Tab 轮转、↑/↓ 逐行列表切换、PgUp/PgDn 自动 Focus 区域首项、Home/End 无条件 Focus 第一项/最后一项、Space 选取切换与 Enter 提交；(3) QuickSlot Header 交互与优先权——取消右键弹窗，列表增加 `import...` 尾项与 `+` 快捷键，.quickslot-header 优先级高于 .top-header-stats（空间不足隐藏 StatGrid）；(4) 快捷键清理与 CSS 修正——移除旧有 Alt/Ctrl+1-9，设置 `outline-offset: -1px` 修复 Modal Focus 轮廓线被容器截断。涉及 `quickslots.js`、`combos.js`、`shortcuts.js`、`app.js`、`style.css`、`i18n.js`。
 
 > **2026-07-22 更新（Search 模式 UI/UX 优化）：**
 > - **双窗口左右并列布局与交互：** `pgState.mode === 'search'` 时强制使用 2 窗口布局（`splitCount = 2`，`1fr 1fr`），左侧窗口显示 Search Strategy 与 Raw Search Results 视图，右侧窗口专门渲染 Synthesized 最终回复；问句留在 `#pg-input` 并呈灰色锁定态（`pg-input-search-locked`）；打字时恢复亮色编辑。

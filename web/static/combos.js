@@ -190,95 +190,16 @@ async function saveEditCombo(id) {
 
 async function importModelsFromProvider(target) {
   importTarget = target || 'models';
-  var providers = await apiGet('/providers');
-  providers = providers.providers || [];
-  if (providers.length === 0) {
-    toast(t('noModelsAvailable'), 'warning');
-    return;
-  }
-  var html = '<div class="modal" style="width:500px">\
-    <div class="modal-title">' + t('selectModels') + '</div>\
-    <div class="modal-body" style="max-height:400px;overflow-y:auto">\
-    <input type="text" id="import-filter" placeholder="' + t('filterModels') + '" style="width:100%;margin-bottom:8px;padding:6px 10px;box-sizing:border-box;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--text-primary)">\
-    <div style="display:flex;gap:6px;margin-bottom:12px">\
-      <button type="button" class="btn btn-sm" id="import-select-all">' + t('selectAll') + '</button>\
-      <button type="button" class="btn btn-sm" id="import-deselect-all">' + t('deselectAll') + '</button>\
-    </div>';
-  for (var i = 0; i < providers.length; i++) {
-    var p = providers[i];
-    if (!p.isActive) continue;
-    var models = p.models || [];
-    html += '<div class="import-provider-group" style="margin-bottom:12px">';
-    html += '<div><strong>' + escapeHtml(p.name) + ' (' + escapeHtml(p.prefix) + ')</strong></div>';
-    if (models.length === 0) {
-      html += '<div class="muted" style="margin-bottom:8px">' + t('noModels') + '</div>';
-    } else {
-      for (var j = 0; j < models.length; j++) {
-        var displayId = models[j].alias || models[j].id;
-        var fullId = p.prefix + '/' + displayId;
-        var note = models[j].note || '';
-        var itemCls = 'import-model-item' + (note ? ' has-model-note' : '');
-        var noteAttr = note ? ' data-model-note="' + escapeHtml(note) + '"' : '';
-        html += '<div class="' + itemCls + '"' + noteAttr + ' data-value="' + escapeHtml(fullId) + '" onclick="toggleImportModel(this)" style="padding:6px 10px;margin-bottom:3px;border-radius:6px;cursor:pointer;transition:background .15s;border:1px solid transparent">' + escapeHtml(fullId) + '</div>';
+  openModelSelectorModal({
+    initialSelected: comboEditingModels,
+    includeCombos: false,
+    onConfirm: function(selected) {
+      for (var k = 0; k < selected.length; k++) {
+        if (comboEditingModels.indexOf(selected[k]) < 0) comboEditingModels.push(selected[k]);
       }
+      renderComboModelsList();
     }
-    html += '</div>';
-  }
-  html += '</div>\
-    <div class="modal-footer">\
-      <button type="button" class="btn btn-ghost" id="import-close">' + t('close') + '</button>\
-      <button type="button" class="btn btn-primary" id="import-add">' + t('addSelected') + '</button>\
-    </div></div>';
-  var importOverlay = document.createElement('div');
-  importOverlay.className = 'modal-overlay';
-  importOverlay.innerHTML = html;
-  document.body.appendChild(importOverlay);
-  requestAnimationFrame(function() { importOverlay.classList.add('show'); });
-  importOverlay.__close = closeImport;
-  var filterInput = importOverlay.querySelector('#import-filter');
-  if (filterInput) filterInput.focus();
-  function closeImport() {
-    importOverlay.classList.remove('show');
-    setTimeout(function() { if (importOverlay.parentNode) importOverlay.remove(); }, 400);
-    renderComboModelsList();
-  }
-  importOverlay.querySelector('#import-filter').oninput = function() {
-    var keyword = this.value.toLowerCase().trim();
-    var groups = importOverlay.querySelectorAll('.import-provider-group');
-    for (var gi = 0; gi < groups.length; gi++) {
-      var group = groups[gi];
-      var items = group.querySelectorAll('.import-model-item');
-      var visibleCount = 0;
-      for (var ii = 0; ii < items.length; ii++) {
-        var val = items[ii].getAttribute('data-value') || '';
-        if (keyword === '' || val.toLowerCase().indexOf(keyword) >= 0) {
-          items[ii].style.display = '';
-          visibleCount++;
-        } else {
-          items[ii].style.display = 'none';
-        }
-      }
-      group.style.display = visibleCount > 0 ? '' : 'none';
-    }
-  };
-  importOverlay.querySelector('#import-close').onclick = closeImport;
-  importOverlay.querySelector('#import-select-all').onclick = function() {
-    var items = importOverlay.querySelectorAll('.import-model-item');
-    for (var k = 0; k < items.length; k++) { items[k].classList.add('selected'); }
-  };
-  importOverlay.querySelector('#import-deselect-all').onclick = function() {
-    var items = importOverlay.querySelectorAll('.import-model-item');
-    for (var k = 0; k < items.length; k++) { items[k].classList.remove('selected'); }
-  };
-  importOverlay.querySelector('#import-add').onclick = function() {
-    var selected = [];
-    var items = importOverlay.querySelectorAll('.import-model-item.selected');
-    for (var k = 0; k < items.length; k++) selected.push(items[k].getAttribute('data-value'));
-    for (var k = 0; k < selected.length; k++) {
-      if (comboEditingModels.indexOf(selected[k]) < 0) comboEditingModels.push(selected[k]);
-    }
-    closeImport();
-  };
+  });
 }
 
 function toggleImportModel(el) {
