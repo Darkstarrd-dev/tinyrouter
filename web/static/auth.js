@@ -64,7 +64,7 @@ async function handleLogin() {
   if (!password) return;
 
   var btn = document.getElementById('login-submit');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="btn-spinner"></span>'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = typeof getSpinnerHtml === 'function' ? getSpinnerHtml() : '<span class="btn-spinner"></span>'; }
 
   try {
     var resp = await fetch('/api/auth/login', {

@@ -76,7 +76,6 @@ async function toggleProviderList(event, id, active) {
 function backToProviderList() {
   currentProviderId = null;
   providerDetailCache = null;
-  modelTestStatus = {};
   expandedModelDetails = new Set();
   allKeysTestResults = {};
   navigateTo('endpoint');
@@ -497,9 +496,12 @@ function buildModelRowMainInner(p, m) {
   var modelIdOnclick = batchManageMode
     ? 'event.stopPropagation(); batchToggleModel(\'' + midJs + '\')'
     : 'event.stopPropagation(); copyToClipboard(\'' + prefixJs + '/' + copySuffix + '\')';
+  var isCurrentBatchTesting = window.activeBatchTestState && window.activeBatchTestState.running && window.activeBatchTestState.pid === p.id && window.activeBatchTestState.currentModelId === m.id;
+  var testBtnText = isCurrentBatchTesting ? getSpinnerHtml() : (ts && ts.speed != null ? String(ts.speed) : t('test'));
+  var testBtnDisabled = isCurrentBatchTesting ? ' disabled' : '';
   return '<div class="model-row-main" onclick="' + rowOnclick + '">' +
     chevronDown +
-    '<button type="button" class="btn btn-sm ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '" onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midJs + '\'))">' + t('test') + '</button>' +
+    '<button type="button" class="btn btn-sm btn-test-model ' + (ts ? (ts.ok ? 'btn-test-ok' : 'btn-test-err') : '') + '"' + testBtnDisabled + ' onclick="event.stopPropagation(); withLoading(this, () => testSingleModel(\'' + pidEsc + '\', \'' + midJs + '\'))">' + testBtnText + '</button>' +
     buildMiniProtocolBadges(ts, m.id) +
     '<select class="model-quota-select" onclick="event.stopPropagation()" onchange="updateModelQuotaType(\'' + pidEsc + '\', this)" data-model="' + midEsc + '">' +
       '<option value="unlimited"' + (m.quotaType === 'unlimited' ? ' selected' : '') + '>' + t('unlimited') + '</option>' +
@@ -516,7 +518,7 @@ function buildModelRowMainInner(p, m) {
       '<option value="modelscope"' + (protoVal === 'modelscope' ? ' selected' : '') + '>ModelScope</option>' +
     '</select>' +
     allBadge +
-    '<span class="model-quota-numbers"></span>' +
+    '<span class="model-quota-numbers" style="display:none"></span>' +
     '<button type="button" class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteModelDetail(\'' + pidEsc + '\', \'' + midJs + '\')">' + t('delete') + '</button>' +
     '<button type="button" class="btn btn-sm ' + (m.alias ? 'btn-primary' : '') + '" data-alias="' + escapeHtml(m.alias || '') + '" onclick="event.stopPropagation(); showModelAliasModal(\'' + pidEsc + '\', \'' + midJs + '\', this.getAttribute(\'data-alias\'))" title="' + t('alias') + '">' + t('alias') + '</button>' +
     '<button type="button" class="btn btn-sm ' + (m.note ? 'btn-info' : '') + '" data-note="' + escapeHtml(m.note || '') + '" onclick="event.stopPropagation(); showModelNoteModal(\'' + pidEsc + '\', \'' + midJs + '\', this.getAttribute(\'data-note\'))" title="' + escapeHtml(m.note || t('note')) + '">' + t('note') + '</button>' +
@@ -538,25 +540,30 @@ function renderDetailModels(p) {
       '<div class="model-key-detail-wrap" id="' + detailId + '"></div>' +
     '</div>';
   }).join('');
+  var isBatchRunning = window.activeBatchTestState && window.activeBatchTestState.running && window.activeBatchTestState.pid === p.id;
+  var batchBtnText = isBatchRunning ? (t('stop') || 'Stop') : t('batchTest');
+  var batchBtnClass = isBatchRunning ? 'btn btn-sm btn-danger' : 'btn btn-sm';
   el.innerHTML = '\
     <div class="detail-block">\
-      <div class="section-title">' + t('modelsTitle') + ' (' + models.length + ')</div>\
-      <div class="flex mb-12" style="gap:8px">\
-        <input id="m-input" placeholder="' + t('modelPlaceholder') + '" style="flex:1">\
-        <button type="button" class="btn btn-sm" onclick="withLoading(this, () => testModelDetail(\'' + escapeForJsString(p.id) + '\'))">' + t('test') + '</button>\
-        <button type="button" class="btn btn-sm btn-primary" onclick="withLoading(this, () => addModelDetail(\'' + escapeForJsString(p.id) + '\'))">' + t('create') + '</button>\
+      <div class="flex mb-12 model-create-row" style="gap:10px;align-items:center">\
+        <span class="models-title-inline" style="font-size:var(--font-section-title);font-weight:600;color:var(--text-secondary);white-space:nowrap">' + t('modelsTitle') + ' (' + models.length + ')</span>\
+        <input id="m-input" class="form-control model-create-input" placeholder="' + t('modelPlaceholder') + '">\
+        <button type="button" class="btn btn-sm btn-create-action" onclick="withLoading(this, () => testModelDetail(\'' + escapeForJsString(p.id) + '\'))">' + t('test') + '</button>\
+        <button type="button" class="btn btn-sm btn-primary btn-create-action" onclick="withLoading(this, () => addModelDetail(\'' + escapeForJsString(p.id) + '\'))">' + t('create') + '</button>\
       </div>\
-      <div class="flex mb-12" style="gap:8px">\
-        <button type="button" class="btn btn-sm" onclick="withLoading(this, () => importModels(\'' + escapeForJsString(p.id) + '\'))">' + t('importModels') + '</button>\
-        <button type="button" class="btn btn-sm" id="batch-manage-btn" onclick="enterBatchManage(\'' + escapeForJsString(p.id) + '\')" style="display:' + (batchManageMode ? 'none' : '') + '">' + t('batchManage') + '</button>\
-        <div id="batch-actions" style="display:' + (batchManageMode ? 'flex' : 'none') + ';gap:8px">\
-          <button type="button" class="btn btn-sm" onclick="batchSelectAll()">' + t('selectAll') + '</button>\
-          <button type="button" class="btn btn-sm" onclick="batchInvert()">' + t('invertSelection') + '</button>\
-          <button type="button" class="btn btn-sm btn-danger" onclick="batchConfirm(\'' + escapeForJsString(p.id) + '\')">' + t('confirm') + '</button>\
-          <button type="button" class="btn btn-sm" onclick="batchCancel()">' + t('cancel') + '</button>\
+      <div class="model-toolbar-row">\
+        <button type="button" class="btn btn-sm" style="flex-shrink:0;white-space:nowrap" onclick="withLoading(this, () => importModels(\'' + escapeForJsString(p.id) + '\'))">' + t('importModels') + '</button>\
+        <button type="button" class="btn btn-sm" id="batch-manage-btn" onclick="enterBatchManage(\'' + escapeForJsString(p.id) + '\')" style="display:' + (batchManageMode ? 'none' : '') + ';flex-shrink:0;white-space:nowrap">' + t('batchManage') + '</button>\
+        <button type="button" class="' + batchBtnClass + '" id="batch-test-btn" onclick="batchTestModels(\'' + escapeForJsString(p.id) + '\', this)" style="display:' + (batchManageMode ? 'none' : '') + ';flex-shrink:0;white-space:nowrap">' + batchBtnText + '</button>\
+        <div id="batch-actions" style="display:' + (batchManageMode ? 'inline-flex' : 'none') + ';gap:6px;align-items:center;flex-wrap:nowrap;white-space:nowrap;flex-shrink:0">\
+          <input id="batch-filter-input" class="form-control" placeholder="' + t('filterModels') + '" style="width:130px;max-width:140px;height:28px;padding:3px 8px;font-size:calc(var(--font-base) - 1px);border-radius:var(--radius-sm);box-sizing:border-box;flex-shrink:0" oninput="filterBatchModels(this.value)">\
+          <button type="button" class="btn btn-sm" style="flex-shrink:0;white-space:nowrap" onclick="clearBatchFilter()">' + t('clear') + '</button>\
+          <button type="button" class="btn btn-sm btn-primary" style="flex-shrink:0;white-space:nowrap" onclick="withLoading(this, () => batchKeepSelected(\'' + escapeForJsString(p.id) + '\'))">' + t('keepSelected') + '</button>\
+          <button type="button" class="btn btn-sm btn-danger" style="flex-shrink:0;white-space:nowrap" onclick="withLoading(this, () => batchRemoveSelected(\'' + escapeForJsString(p.id) + '\'))">' + t('removeSelected') + '</button>\
+          <button type="button" class="btn btn-sm" style="flex-shrink:0;white-space:nowrap" onclick="batchCancel()">' + t('cancel') + '</button>\
         </div>\
+        <div id="m-test-result" style="display:inline-flex;align-items:center;gap:6px;flex-shrink:0"></div>\
       </div>\
-      <div id="m-test-result" class="mb-12"></div>\
       <div id="model-list">' + (models.length === 0 ? emptyState(t('noModels')) : modelsHtml) + '</div>\
     </div>';
   // 重新展开之前打开的模型
@@ -1012,17 +1019,92 @@ async function testModelProtosSerial(pid, modelId, options) {
     clearTimeout(timeoutId);
     controller.abort();
   }
-  // Compute final protocols list
+  // Compute final protocols list and speed
   result.protocols = [];
+  var bestSpeed = null;
   for (var pi2 = 0; pi2 < protos.length; pi2++) {
-    if (result[protos[pi2].key] && result[protos[pi2].key].ok) {
+    var pKey = protos[pi2].key;
+    if (result[pKey] && result[pKey].ok) {
       result.protocols.push(protos[pi2].endpoint);
+      if (bestSpeed == null) {
+        var pr = result[pKey];
+        if (pr.tokensPerSec != null && pr.tokensPerSec > 0) {
+          bestSpeed = Math.floor(pr.tokensPerSec);
+        } else if (pr.outputTokens > 0 && pr.latencyMs > 0) {
+          bestSpeed = Math.floor(pr.outputTokens / (pr.latencyMs / 1000));
+        }
+      }
     }
   }
   result.ok = result.protocols.length > 0;
+  result.speed = bestSpeed;
   modelTestStatus[modelId] = result;
   if (resultEl) renderMultiProtocolBadge(resultEl, result, modelId);
   if (options && options.onComplete) options.onComplete(result);
+}
+
+window.activeBatchTestState = window.activeBatchTestState || {
+  pid: null,
+  running: false,
+  currentModelId: null,
+  aborted: false
+};
+
+async function batchTestModels(pid, btn) {
+  var state = window.activeBatchTestState;
+  if (state.running && state.pid === pid) {
+    state.aborted = true;
+    return;
+  }
+  state.pid = pid;
+  state.running = true;
+  state.aborted = false;
+  state.currentModelId = null;
+
+  var batchBtn = btn || document.getElementById('batch-test-btn');
+  if (batchBtn) {
+    batchBtn.textContent = t('stop') || 'Stop';
+    batchBtn.className = 'btn btn-sm btn-danger';
+  }
+
+  var p = providerDetailCache;
+  if (!p || !p.models || p.models.length === 0) {
+    state.running = false;
+    state.pid = null;
+    if (batchBtn) {
+      batchBtn.textContent = t('batchTest');
+      batchBtn.className = 'btn btn-sm';
+    }
+    return;
+  }
+
+  try {
+    for (var i = 0; i < p.models.length; i++) {
+      if (state.aborted) break;
+      var m = p.models[i];
+      state.currentModelId = m.id;
+
+      var rowEl = document.getElementById('mrow-' + sanitizeId(pid) + '-' + sanitizeId(m.id));
+      var modelBtn = rowEl ? rowEl.querySelector('.btn-test-model') : null;
+      if (modelBtn) {
+        await withLoading(modelBtn, function() {
+          return testSingleModel(pid, m.id);
+        });
+      } else {
+        await testSingleModel(pid, m.id);
+      }
+    }
+  } finally {
+    state.running = false;
+    state.pid = null;
+    state.currentModelId = null;
+    state.aborted = false;
+    var finalBatchBtn = document.getElementById('batch-test-btn');
+    if (finalBatchBtn) {
+      finalBatchBtn.textContent = t('batchTest');
+      finalBatchBtn.className = 'btn btn-sm';
+    }
+  }
 }
 
 // buildMiniProtocolBadges returns the inline 3-dot mini badge HTML for a model
@@ -1246,12 +1328,75 @@ function batchInvert() {
   }
 }
 
-async function batchConfirm(pid) {
+function filterBatchModels(val) {
+  var filterText = (val || '').trim().toLowerCase();
+  var rows = document.querySelectorAll('#model-list [data-batch-mid]');
+  for (var i = 0; i < rows.length; i++) {
+    var mid = rows[i].getAttribute('data-batch-mid') || '';
+    if (!filterText || mid.toLowerCase().indexOf(filterText) >= 0) {
+      rows[i].style.display = '';
+    } else {
+      rows[i].style.display = 'none';
+    }
+  }
+}
+
+function clearBatchFilter() {
+  var input = document.getElementById('batch-filter-input');
+  if (input) {
+    input.value = '';
+    filterBatchModels('');
+  }
+}
+
+async function batchKeepSelected(pid) {
   if (batchSelectedModels.size === 0) {
     toast(t('noModelsSelected'), 'warning');
     return;
   }
-  var ok = await confirmModal(t('confirmBatchDelete', [batchSelectedModels.size]));
+  var p = providerDetailCache;
+  if (!p || !p.models) return;
+  var allModels = p.models;
+  var toDelete = [];
+  for (var i = 0; i < allModels.length; i++) {
+    if (!batchSelectedModels.has(allModels[i].id)) {
+      toDelete.push(allModels[i].id);
+    }
+  }
+  if (toDelete.length === 0) {
+    batchManageMode = false;
+    batchSelectedModels.clear();
+    renderDetailModels(p);
+    return;
+  }
+  var ok = await confirmModal(t('confirmKeepSelected', [batchSelectedModels.size, toDelete.length]));
+  if (!ok) return;
+  var deleted = 0;
+  for (var j = 0; j < toDelete.length; j++) {
+    var resp = await apiDelete('/providers/' + pid + '/models?model=' + encodeURIComponent(toDelete[j]));
+    if (!resp.error) {
+      delete modelTestStatus[toDelete[j]];
+      deleted++;
+    }
+  }
+  batchManageMode = false;
+  batchSelectedModels.clear();
+  toast(t('batchDeleted', [deleted]), 'success');
+  currentProviderId = pid;
+  const data = await apiGet('/providers');
+  const np = (data.providers || []).find(function(x) { return x.id === pid; });
+  if (np) {
+    providerDetailCache = np;
+    renderDetailModels(np);
+  }
+}
+
+async function batchRemoveSelected(pid) {
+  if (batchSelectedModels.size === 0) {
+    toast(t('noModelsSelected'), 'warning');
+    return;
+  }
+  var ok = await confirmModal(t('confirmRemoveSelected', [batchSelectedModels.size]));
   if (!ok) return;
   var toDelete = Array.from(batchSelectedModels);
   var deleted = 0;
@@ -1267,10 +1412,10 @@ async function batchConfirm(pid) {
   toast(t('batchDeleted', [deleted]), 'success');
   currentProviderId = pid;
   const data = await apiGet('/providers');
-  const p = (data.providers || []).find(function(x) { return x.id === pid; });
-  if (p) {
-    providerDetailCache = p;
-    renderDetailModels(p);
+  const np = (data.providers || []).find(function(x) { return x.id === pid; });
+  if (np) {
+    providerDetailCache = np;
+    renderDetailModels(np);
   }
 }
 
@@ -1573,3 +1718,21 @@ async function saveModelNIM(pid, mid) {
     toast(e.message || t('failed'), 'error');
   }
 }
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var modalOverlay = document.getElementById('modal-overlay');
+    var infoOverlay = document.getElementById('info-modal-overlay');
+    var confirmOverlay = document.getElementById('confirm-modal-overlay');
+    if ((modalOverlay && modalOverlay.classList.contains('show')) ||
+        (infoOverlay && infoOverlay.classList.contains('show')) ||
+        (confirmOverlay && confirmOverlay.classList.contains('show'))) {
+      return;
+    }
+    if (typeof currentProviderId !== 'undefined' && currentProviderId) {
+      e.preventDefault();
+      e.stopPropagation();
+      backToProviderList();
+    }
+  }
+}, true);

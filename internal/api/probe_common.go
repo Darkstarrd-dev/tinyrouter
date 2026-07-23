@@ -27,6 +27,8 @@ type ProbeResult struct {
 	Ok              bool           // resp.StatusCode == 200 and body has no error field
 	Status          int            // HTTP status code
 	LatencyMs       int64          // round-trip latency in milliseconds
+	OutputTokens    int            // extracted or estimated output token count
+	TokensPerSec    float64        // speed in tokens per second
 	Error           string         // human-readable error (empty on success)
 	Request         map[string]any // {method, url, headers, body, bodyRaw}
 	ResponseHeaders map[string][]string
@@ -41,46 +43,48 @@ type ProbeResult struct {
 // without requiring a Registry/quotaTracker.
 type probeQuotaHook func(model string, resp *http.Response)
 
+const probeTestPrompt = "generate 100 tokens self introduction"
+
 // probeOpenAICompat sends an /v1/chat/completions probe request (OpenAI Chat
-// Completions compatible). Body: {model, messages:[{role:"user",content:"hi"}],
-// max_tokens:16, stream:false}. Auth: Authorization: Bearer <key>.
+// Completions compatible). Body: {model, messages:[{role:"user",content:probeTestPrompt}],
+// max_tokens:150, stream:false}. Auth: Authorization: Bearer <key>.
 func probeOpenAICompat(ctx context.Context, client *http.Client, baseURL, model, apiKey string, onOK probeQuotaHook) ProbeResult {
 	const path = "/v1/chat/completions"
 	url := proxy.BuildUpstreamURL(baseURL, path)
 	body := map[string]any{
 		"model":      model,
-		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
-		"max_tokens": 16,
+		"messages":   []map[string]any{{"role": "user", "content": probeTestPrompt}},
+		"max_tokens": 150,
 		"stream":     false,
 	}
 	return doProbe(ctx, client, probeProtocolOpenAICompat, http.MethodPost, url, "application/json", "Authorization", "Bearer "+apiKey, body, onOK)
 }
 
 // probeOpenAIResponses sends an /v1/responses probe request (OpenAI Responses API).
-// Body: {model, input:[{role:"user",content:"hi"}], max_output_tokens:16, stream:false}.
+// Body: {model, input:[{role:"user",content:probeTestPrompt}], max_output_tokens:150, stream:false}.
 // Auth: Authorization: Bearer <key>.
 func probeOpenAIResponses(ctx context.Context, client *http.Client, baseURL, model, apiKey string, onOK probeQuotaHook) ProbeResult {
 	const path = "/v1/responses"
 	url := proxy.BuildUpstreamURL(baseURL, path)
 	body := map[string]any{
 		"model":             model,
-		"input":             []map[string]any{{"role": "user", "content": "hi"}},
-		"max_output_tokens": 16,
+		"input":             []map[string]any{{"role": "user", "content": probeTestPrompt}},
+		"max_output_tokens": 150,
 		"stream":            false,
 	}
 	return doProbe(ctx, client, probeProtocolOpenAIResponses, http.MethodPost, url, "application/json", "Authorization", "Bearer "+apiKey, body, onOK)
 }
 
 // probeAnthropic sends an /v1/messages probe request (Anthropic Messages API).
-// Body: {model, max_tokens:16, messages:[{role:"user",content:"hi"}], stream:false}.
+// Body: {model, max_tokens:150, messages:[{role:"user",content:probeTestPrompt}], stream:false}.
 // Auth: x-api-key: <key> + anthropic-version: 2023-06-01.
 func probeAnthropic(ctx context.Context, client *http.Client, baseURL, model, apiKey string, onOK probeQuotaHook) ProbeResult {
 	const path = "/v1/messages"
 	url := proxy.BuildUpstreamURL(baseURL, path)
 	body := map[string]any{
 		"model":      model,
-		"max_tokens": 16,
-		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 150,
+		"messages":   []map[string]any{{"role": "user", "content": probeTestPrompt}},
 		"stream":     false,
 	}
 	return doProbe(ctx, client, probeProtocolAnthropic, http.MethodPost, url, "application/json", "x-api-key", apiKey, body, onOK, "anthropic-version", "2023-06-01")
@@ -98,6 +102,7 @@ func doProbe(ctx context.Context, client *http.Client, protocol, method, url, co
 		return res
 	}
 	rawStr := string(rawBody)
+
 	var parsedReqBody any = rawStr
 	if j := map[string]any{}; json.Unmarshal(rawBody, &j) == nil {
 		parsedReqBody = j
@@ -162,8 +167,14 @@ func doProbe(ctx context.Context, client *http.Client, protocol, method, url, co
 	res.Ok = ok
 	res.Error = errMsg
 
-	if ok && onOK != nil {
-		onOK(protocol, resp)
+	if ok {
+		res.OutputTokens = extractOutputTokens(raw)
+		if res.LatencyMs > 0 && res.OutputTokens > 0 {
+			res.TokensPerSec = float64(res.OutputTokens) / (float64(res.LatencyMs) / 1000.0)
+		}
+		if onOK != nil {
+			onOK(protocol, resp)
+		}
 	}
 
 	safe := redactAuth(req.Header)
@@ -220,7 +231,77 @@ type keyTestResult struct {
 }
 
 // testAllKeysPrompt is sent to each key during the "test all keys" batch probe.
-const testAllKeysPrompt = "hi"
+const testAllKeysPrompt = "generate 100 tokens self introduction"
+
+// extractOutputTokens parses output token count from an upstream response body.
+// It checks standard JSON usage fields (completion_tokens, output_tokens), or
+// estimates tokens based on generated text content if usage is missing.
+func extractOutputTokens(raw string) int {
+	var resp map[string]any
+	if json.Unmarshal([]byte(raw), &resp) != nil {
+		return 0
+	}
+	if usage, ok := resp["usage"].(map[string]any); ok {
+		if ct, ok := usage["completion_tokens"].(float64); ok && ct > 0 {
+			return int(ct)
+		}
+		if ot, ok := usage["output_tokens"].(float64); ok && ot > 0 {
+			return int(ot)
+		}
+	}
+	text := extractTextFromResponse(resp)
+	if len(text) > 0 {
+		runes := []rune(text)
+		est := int(float64(len(runes)) / 3.5)
+		if est < 1 {
+			est = 1
+		}
+		return est
+	}
+	return 0
+}
+
+// extractTextFromResponse tries to extract generated text from OpenAI compat,
+// OpenAI responses, or Anthropic response JSONs.
+func extractTextFromResponse(resp map[string]any) string {
+	var sb strings.Builder
+	if choices, ok := resp["choices"].([]any); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]any); ok {
+			if msg, ok := choice["message"].(map[string]any); ok {
+				if content, ok := msg["content"].(string); ok {
+					sb.WriteString(content)
+				}
+			} else if text, ok := choice["text"].(string); ok {
+				sb.WriteString(text)
+			}
+		}
+	}
+	if output, ok := resp["output"].([]any); ok && len(output) > 0 {
+		for _, item := range output {
+			if m, ok := item.(map[string]any); ok {
+				if content, ok := m["content"].([]any); ok {
+					for _, c := range content {
+						if cm, ok := c.(map[string]any); ok {
+							if text, ok := cm["text"].(string); ok {
+								sb.WriteString(text)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if content, ok := resp["content"].([]any); ok && len(content) > 0 {
+		for _, c := range content {
+			if cm, ok := c.(map[string]any); ok {
+				if text, ok := cm["text"].(string); ok {
+					sb.WriteString(text)
+				}
+			}
+		}
+	}
+	return sb.String()
+}
 
 // extractContentFromSSE extracts the text content (both delta.content and
 // delta.reasoning_content) from a single SSE data chunk JSON payload.

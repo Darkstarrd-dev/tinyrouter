@@ -87,6 +87,8 @@ func probeResultToMap(res ProbeResult) map[string]any {
 		"ok":              res.Ok,
 		"status":          res.Status,
 		"latencyMs":       res.LatencyMs,
+		"outputTokens":    res.OutputTokens,
+		"tokensPerSec":    res.TokensPerSec,
 		"error":           res.Error,
 		"skipped":         res.Skipped,
 		"request":         res.Request,

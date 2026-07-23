@@ -68,7 +68,7 @@ func (rt *Router) probeUpstream(ctx context.Context, baseURL, apiKey, modelID st
 
 	if modelID != "" {
 		chatURL := proxy.BuildUpstreamURL(baseURL, "/v1/chat/completions")
-		body := `{"model":"` + modelID + `","messages":[{"role":"user","content":"hi"}],"max_tokens":16,"stream":false}`
+		body := `{"model":"` + modelID + `","messages":[{"role":"user","content":"generate 100 tokens self introduction"}],"max_tokens":150,"stream":false}`
 		chatReq, err := http.NewRequestWithContext(ctx, "POST", chatURL, strings.NewReader(body))
 		if err != nil {
 			return false, "", "invalid URL: " + err.Error()
