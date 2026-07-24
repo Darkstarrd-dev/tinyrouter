@@ -37,6 +37,7 @@ func (rt *Router) getSettings(w http.ResponseWriter, r *http.Request) {
 			"apiKey":     cfg.AnySearch.APIKey,
 			"maxResults": cfg.AnySearch.MaxResults,
 		},
+		"theme": cfg.Theme,
 	})
 }
 
@@ -61,6 +62,7 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 			APIKey     *string `json:"apiKey"`
 			MaxResults *int    `json:"maxResults"`
 		} `json:"anySearch"`
+		Theme *config.ThemeConfig `json:"theme"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
@@ -203,6 +205,15 @@ func (rt *Router) updateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if updates.AnySearch.MaxResults != nil {
 			cfg.AnySearch.MaxResults = *updates.AnySearch.MaxResults
+		}
+	}
+
+	if updates.Theme != nil {
+		if updates.Theme.DarkVariant != "" {
+			cfg.Theme.DarkVariant = updates.Theme.DarkVariant
+		}
+		if updates.Theme.LightVariant != "" {
+			cfg.Theme.LightVariant = updates.Theme.LightVariant
 		}
 	}
 

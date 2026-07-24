@@ -341,7 +341,13 @@ resetQuota: 'Reset Quota', confirmResetQuota: 'Clear all cooldown timers and quo
     shortcutSaved: 'Shortcuts saved.',
     shortcutSaveFailed: 'Failed to save shortcuts: {0}',
     shortcutNoOverrides: 'No overrides — using system defaults.',
-    shortcutPlaygroundUnavailable: 'Playground and Gallery shortcuts are only available when the Playground build is enabled.'
+    shortcutPlaygroundUnavailable: 'Playground and Gallery shortcuts are only available when the Playground build is enabled.',
+    // Theme / Appearance
+    appearance: 'Appearance',
+    appearanceDesc: 'Customize application theme mode and color schemes.',
+    themeDark: 'Dark',
+    themeLight: 'Light',
+    themeDefault: 'Default'
   },
   cn: {
     endpoint: '设置', settings: '设置', providers: '服务商', combos: '模型组', usage: '用量', console: '控制台', playground: '测试', gallery: '图片库',
@@ -684,7 +690,13 @@ resetQuota: '重置配额', confirmResetQuota: '清空所有冷却计时器和�
     shortcutSaved: '快捷键已保存。',
     shortcutSaveFailed: '保存快捷键失败: {0}',
     shortcutNoOverrides: '当前没有覆盖项——使用系统默认。',
-    shortcutPlaygroundUnavailable: 'Playground 与 Gallery 的快捷键仅在启用 Playground 构建时可用。'
+    shortcutPlaygroundUnavailable: 'Playground 与 Gallery 的快捷键仅在启用 Playground 构建时可用。',
+    // Theme / Appearance
+    appearance: '外观',
+    appearanceDesc: '自定义应用主题模式与色彩配色方案。',
+    themeDark: '暗色',
+    themeLight: '亮色',
+    themeDefault: '默认'
   }
 };
 

@@ -277,6 +277,13 @@ type AnySearchConfig struct {
 	MaxResults int    `yaml:"maxResults,omitempty" json:"maxResults,omitempty"`
 }
 
+// ThemeConfig stores user theme preferences persisted across sessions.
+// Each mode (dark/light) remembers its selected variant independently.
+type ThemeConfig struct {
+	DarkVariant  string `yaml:"darkVariant,omitempty" json:"darkVariant,omitempty"`   // default: "default"
+	LightVariant string `yaml:"lightVariant,omitempty" json:"lightVariant,omitempty"` // default: "default"
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Port               int             `yaml:"port" json:"port"`
@@ -297,4 +304,5 @@ type Config struct {
 	ReviewPresets      []ReviewPreset  `yaml:"reviewPresets,omitempty" json:"reviewPresets,omitempty"`
 	AnySearch          AnySearchConfig `yaml:"anySearch,omitempty" json:"anySearch,omitempty"`
 	ImageSaveDir       string          `yaml:"imageSaveDir,omitempty" json:"imageSaveDir,omitempty"`
+	Theme              ThemeConfig     `yaml:"theme,omitempty" json:"theme,omitempty"`
 }

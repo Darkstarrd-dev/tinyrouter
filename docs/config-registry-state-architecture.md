@@ -1,7 +1,7 @@
 # TinyRouter Config / Registry / State 基础设施架构
 
 > **文档定位：** `internal/config/`、`internal/registry/`、`internal/state/` 三个包共同构成的 **配置定义 + 内存注册表 + 运行时状态持久化** 基础设施的 canonical 架构事实基线。后续设计、排障和代码评审应先读取本文，再按“源码锚点”核对本次变更涉及的局部代码。
-> **最后核对：** 2026-07-23，仓库工作区（`main`）。本轮新增：Provider 列表排序控制与全区间避让重排功能；`openModelSelectorModal` 统一模型选择模态框模块；Provider、Combo 与 Quick Slots 卡片 UI 重构（统一 2 行结构、右侧 2x2 固定 80px 宽度按钮组对齐、Prefix 标签字号与 Title 同大粗体且去左侧色条、Models 单行截断与 hover tooltip 浮窗、`endpoint.js`/`combos.js`/`quickslots.js`/`providers.js` 布局与 CSS flex 防爆排框一致化）。
+> **最后核对：** 2026-07-24，仓库工作区（`main`）。本轮新增：ThemeSystem 双层主题架构升级——外观设置移至 Settings 页面快捷键设置之后，使用右侧“设置”按钮触发模态弹窗（Modal）设置；在 `theme.js` 注册表及 `style.css` 中为暗色/亮色模式分别扩展增加至 9 种主流配色变体（暗色：Midnight, Tokyo Night, Emerald Midnight, Catppuccin Mocha, Dracula, Nord Dark, One Dark, Cyberpunk, Rosé Pine；亮色：Standard Light, Warm Cream, Cool Slate, Catppuccin Latte, GitHub Light, Nord Light, Solarized Light, Rosé Pine Dawn, Sakura Blossom），弹窗采用 3×3 Grid 网格展示，且暗色与亮色分组各自设定的变体均展示对勾徽章标记。
 
 ## 1. 范围与结论
 

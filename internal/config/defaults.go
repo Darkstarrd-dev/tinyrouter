@@ -178,5 +178,12 @@ func finalizeConfig(cfg *Config, raw []byte) *Config {
 	if cfg.AnySearch.MaxResults == 0 {
 		cfg.AnySearch.MaxResults = 5
 	}
+	// Theme variant defaults.
+	if cfg.Theme.DarkVariant == "" {
+		cfg.Theme.DarkVariant = "default"
+	}
+	if cfg.Theme.LightVariant == "" {
+		cfg.Theme.LightVariant = "default"
+	}
 	return cfg
 }

@@ -17,6 +17,7 @@ window.addEventListener('beforeunload', () => {
 
 document.addEventListener('DOMContentLoaded', async () => {
   initTheme();
+  ThemeSystem.init();
   initFontSize();
   initLang();
   var authStatus = await checkAuthStatus();
@@ -363,19 +364,7 @@ function toggleFontSize() {
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'dark';
-  const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('theme', next);
-  updateThemeButton(next);
-  if (typeof trendChartInstance !== 'undefined' && trendChartInstance) {
-    trendChartInstance.destroy();
-    trendChartInstance = null;
-    initTrendChart(lastUsageEntries);
-  }
-  if (typeof updateTerminalTheme === 'function') {
-    updateTerminalTheme();
-  }
+  ThemeSystem.toggleMode();
 }
 
 async function shutdownServer() {

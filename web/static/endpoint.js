@@ -46,6 +46,10 @@ async function renderEndpoint(c) {
           <button type="button" class="btn btn-sm settings-row-btn" onclick="openShortcutsModal()">' + t('settings') + '</button>\
         </div>\
         <div class="settings-row">\
+          <span class="settings-row-title" title="' + escapeHtml(t('appearanceDesc')) + '">' + t('appearance') + '</span>\
+          <button type="button" class="btn btn-sm settings-row-btn" onclick="openThemeModal()">' + t('settings') + '</button>\
+        </div>\
+        <div class="settings-row">\
           <span class="settings-row-title" title="' + escapeHtml(t('debugModeDesc')) + '">' + t('debugMode') + '</span>\
           <label class="toggle-switch settings-row-toggle" title="' + escapeHtml(t('debugModeDesc')) + '"><input type="checkbox" id="debug-mode-toggle"' + (s.debugMode ? ' checked' : '') + ' onchange="toggleDebugMode(this.checked)"><span class="toggle-slider"></span></label>\
         </div>\
@@ -91,6 +95,8 @@ async function renderEndpoint(c) {
   if (typeof renderQuickSlotListInline === 'function') renderQuickSlotListInline(quickslots);
   if (typeof renderHeaderQuickSlots === 'function') renderHeaderQuickSlots();
   applySettingsSectionCollapseState();
+  // ThemeSystem: sync backend variants.
+  ThemeSystem.initFromSettings(settings);
 }
 
 // Collapsed Settings sections persist across re-renders (renderEndpoint re-runs
@@ -760,6 +766,23 @@ async function saveShortcutsModal() {
     closeModalOverlay();
   } catch (e) {
     toast(t('shortcutSaveFailed', [String(e.message || e)]), 'error', 5000);
+  }
+}
+
+// ===================== Theme Modal =====================
+
+function openThemeModal() {
+  var title = t('appearance');
+  var bodyHtml = '<div id="theme-modal-picker-container" class="theme-modal-picker"></div>';
+  openSettingsModal(title, bodyHtml);
+  var modalEl = document.querySelector('#modal-overlay .modal');
+  if (modalEl) modalEl.style.maxWidth = '620px';
+  ThemeSystem.renderThemePicker('theme-modal-picker-container');
+  var saveBtn = document.getElementById('settings-modal-save');
+  if (saveBtn) {
+    saveBtn.onclick = function() {
+      closeModalOverlay();
+    };
   }
 }
 
